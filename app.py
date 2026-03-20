@@ -48,6 +48,7 @@ from core.theme import COLORS, TAB_STYLE, TAB_SELECTED_STYLE, status_color, stat
 from core.bloomberg import is_connected, get_spot_prices
 from panels import vol_surface, pricer, risk, blotter
 from panels import chain
+from panels import portfolio_panel, pnl_panel, analytics_panel, stress_panel
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -181,6 +182,14 @@ app.layout = html.Div([
                     style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
             dcc.Tab(label="TRADE BLOTTER", value="blotter",
                     style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
+            dcc.Tab(label="PORTFOLIO", value="portfolio",
+                    style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
+            dcc.Tab(label="P&L ATTRIB", value="pnl",
+                    style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
+            dcc.Tab(label="ANALYTICS", value="analytics",
+                    style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
+            dcc.Tab(label="STRESS TEST", value="stress",
+                    style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
         ], style={"marginBottom": "0"}),
 
         html.Div(id="tab-content", style={"marginTop": "16px"}),
@@ -226,6 +235,14 @@ def render_tab(tab):
         return chain.layout()
     elif tab == "blotter":
         return blotter.layout()
+    elif tab == "portfolio":
+        return portfolio_panel.layout()
+    elif tab == "pnl":
+        return pnl_panel.layout()
+    elif tab == "analytics":
+        return analytics_panel.layout()
+    elif tab == "stress":
+        return stress_panel.layout()
     return html.Div("Select a tab", style={"color": COLORS["text_muted"]})
 
 
@@ -238,6 +255,10 @@ pricer.register_callbacks(app)
 risk.register_callbacks(app)
 chain.register_callbacks(app)
 blotter.register_callbacks(app)
+portfolio_panel.register_callbacks(app)
+pnl_panel.register_callbacks(app)
+analytics_panel.register_callbacks(app)
+stress_panel.register_callbacks(app)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

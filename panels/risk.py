@@ -15,6 +15,8 @@ from core.pricing import (
     portfolio_var_cvar,
 )
 from core.bloomberg import get_spot_prices, is_connected
+from core.portfolio import get_risk_limits, check_risk_limits
+from core.analytics import estimate_margin
 from core.theme import (
     COLORS, CARD_STYLE, CARD_HEADER_STYLE, INPUT_STYLE, LABEL_STYLE,
     CHART_TEMPLATE, STAT_BOX_STYLE, make_stat_style,
@@ -103,6 +105,23 @@ def layout():
             html.Div("GREEKS SENSITIVITY", style=CARD_HEADER_STYLE),
             dcc.Graph(id="risk-greeks-sens", style={"height": "400px"}),
         ], style=CARD_STYLE, className="dashboard-card"),
+
+        # ── Row: Risk Limits + Margin ────────────────────────────
+        html.Div([
+            html.Div([
+                html.Div("RISK LIMIT UTILIZATION", style=CARD_HEADER_STYLE),
+                html.Div(id="risk-limits-bars"),
+            ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px"}, className="dashboard-card"),
+            html.Div([
+                html.Div("MARGIN ESTIMATION", style=CARD_HEADER_STYLE),
+                html.Div(id="risk-margin-info"),
+            ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px"}, className="dashboard-card"),
+        ], style={"display": "flex", "gap": "16px", "flexWrap": "wrap"}),
+
+        # ── Tail Risk Stats ──────────────────────────────────────
+        html.Div(id="risk-tail-stats", style={
+            "display": "flex", "gap": "10px", "marginBottom": "16px", "flexWrap": "wrap",
+        }),
     ])
 
 
@@ -114,7 +133,10 @@ def register_callbacks(app):
          Output("risk-pnl-curve", "figure"),
          Output("risk-var-dist", "figure"),
          Output("risk-scenario", "figure"),
-         Output("risk-greeks-sens", "figure")],
+         Output("risk-greeks-sens", "figure"),
+         Output("risk-limits-bars", "children"),
+         Output("risk-margin-info", "children"),
+         Output("risk-tail-stats", "children")],
         [Input("risk-spot", "value"), Input("risk-rate", "value"),
          Input("risk-div", "value"), Input("risk-var-horizon", "value"),
          Input("risk-confidence", "value"), Input("risk-metric", "value")],
@@ -306,4 +328,74 @@ def register_callbacks(app):
         gf.update_yaxes(gridcolor="rgba(30,42,69,0.5)")
         for a in gf.layout.annotations: a.font.color = COLORS["text_primary"]; a.font.size = 11
 
-        return stats, grid_table, ef, plf, vdf, sf, gf
+        # ── Risk Limit Utilization Bars ──────────────────────────
+        limits = get_risk_limits()
+        limit_checks = [
+            ("Delta", abs(totals.get("delta", 0)), limits.get("max_delta", 5000), COLORS["accent_cyan"]),
+            ("Gamma", abs(totals.get("gamma", 0)), limits.get("max_gamma", 500), COLORS["accent_blue"]),
+            ("Vega", abs(totals.get("vega", 0)), limits.get("max_vega", 10000), COLORS["accent_purple"]),
+            ("Theta", -totals.get("theta", 0), limits.get("max_theta", 2000), COLORS["accent_orange"]),
+            ("Notional", totals.get("notional", 0), limits.get("max_notional", 5000000), COLORS["accent_teal"]),
+        ]
+
+        limit_bars = []
+        for label, current, limit, color in limit_checks:
+            util = min(current / max(limit, 1) * 100, 100)
+            bar_color = color if util < 80 else COLORS["accent_orange"] if util < 100 else COLORS["accent_red"]
+            limit_bars.append(html.Div([
+                html.Div([
+                    html.Span(label, style={"color": COLORS["text_secondary"], "fontSize": "11px", "flex": "1"}),
+                    html.Span(f"{current:,.0f} / {limit:,.0f}", style={
+                        "color": COLORS["text_muted"], "fontSize": "10px", "marginRight": "8px",
+                    }),
+                    html.Span(f"{util:.0f}%", style={
+                        "color": bar_color, "fontSize": "11px", "fontWeight": "700",
+                    }),
+                ], style={"display": "flex", "alignItems": "center", "marginBottom": "4px"}),
+                html.Div([
+                    html.Div(style={
+                        "width": f"{util}%", "height": "6px",
+                        "backgroundColor": bar_color, "borderRadius": "3px",
+                        "transition": "width 0.3s ease",
+                        "boxShadow": f"0 0 8px {bar_color}40",
+                    }),
+                ], style={
+                    "width": "100%", "height": "6px",
+                    "backgroundColor": COLORS["bg_input"], "borderRadius": "3px",
+                }),
+            ], style={"marginBottom": "12px"}))
+
+        # ── Margin Estimation ────────────────────────────────────
+        spot_dict = {"SPY": S}
+        margin = estimate_margin(positions, spot_dict, r, q)
+
+        def mrow(label, value, fmt="$,.0f", color=COLORS["text_primary"]):
+            return html.Div([
+                html.Span(label, style={"color": COLORS["text_secondary"], "fontSize": "11px", "flex": "1"}),
+                html.Span(f"{value:{fmt}}" if isinstance(value, (int, float)) else str(value), style={
+                    "color": color, "fontSize": "13px", "fontWeight": "600",
+                    "fontFamily": "'JetBrains Mono', monospace",
+                }),
+            ], style={"display": "flex", "justifyContent": "space-between",
+                      "padding": "8px 0", "borderBottom": f"1px solid {COLORS['border_subtle']}"})
+
+        margin_info = html.Div([
+            mrow("Initial Margin", margin["initial_margin"], color=COLORS["accent_orange"]),
+            mrow("Maintenance Margin", margin["maintenance_margin"], color=COLORS["accent_cyan"]),
+            mrow("Worst-Case Loss", margin["worst_case_loss"], color=COLORS["accent_red"]),
+            mrow("Worst Scenario", margin.get("worst_scenario", "N/A"), fmt="s", color=COLORS["text_primary"]),
+            mrow("Scenarios Tested", margin.get("scenario_count", 0), fmt="d", color=COLORS["text_secondary"]),
+        ])
+
+        # ── Tail Risk Stats ──────────────────────────────────────
+        from scipy.stats import skew, kurtosis
+        pnl_arr = np.array(pnl_dist)
+        tail_stats = [
+            sbox("SKEWNESS", skew(pnl_arr), ".2f", "", COLORS["accent_pink"]),
+            sbox("KURTOSIS", kurtosis(pnl_arr), ".2f", "", COLORS["accent_indigo"]),
+            sbox("MAX LOSS", np.min(pnl_arr), ",.0f", "$", COLORS["accent_red"]),
+            sbox("MAX GAIN", np.max(pnl_arr), ",.0f", "$", COLORS["accent_green"]),
+            sbox("MEDIAN", np.median(pnl_arr), ",.0f", "$", COLORS["accent_blue"]),
+        ]
+
+        return stats, grid_table, ef, plf, vdf, sf, gf, limit_bars, margin_info, tail_stats
