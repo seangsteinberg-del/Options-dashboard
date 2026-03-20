@@ -1,0 +1,167 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Options Dashboard — Dark Trading Desk Theme
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ── Global Reset ───────────────────────────────────────────────────────── */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    background-color: #0a0e17;
+    font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+    color: #e8edf5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #111827;
+}
+::-webkit-scrollbar-thumb {
+    background: #2a3350;
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #4a90d9;
+}
+
+/* ── Dash Tabs Override ─────────────────────────────────────────────────── */
+.tab-container {
+    margin-bottom: 0 !important;
+}
+
+/* ── Dropdown Overrides ─────────────────────────────────────────────────── */
+.Select-control {
+    background-color: #0d1321 !important;
+    border-color: #2a3350 !important;
+    color: #e8edf5 !important;
+}
+.Select-menu-outer {
+    background-color: #1a1f2e !important;
+    border-color: #2a3350 !important;
+}
+.Select-option {
+    background-color: #1a1f2e !important;
+    color: #e8edf5 !important;
+}
+.Select-option.is-focused {
+    background-color: #232a3d !important;
+}
+.Select-value-label {
+    color: #e8edf5 !important;
+}
+.Select-placeholder {
+    color: #5a6580 !important;
+}
+.Select-input > input {
+    color: #e8edf5 !important;
+}
+.Select.is-focused > .Select-control {
+    border-color: #4a90d9 !important;
+    box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.15) !important;
+}
+
+/* ── Input Focus ────────────────────────────────────────────────────────── */
+input:focus, textarea:focus {
+    outline: none !important;
+    border-color: #4a90d9 !important;
+    box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.15) !important;
+}
+
+/* ── Range Slider ───────────────────────────────────────────────────────── */
+.rc-slider-rail {
+    background-color: #2a3350 !important;
+}
+.rc-slider-track {
+    background-color: #4a90d9 !important;
+}
+.rc-slider-handle {
+    border-color: #4a90d9 !important;
+    background-color: #4a90d9 !important;
+    box-shadow: 0 0 6px rgba(74, 144, 217, 0.4) !important;
+}
+.rc-slider-dot-active {
+    border-color: #4a90d9 !important;
+}
+.rc-slider-mark-text {
+    color: #5a6580 !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 10px !important;
+}
+
+/* ── DataTable Overrides ────────────────────────────────────────────────── */
+.dash-spreadsheet-container .dash-spreadsheet-inner {
+    border: none !important;
+}
+.dash-header {
+    background-color: #111827 !important;
+    color: #8892a8 !important;
+}
+
+/* ── Card Hover Effect ──────────────────────────────────────────────────── */
+.dashboard-card:hover {
+    border-color: #4a90d9 !important;
+    box-shadow: 0 4px 32px rgba(74, 144, 217, 0.08) !important;
+}
+
+/* ── Glow Effects ───────────────────────────────────────────────────────── */
+.glow-cyan {
+    text-shadow: 0 0 10px rgba(34, 211, 238, 0.3);
+}
+.glow-green {
+    text-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+}
+.glow-red {
+    text-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+}
+
+/* ── Animations ─────────────────────────────────────────────────────────── */
+@keyframes pulse-glow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+@keyframes slide-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.animate-in {
+    animation: slide-up 0.3s ease-out;
+}
+
+/* ── Stat Value Formatting ──────────────────────────────────────────────── */
+.stat-value {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+}
+.stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #5a6580;
+    margin-top: 4px;
+}
+
+/* ── Ticker Tape Style Header ───────────────────────────────────────────── */
+.ticker-tape {
+    background: linear-gradient(90deg, #0c1220, #111827, #0c1220);
+    border-bottom: 1px solid #2a3350;
+    padding: 8px 0;
+    overflow: hidden;
+}
+
+/* ── Responsive helpers ─────────────────────────────────────────────────── */
+@media (max-width: 1200px) {
+    .stat-value { font-size: 18px; }
+}
