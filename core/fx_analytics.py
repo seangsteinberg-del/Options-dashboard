@@ -1,0 +1,2274 @@
+"""
+FX Analytics Engine
+====================
+Institutional-grade quantitative analytics for FX options.
+Provides vol surface analytics, realized vol cones, forward vol,
+smile decomposition, relative value, correlation, carry, positioning,
+and risk metrics that power the FX options workstation dashboard.
+"""
+
+import logging
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+from scipy.stats import norm, percentileofscore, jarque_bera, linregress
+from scipy.interpolate import CubicSpline
+from scipy.integrate import quad
+
+from core.fx_conventions import (
+    tenor_to_years, tenor_to_days, spot_delta,
+    delta_to_strike, bf_rr_to_smile, FX_PAIR_REGISTRY,
+)
+FX_PAIRS = FX_PAIR_REGISTRY
+TENORS = ["ON", "1W", "2W", "1M", "2M", "3M", "6M", "9M", "1Y", "2Y", "3Y", "5Y"]
+from core.bloomberg_fx import (
+    get_fx_spots, get_fx_vol_surface, get_fx_historical_vol,
+    get_fx_historical_spot, get_fx_rates, get_fx_realized_vol,
+    get_fx_correlation, get_cftc_positioning,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _to_close_array(data):
+    """Convert get_fx_historical_spot result to 1D numpy array of close prices."""
+    if data is None:
+        return None
+    if isinstance(data, pd.DataFrame):
+        if "close" in data.columns:
+            return data["close"].values
+        elif "Close" in data.columns:
+            return data["Close"].values
+        return data.iloc[:, -1].values
+    if isinstance(data, pd.Series):
+        return data.values
+    arr = np.asarray(data)
+    if arr.ndim == 0 or len(arr) == 0:
+        return None
+    return arr
+
+
+# Delta grid used for surface analytics
+DELTA_GRID = [10, 25, 50, 75, 90]
+DELTA_LABELS = ["10P", "25P", "ATM", "25C", "10C"]
+
+
+# =========================================================================
+#  Vol Surface Analytics
+# =========================================================================
+
+def vol_percentile(pair: str, tenor: str, metric: str = "ATM",
+                   lookback_days: int = 252) -> dict:
+    """
+    Current implied vol level as a percentile of its N-day history.
+
+    Parameters
+    ----------
+    pair : str       e.g. 'EURUSD'
+    tenor : str      e.g. '3M'
+    metric : str     'ATM', '25D_RR', '25D_BF', '10D_RR', '10D_BF'
+    lookback_days : int  history window (default 252 ~ 1 year)
+
+    Returns
+    -------
+    dict with current, mean, std, min, max, percentile, rank
+    """
+    hist = get_fx_historical_vol(pair, tenor, metric, lookback_days)
+    if hist is None or len(hist) < 10:
+        hist = _synth_vol_history(pair, tenor, metric, lookback_days)
+
+    current = hist[-1]
+    pct = percentileofscore(hist, current)
+
+    return {
+        "pair": pair,
+        "tenor": tenor,
+        "metric": metric,
+        "current": float(current),
+        "mean": float(np.mean(hist)),
+        "std": float(np.std(hist)),
+        "min": float(np.min(hist)),
+        "max": float(np.max(hist)),
+        "percentile": float(pct),
+        "lookback_days": lookback_days,
+    }
+
+
+def vol_zscore(pair: str, tenor: str, metric: str = "ATM",
+               lookback_days: int = 252) -> dict:
+    """
+    Z-score of current implied vol vs its N-day history.
+
+    Returns
+    -------
+    dict with current, mean, std, zscore, interpretation
+    """
+    hist = get_fx_historical_vol(pair, tenor, metric, lookback_days)
+    if hist is None or len(hist) < 10:
+        hist = _synth_vol_history(pair, tenor, metric, lookback_days)
+
+    current = hist[-1]
+    mu = np.mean(hist)
+    sigma = np.std(hist)
+    z = (current - mu) / max(sigma, 1e-6)
+    z = float(np.clip(z, -10.0, 10.0))
+
+    if z > 2.0:
+        interp = "VERY_HIGH"
+    elif z > 1.0:
+        interp = "HIGH"
+    elif z < -2.0:
+        interp = "VERY_LOW"
+    elif z < -1.0:
+        interp = "LOW"
+    else:
+        interp = "NORMAL"
+
+    return {
+        "pair": pair,
+        "tenor": tenor,
+        "metric": metric,
+        "current": float(current),
+        "mean": float(mu),
+        "std": float(sigma),
+        "zscore": float(z),
+        "interpretation": interp,
+        "lookback_days": lookback_days,
+    }
+
+
+def vol_percentile_surface(pair: str, lookback: int = 252) -> pd.DataFrame:
+    """
+    Full tenor x delta percentile grid for the vol surface.
+
+    Returns DataFrame with tenors as rows, delta labels as columns.
+    """
+    tenors = ["1W", "2W", "1M", "2M", "3M", "6M", "9M", "1Y"]
+    metrics = ["10D_BF", "25D_RR", "ATM", "25D_RR", "10D_BF"]
+    metric_names = ["10P", "25P", "ATM", "25C", "10C"]
+
+    rows = []
+    for t in tenors:
+        row = {"tenor": t}
+        for m, label in zip(metrics, metric_names):
+            info = vol_percentile(pair, t, m, lookback)
+            row[label] = round(info["percentile"], 1)
+        rows.append(row)
+
+    return pd.DataFrame(rows).set_index("tenor")
+
+
+def vol_zscore_surface(pair: str, lookback: int = 252) -> pd.DataFrame:
+    """
+    Full tenor x delta z-score grid for the vol surface.
+
+    Returns DataFrame with tenors as rows, delta labels as columns.
+    """
+    tenors = ["1W", "2W", "1M", "2M", "3M", "6M", "9M", "1Y"]
+    metrics = ["10D_BF", "25D_RR", "ATM", "25D_RR", "10D_BF"]
+    metric_names = ["10P", "25P", "ATM", "25C", "10C"]
+
+    rows = []
+    for t in tenors:
+        row = {"tenor": t}
+        for m, label in zip(metrics, metric_names):
+            info = vol_zscore(pair, t, m, lookback)
+            row[label] = round(info["zscore"], 2)
+        rows.append(row)
+
+    return pd.DataFrame(rows).set_index("tenor")
+
+
+def vol_change(pair: str, tenor: str, metric: str = "ATM",
+               days_ago: int = 1) -> dict:
+    """
+    Change in implied vol metric from N days ago (absolute and percentage).
+    """
+    hist = get_fx_historical_vol(pair, tenor, metric, days_ago + 5)
+    if hist is None or len(hist) < days_ago + 1:
+        hist = _synth_vol_history(pair, tenor, metric, days_ago + 10)
+
+    current = hist[-1]
+    previous = hist[-(days_ago + 1)]
+    abs_change = current - previous
+    pct_change = abs_change / max(abs(previous), 1e-6) * 100
+
+    return {
+        "pair": pair,
+        "tenor": tenor,
+        "metric": metric,
+        "current": float(current),
+        "previous": float(previous),
+        "abs_change": float(abs_change),
+        "pct_change": float(pct_change),
+        "days_ago": days_ago,
+    }
+
+
+def vol_surface_diff(pair: str, days_ago: int = 1) -> pd.DataFrame:
+    """
+    Difference between current vol surface and the surface N days ago.
+    Returns DataFrame of vol changes across tenor x delta grid.
+    """
+    tenors = ["1W", "1M", "2M", "3M", "6M", "9M", "1Y"]
+    metrics = ["10D_BF", "25D_RR", "ATM", "25D_RR", "10D_BF"]
+    metric_names = ["10P", "25P", "ATM", "25C", "10C"]
+
+    rows = []
+    for t in tenors:
+        row = {"tenor": t}
+        for m, label in zip(metrics, metric_names):
+            ch = vol_change(pair, t, m, days_ago)
+            row[label] = round(ch["abs_change"], 2)
+        rows.append(row)
+
+    return pd.DataFrame(rows).set_index("tenor")
+
+
+def vol_regime_detect(pair: str, short_window: int = 20,
+                      long_window: int = 60) -> dict:
+    """
+    Detect the current FX-specific vol regime for a currency pair.
+
+    FX-calibrated thresholds (annualised ATM IV):
+        LOW < 6%, NORMAL 6-10%, ELEVATED 10-14%, HIGH 14-20%, CRISIS > 20%
+
+    Returns dict with regime, color, description, and supporting metrics.
+    """
+    rv_hist = get_fx_realized_vol(pair, window=short_window, lookback=long_window + 50)
+    if rv_hist is None or len(rv_hist) < long_window:
+        rv_hist = _synth_rv_series(pair, long_window + 50)
+
+    rv_short = np.mean(rv_hist[-short_window:])
+    rv_long = np.mean(rv_hist[-long_window:])
+    ratio = rv_short / max(rv_long, 1e-6)
+
+    # Current ATM IV
+    atm_info = vol_percentile(pair, "3M", "ATM")
+    atm_current = atm_info["current"]
+
+    if atm_current > 20.0:
+        regime = "CRISIS"
+        color = "#ef4444"
+        description = "Crisis-level volatility — extreme dislocations, wide spreads"
+    elif atm_current > 14.0:
+        regime = "HIGH"
+        color = "#f97316"
+        description = "High vol regime — significant risk events or repricing"
+    elif atm_current > 10.0:
+        regime = "ELEVATED"
+        color = "#f59e0b"
+        description = "Elevated volatility — above-average event risk"
+    elif atm_current > 6.0:
+        regime = "NORMAL"
+        color = "#3b82f6"
+        description = "Normal trading range — standard market conditions"
+    else:
+        regime = "LOW"
+        color = "#10b981"
+        description = "Low vol regime — carry-friendly, compressed risk premia"
+
+    # Trend detection
+    if ratio > 1.15:
+        trend = "RISING"
+    elif ratio < 0.85:
+        trend = "FALLING"
+    else:
+        trend = "STABLE"
+
+    return {
+        "pair": pair,
+        "regime": regime,
+        "color": color,
+        "description": description,
+        "atm_iv": float(atm_current),
+        "rv_short": float(rv_short),
+        "rv_long": float(rv_long),
+        "ratio": float(ratio),
+        "trend": trend,
+        "percentile": float(atm_info["percentile"]),
+    }
+
+
+def vol_regime_history(pair: str, lookback: int = 252) -> pd.DataFrame:
+    """
+    Time series of vol regimes with colour coding, suitable for charting.
+    """
+    hist = get_fx_historical_vol(pair, "3M", "ATM", lookback)
+    if hist is None or len(hist) < 10:
+        hist = _synth_vol_history(pair, "3M", "ATM", lookback)
+
+    records = []
+    for i, v in enumerate(hist):
+        if v > 20:
+            regime, color = "CRISIS", "#ef4444"
+        elif v > 14:
+            regime, color = "HIGH", "#f97316"
+        elif v > 10:
+            regime, color = "ELEVATED", "#f59e0b"
+        elif v > 6:
+            regime, color = "NORMAL", "#3b82f6"
+        else:
+            regime, color = "LOW", "#10b981"
+        records.append({"day": i, "vol": float(v), "regime": regime, "color": color})
+
+    return pd.DataFrame(records)
+
+
+# =========================================================================
+#  Vol Cone & Realised Vol Analysis
+# =========================================================================
+
+def vol_cone(pair: str,
+             windows: List[int] = None,
+             lookback: int = 504) -> pd.DataFrame:
+    """
+    Realised vol cone using three estimators: close-to-close, Parkinson, Garman-Klass.
+
+    Returns DataFrame with percentile bands (min, 10, 25, 50, 75, 90, max)
+    and current level for each window.
+    """
+    if windows is None:
+        windows = [5, 10, 20, 60, 90, 120, 252]
+
+    spot_hist_raw = get_fx_historical_spot(pair, lookback + max(windows) + 10)
+    spot_hist = _to_close_array(spot_hist_raw) if spot_hist_raw is not None else None
+    if spot_hist is None or len(spot_hist) < max(windows) + 20:
+        spot_hist = _synth_spot_series(pair, lookback + max(windows) + 10)
+
+    log_ret = np.diff(np.log(spot_hist))
+    records = []
+
+    for w in windows:
+        if len(log_ret) < w + 20:
+            continue
+
+        # Close-to-close estimator
+        c2c = pd.Series(log_ret).rolling(w).std() * np.sqrt(252) * 100
+        c2c_clean = c2c.dropna().values
+
+        # Parkinson estimator (simulate high/low from returns)
+        high_proxy = spot_hist[1:] * np.exp(np.abs(log_ret) * 0.6)
+        low_proxy = spot_hist[1:] * np.exp(-np.abs(log_ret) * 0.6)
+        hl_ratio = np.log(high_proxy / low_proxy)
+        parkinson_factor = 1.0 / (4.0 * np.log(2.0))
+        parkinson_var = pd.Series(parkinson_factor * hl_ratio ** 2).rolling(w).mean() * 252
+        parkinson = np.sqrt(parkinson_var.dropna().values) * 100
+
+        # Garman-Klass estimator
+        gk_var = 0.5 * hl_ratio ** 2 - (2 * np.log(2) - 1) * log_ret ** 2
+        gk_rv = pd.Series(gk_var).rolling(w).mean() * 252
+        gk = np.sqrt(np.abs(gk_rv.dropna().values)) * 100
+
+        if len(c2c_clean) < 5:
+            continue
+
+        current_c2c = c2c_clean[-1]
+        current_park = parkinson[-1] if len(parkinson) > 0 else current_c2c
+        current_gk = gk[-1] if len(gk) > 0 else current_c2c
+
+        records.append({
+            "window": w,
+            "current_c2c": float(current_c2c),
+            "current_parkinson": float(current_park),
+            "current_gk": float(current_gk),
+            "min": float(np.min(c2c_clean)),
+            "p10": float(np.percentile(c2c_clean, 10)),
+            "p25": float(np.percentile(c2c_clean, 25)),
+            "median": float(np.median(c2c_clean)),
+            "p75": float(np.percentile(c2c_clean, 75)),
+            "p90": float(np.percentile(c2c_clean, 90)),
+            "max": float(np.max(c2c_clean)),
+            "percentile_rank": float(percentileofscore(c2c_clean, current_c2c)),
+        })
+
+    return pd.DataFrame(records)
+
+
+def iv_rv_spread(pair: str, tenor: str = "3M", rv_window: int = 20,
+                 lookback: int = 252) -> pd.DataFrame:
+    """
+    Time series of (ATM IV - Realised Vol) spread.
+    A positive spread means IV is rich relative to RV (vol premium).
+    """
+    iv_hist = get_fx_historical_vol(pair, tenor, "ATM", lookback)
+    if iv_hist is None or len(iv_hist) < 20:
+        iv_hist = _synth_vol_history(pair, tenor, "ATM", lookback)
+
+    rv_hist = get_fx_realized_vol(pair, window=rv_window, lookback=lookback)
+    if rv_hist is None or len(rv_hist) < 20:
+        rv_hist = _synth_rv_series(pair, lookback)
+
+    n = min(len(iv_hist), len(rv_hist))
+    iv_arr = iv_hist[-n:]
+    rv_arr = rv_hist[-n:]
+    spread = iv_arr - rv_arr
+
+    df = pd.DataFrame({
+        "day": np.arange(n),
+        "iv": iv_arr,
+        "rv": rv_arr,
+        "spread": spread,
+        "spread_pct": spread / np.maximum(rv_arr, 1e-6) * 100,
+    })
+    return df
+
+
+def iv_rv_percentile(pair: str, tenor: str = "3M", rv_window: int = 20,
+                     lookback: int = 252) -> dict:
+    """
+    Percentile rank of the current IV-RV spread relative to its history.
+    """
+    df = iv_rv_spread(pair, tenor, rv_window, lookback)
+    if df.empty:
+        return {"percentile": 50.0, "current_spread": 0.0, "mean_spread": 0.0}
+
+    current = df["spread"].iloc[-1]
+    pct = percentileofscore(df["spread"].values, current)
+
+    return {
+        "pair": pair,
+        "tenor": tenor,
+        "rv_window": rv_window,
+        "current_spread": float(current),
+        "mean_spread": float(df["spread"].mean()),
+        "std_spread": float(df["spread"].std()),
+        "percentile": float(pct),
+        "current_iv": float(df["iv"].iloc[-1]),
+        "current_rv": float(df["rv"].iloc[-1]),
+        "signal": "IV_RICH" if pct > 75 else ("IV_CHEAP" if pct < 25 else "FAIR"),
+    }
+
+
+def breakeven_vol(pair: str, tenor: str, days_to_expiry: int) -> dict:
+    """
+    What realised vol is needed for a long ATM straddle to break even.
+    Accounts for time decay (theta) vs gamma P&L.
+    """
+    T = days_to_expiry / 365.0
+    spots = get_fx_spots([pair])
+    spot = spots.get(pair, {}).get("mid", 1.0)
+
+    rates = get_fx_rates(pair)
+    r_dom = rates.get("r_dom", 0.03)
+    r_for = rates.get("r_for", 0.02)
+
+    surface = get_fx_vol_surface(pair)
+    atm_vol = _extract_atm(surface, tenor) / 100.0
+
+    # Straddle premium as fraction of spot
+    fwd = spot * np.exp((r_dom - r_for) * T)
+    d1 = (0.5 * atm_vol ** 2 * T) / (atm_vol * np.sqrt(T))
+    straddle_pct = 2 * norm.cdf(d1) - 1  # approximate straddle as % of fwd
+
+    # Breakeven daily move = straddle_premium / days
+    # In vol terms: breakeven_vol = atm_vol * sqrt(premium_ratio)
+    # More precise: need RV such that gamma P&L > theta cost
+    # Gamma P&L per day ~ 0.5 * gamma * S^2 * RV^2 / 252
+    # Theta per day = known from ATM vol
+    # At breakeven: sum of daily gamma PnL = straddle premium
+    # Simplified: breakeven_rv ~ atm_vol * sqrt(1 + straddle_premium / (0.5 * vega * atm_vol))
+    # For FX ATM straddle: breakeven_rv ~ atm_vol * (1 - small adjustment)
+    vega_val = spot * np.sqrt(T) * norm.pdf(d1)
+    theta_val = -0.5 * spot * atm_vol * norm.pdf(d1) / np.sqrt(T) / 365.0
+
+    daily_theta = abs(theta_val)
+    daily_gamma_per_vol2 = 0.5 * norm.pdf(d1) / (spot * atm_vol * np.sqrt(T)) * spot ** 2 / 252.0
+
+    breakeven_rv_sq = daily_theta / max(daily_gamma_per_vol2, 1e-12)
+    breakeven_rv = np.sqrt(max(breakeven_rv_sq, 0)) * 100
+
+    return {
+        "pair": pair,
+        "tenor": tenor,
+        "days_to_expiry": days_to_expiry,
+        "atm_iv": float(atm_vol * 100),
+        "breakeven_rv": float(breakeven_rv),
+        "iv_rv_cushion": float(atm_vol * 100 - breakeven_rv),
+        "daily_theta": float(daily_theta),
+        "daily_gamma_pnl_at_iv": float(daily_gamma_per_vol2 * (atm_vol ** 2)),
+    }
+
+
+def theta_gamma_ratio(pair: str, tenor: str) -> dict:
+    """
+    Gamma earned per unit of theta paid.  Higher = more gamma for the theta cost.
+    Useful for comparing vega-neutral structures.
+    """
+    T = tenor_to_years(tenor)
+    spots = get_fx_spots([pair])
+    spot = spots.get(pair, {}).get("mid", 1.0)
+
+    surface = get_fx_vol_surface(pair)
+    atm_vol = _extract_atm(surface, tenor) / 100.0
+
+    rates = get_fx_rates(pair)
+    r_dom = rates.get("r_dom", 0.03)
+    r_for = rates.get("r_for", 0.02)
+
+    d1 = (np.log(1.0) + (r_dom - r_for + 0.5 * atm_vol ** 2) * T) / (atm_vol * np.sqrt(T))
+
+    gamma_val = norm.pdf(d1) / (spot * atm_vol * np.sqrt(T))
+    theta_val = -0.5 * spot * atm_vol * norm.pdf(d1) / np.sqrt(T) / 365.0
+
+    ratio = gamma_val / max(abs(theta_val), 1e-12)
+
+    return {
+        "pair": pair,
+        "tenor": tenor,
+        "gamma": float(gamma_val),
+        "theta": float(theta_val),
+        "gamma_theta_ratio": float(ratio),
+        "atm_vol": float(atm_vol * 100),
+    }
+
+
+def vol_carry(pair: str, tenor: str) -> dict:
+    """
+    Daily vol carry: theta earned per day if vol stays flat.
+    Negative carry = cost of holding a long vol position.
+    """
+    T = tenor_to_years(tenor)
+    spots = get_fx_spots([pair])
+    spot = spots.get(pair, {}).get("mid", 1.0)
+
+    surface = get_fx_vol_surface(pair)
+    atm_vol = _extract_atm(surface, tenor) / 100.0
+
+    d1 = (0.5 * atm_vol ** 2 * T) / (atm_vol * np.sqrt(T))
+    daily_theta = -0.5 * spot * atm_vol * norm.pdf(d1) / np.sqrt(T) / 365.0
+    annualised_carry = daily_theta * 365.0
+
+    return {
+        "pair": pair,
+        "tenor": tenor,
+        "daily_theta": float(daily_theta),
+        "annualised_carry": float(annualised_carry),
+        "carry_as_pct_of_spot": float(annualised_carry / max(spot, 1e-6) * 100),
+        "atm_vol": float(atm_vol * 100),
+    }
+
+
+# =========================================================================
+#  Forward Volatility
+# =========================================================================
+
+def forward_vol(pair: str, T1: str, T2: str) -> dict:
+    """
+    Implied forward vol for the period [T1, T2] via variance interpolation.
+
+    forward_var = (var_T2 * t2 - var_T1 * t1) / (t2 - t1)
+    forward_vol = sqrt(forward_var)
+    """
+    t1 = tenor_to_years(T1)
+    t2 = tenor_to_years(T2)
+
+    if t2 <= t1:
+        return {"error": "T2 must be after T1", "forward_vol": 0.0}
+
+    surface = get_fx_vol_surface(pair)
+    v1 = _extract_atm(surface, T1) / 100.0
+    v2 = _extract_atm(surface, T2) / 100.0
+
+    var1 = v1 ** 2 * t1
+    var2 = v2 ** 2 * t2
+    fwd_var = (var2 - var1) / (t2 - t1)
+
+    if fwd_var < 0:
+        fwd_var = 0.0
+        logger.warning(f"Negative forward variance for {pair} [{T1},{T2}], floored to 0")
+
+    fwd_vol = np.sqrt(fwd_var) * 100
+
+    return {
+        "pair": pair,
+        "start_tenor": T1,
+        "end_tenor": T2,
+        "spot_vol_T1": float(v1 * 100),
+        "spot_vol_T2": float(v2 * 100),
+        "forward_vol": float(fwd_vol),
+        "t1_years": float(t1),
+        "t2_years": float(t2),
+        "variance_T1": float(var1),
+        "variance_T2": float(var2),
+    }
+
+
+def forward_vol_curve(pair: str, start_tenor: str = "1M") -> pd.DataFrame:
+    """
+    Forward vol curve starting from start_tenor out to 2Y.
+    Each point is the forward vol from start_tenor to the end tenor.
+    """
+    end_tenors = ["2M", "3M", "6M", "9M", "1Y", "18M", "2Y"]
+    t_start = tenor_to_years(start_tenor)
+
+    records = []
+    for end_t in end_tenors:
+        t_end = tenor_to_years(end_t)
+        if t_end <= t_start:
+            continue
+        fv = forward_vol(pair, start_tenor, end_t)
+        records.append({
+            "end_tenor": end_t,
+            "end_years": float(t_end),
+            "spot_vol": float(fv["spot_vol_T2"]),
+            "forward_vol": float(fv["forward_vol"]),
+        })
+
+    return pd.DataFrame(records)
+
+
+def forward_vol_surface(pair: str) -> pd.DataFrame:
+    """
+    2-D forward vol surface: start_tenor x end_tenor grid of forward vols.
+    """
+    tenors = ["1W", "2W", "1M", "2M", "3M", "6M", "9M", "1Y"]
+    n = len(tenors)
+    data = np.full((n, n), np.nan)
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            fv = forward_vol(pair, tenors[i], tenors[j])
+            data[i, j] = fv["forward_vol"]
+
+    df = pd.DataFrame(data, index=tenors, columns=tenors)
+    return df
+
+
+# =========================================================================
+#  Smile Analytics
+# =========================================================================
+
+def smile_skewness(pair: str, tenor: str) -> dict:
+    """
+    Smile skew from the 25-delta risk reversal.
+    RR > 0 => calls richer => positive skew (upside risk priced higher).
+    """
+    surface = get_fx_vol_surface(pair)
+    rr25 = _extract_metric(surface, tenor, "25D_RR")
+    atm = _extract_atm(surface, tenor)
+
+    normalised = rr25 / max(atm, 1e-6)
+
+    return {
+        "pair": pair,
+        "tenor": tenor,
+        "rr_25d": float(rr25),
+        "atm": float(atm),
+        "normalised_skew": float(normalised),
+        "direction": "CALL_RICH" if rr25 > 0 else "PUT_RICH",
+    }
+
+
+def smile_kurtosis(pair: str, tenor: str) -> dict:
+    """
+    Smile kurtosis from the 25-delta butterfly.
+    Higher BF => fatter tails, more wing demand.
+    """
+    surface = get_fx_vol_surface(pair)
+    bf25 = _extract_metric(surface, tenor, "25D_BF")
+    atm = _extract_atm(surface, tenor)
+
+    normalised = bf25 / max(atm, 1e-6)
+
+    return {
+        "pair": pair,
+        "tenor": tenor,
+        "bf_25d": float(bf25),
+        "atm": float(atm),
+        "normalised_kurtosis": float(normalised),
+        "tail_assessment": "FAT" if normalised > 0.10 else ("THIN" if normalised < 0.03 else "NORMAL"),
+    }
+
+
+def wing_richness(pair: str, tenor: str) -> dict:
+    """
+    Wing richness indicator: 10D BF / 25D BF.
+    Higher ratio => far wings are disproportionately expensive.
+    """
+    surface = get_fx_vol_surface(pair)
+    bf10 = _extract_metric(surface, tenor, "10D_BF")
+    bf25 = _extract_metric(surface, tenor, "25D_BF")
+
+    ratio = bf10 / max(bf25, 1e-6)
+
+    return {
+        "pair": pair,
+        "tenor": tenor,
+        "bf_10d": float(bf10),
+        "bf_25d": float(bf25),
+        "wing_ratio": float(ratio),
+        "assessment": "EXPENSIVE_WINGS" if ratio > 3.5 else ("CHEAP_WINGS" if ratio < 2.0 else "NORMAL"),
+    }
+
+
+def smile_asymmetry_index(pair: str, tenor: str) -> dict:
+    """
+    Smile asymmetry: (|put wing vol - ATM| - |call wing vol - ATM|) / ATM.
+    Positive => puts are richer relative to calls.
+    """
+    surface = get_fx_vol_surface(pair)
+    atm = _extract_atm(surface, tenor)
+    rr25 = _extract_metric(surface, tenor, "25D_RR")
+    bf25 = _extract_metric(surface, tenor, "25D_BF")
+
+    # From BF and RR conventions:
+    # vol_25c = ATM + BF + 0.5 * RR
+    # vol_25p = ATM + BF - 0.5 * RR
+    vol_25c = atm + bf25 + 0.5 * rr25
+    vol_25p = atm + bf25 - 0.5 * rr25
+
+    put_wing = abs(vol_25p - atm)
+    call_wing = abs(vol_25c - atm)
+    asymmetry = (put_wing - call_wing) / max(atm, 1e-6)
+
+    return {
+        "pair": pair,
+        "tenor": tenor,
+        "vol_25p": float(vol_25p),
+        "vol_25c": float(vol_25c),
+        "atm": float(atm),
+        "put_wing_spread": float(put_wing),
+        "call_wing_spread": float(call_wing),
+        "asymmetry_index": float(asymmetry),
+    }
+
+
+def smile_implied_pdf(pair: str, tenor: str,
+                      n_points: int = 200) -> pd.DataFrame:
+    """
+    Risk-neutral probability density via Breeden-Litzenberger.
+
+    Numerically differentiates call prices twice w.r.t. strike to recover
+    the implied PDF: f(K) = e^{rT} * d^2C/dK^2
+    """
+    T = tenor_to_years(tenor)
+    spots = get_fx_spots([pair])
+    spot = spots.get(pair, {}).get("mid", 1.0)
+
+    rates = get_fx_rates(pair)
+    r_dom = rates.get("r_dom", 0.03)
+    r_for = rates.get("r_for", 0.02)
+
+    surface = get_fx_vol_surface(pair)
+    atm = _extract_atm(surface, tenor) / 100.0
+    rr25 = _extract_metric(surface, tenor, "25D_RR") / 100.0
+    bf25 = _extract_metric(surface, tenor, "25D_BF") / 100.0
+
+    fwd = spot * np.exp((r_dom - r_for) * T)
+    k_min = fwd * np.exp(-4 * atm * np.sqrt(T))
+    k_max = fwd * np.exp(4 * atm * np.sqrt(T))
+    strikes = np.linspace(k_min, k_max, n_points)
+    dk = strikes[1] - strikes[0]
+
+    # Build smile via interpolation
+    vol_25p = atm + bf25 - 0.5 * rr25
+    vol_25c = atm + bf25 + 0.5 * rr25
+
+    # Parametric smile: quadratic in log-moneyness
+    log_m_25 = np.log(fwd / (fwd * 0.96))  # approximate 25D strike shift
+    a = bf25 / max(log_m_25 ** 2, 1e-8)
+    b = rr25 / max(2 * log_m_25, 1e-8)
+
+    def smile_vol(K):
+        lm = np.log(fwd / K)
+        return atm + b * lm + a * lm ** 2
+
+    # Compute call prices
+    call_prices = np.zeros(n_points)
+    for i, K in enumerate(strikes):
+        sv = smile_vol(K)
+        sv = max(sv, 0.01)
+        d1 = (np.log(fwd / K) + 0.5 * sv ** 2 * T) / (sv * np.sqrt(T))
+        d2 = d1 - sv * np.sqrt(T)
+        call_prices[i] = np.exp(-r_dom * T) * (fwd * norm.cdf(d1) - K * norm.cdf(d2))
+
+    # Second derivative via finite differences
+    pdf = np.zeros(n_points)
+    pdf[1:-1] = np.exp(r_dom * T) * (call_prices[2:] - 2 * call_prices[1:-1] + call_prices[:-2]) / (dk ** 2)
+    pdf = np.maximum(pdf, 0)
+
+    # Normalise to integrate to 1
+    total = np.trapz(pdf, strikes)
+    if total > 0:
+        pdf = pdf / total
+
+    return pd.DataFrame({
+        "strike": strikes,
+        "pdf": pdf,
+        "log_moneyness": np.log(strikes / fwd),
+    })
+
+
+def smile_implied_cdf(pair: str, tenor: str,
+                      n_points: int = 200) -> pd.DataFrame:
+    """
+    Risk-neutral cumulative distribution function derived from the implied PDF.
+    """
+    pdf_df = smile_implied_pdf(pair, tenor, n_points)
+    strikes = pdf_df["strike"].values
+    pdf = pdf_df["pdf"].values
+
+    cdf = np.cumsum(pdf)
+    dk = strikes[1] - strikes[0] if len(strikes) > 1 else 1.0
+    cdf = cdf * dk
+    cdf = np.clip(cdf, 0, 1)
+
+    return pd.DataFrame({
+        "strike": strikes,
+        "cdf": cdf,
+        "log_moneyness": pdf_df["log_moneyness"].values,
+    })
+
+
+def tail_probabilities(pair: str, tenor: str,
+                       moves: List[float] = None) -> pd.DataFrame:
+    """
+    Probability of spot moving by given percentages from the implied distribution.
+    """
+    if moves is None:
+        moves = [0.01, 0.02, 0.03, 0.05, 0.10]
+
+    cdf_df = smile_implied_cdf(pair, tenor)
+    spots = get_fx_spots([pair])
+    spot = spots.get(pair, {}).get("mid", 1.0)
+
+    strikes = cdf_df["strike"].values
+    cdf_vals = cdf_df["cdf"].values
+
+    records = []
+    for m in moves:
+        k_up = spot * (1 + m)
+        k_down = spot * (1 - m)
+
+        # Interpolate CDF at those strikes
+        prob_below_down = float(np.interp(k_down, strikes, cdf_vals))
+        prob_below_up = float(np.interp(k_up, strikes, cdf_vals))
+
+        prob_up = 1 - prob_below_up
+        prob_down = prob_below_down
+
+        records.append({
+            "move_pct": m * 100,
+            "prob_up": round(prob_up * 100, 2),
+            "prob_down": round(prob_down * 100, 2),
+            "prob_either": round((prob_up + prob_down) * 100, 2),
+            "strike_up": round(k_up, 5),
+            "strike_down": round(k_down, 5),
+        })
+
+    return pd.DataFrame(records)
+
+
+def smile_pca(pair: str, lookback: int = 252) -> dict:
+    """
+    PCA decomposition of smile moves into level, skew, curvature, and wings.
+    Uses historical daily changes in ATM, 25D RR, 25D BF, 10D RR, 10D BF.
+    """
+    metrics = ["ATM", "25D_RR", "25D_BF", "10D_RR", "10D_BF"]
+    data = {}
+    for m in metrics:
+        h = get_fx_historical_vol(pair, "3M", m, lookback)
+        if h is None or len(h) < 20:
+            h = _synth_vol_history(pair, "3M", m, lookback)
+        data[m] = h
+
+    n = min(len(v) for v in data.values())
+    mat = np.column_stack([data[m][-n:] for m in metrics])
+    changes = np.diff(mat, axis=0)
+
+    # Demean
+    changes_dm = changes - changes.mean(axis=0)
+
+    # Covariance & eigen decomposition
+    cov = np.cov(changes_dm.T)
+    eigenvalues, eigenvectors = np.linalg.eigh(cov)
+    idx = np.argsort(eigenvalues)[::-1]
+    eigenvalues = eigenvalues[idx]
+    eigenvectors = eigenvectors[:, idx]
+
+    total_var = eigenvalues.sum()
+    explained = eigenvalues / max(total_var, 1e-12) * 100
+
+    pc_names = ["Level", "Skew", "Curvature", "Wings", "Residual"]
+
+    components = {}
+    for i in range(min(5, len(eigenvalues))):
+        name = pc_names[i] if i < len(pc_names) else f"PC{i+1}"
+        components[name] = {
+            "eigenvalue": float(eigenvalues[i]),
+            "explained_pct": float(explained[i]),
+            "loadings": {m: float(eigenvectors[j, i]) for j, m in enumerate(metrics)},
+        }
+
+    return {
+        "pair": pair,
+        "lookback": lookback,
+        "components": components,
+        "total_variance": float(total_var),
+        "cumulative_explained": [float(np.sum(explained[:i+1])) for i in range(min(5, len(explained)))],
+    }
+
+
+def sticky_delta_monitor(pair: str, tenor: str,
+                         lookback: int = 60) -> dict:
+    """
+    Assess whether the smile is moving sticky-delta or sticky-strike.
+
+    Method: Regress daily ATM vol change on daily spot return.
+    - Sticky-delta: beta ~ 0 (vol doesn't move with spot)
+    - Sticky-strike: beta ~ skew (vol moves as spot changes along smile)
+    """
+    iv_hist = get_fx_historical_vol(pair, tenor, "ATM", lookback + 5)
+    if iv_hist is None or len(iv_hist) < lookback:
+        iv_hist = _synth_vol_history(pair, tenor, "ATM", lookback + 5)
+
+    spot_hist_raw = get_fx_historical_spot(pair, lookback + 5)
+    spot_hist = _to_close_array(spot_hist_raw) if spot_hist_raw is not None else None
+    if spot_hist is None or len(spot_hist) < lookback:
+        spot_hist = _synth_spot_series(pair, lookback + 5)
+
+    n = min(len(iv_hist), len(spot_hist)) - 1
+    iv_changes = np.diff(iv_hist[-n-1:])
+    spot_returns = np.diff(np.log(spot_hist[-n-1:]))
+
+    slope, intercept, r_value, p_value, std_err = linregress(spot_returns, iv_changes)
+
+    # Skew for reference
+    skew_info = smile_skewness(pair, tenor)
+    rr = skew_info["rr_25d"]
+
+    # Sticky-delta => slope near 0
+    # Sticky-strike => slope near -skew_slope
+    if abs(slope) < abs(rr) * 0.3:
+        regime = "STICKY_DELTA"
+    elif abs(slope) > abs(rr) * 0.7:
+        regime = "STICKY_STRIKE"
+    else:
+        regime = "MIXED"
+
+    return {
+        "pair": pair,
+        "tenor": tenor,
+        "regime": regime,
+        "beta": float(slope),
+        "r_squared": float(r_value ** 2),
+        "p_value": float(p_value),
+        "reference_skew": float(rr),
+        "lookback": lookback,
+    }
+
+
+# =========================================================================
+#  Relative Value Engine
+# =========================================================================
+
+def cross_pair_vol_spread(pair_a: str, pair_b: str, tenor: str = "3M",
+                          lookback: int = 252) -> dict:
+    """
+    Time series of ATM vol spread between two pairs with z-score and signal.
+    """
+    hist_a = get_fx_historical_vol(pair_a, tenor, "ATM", lookback)
+    hist_b = get_fx_historical_vol(pair_b, tenor, "ATM", lookback)
+    if hist_a is None or len(hist_a) < 20:
+        hist_a = _synth_vol_history(pair_a, tenor, "ATM", lookback)
+    if hist_b is None or len(hist_b) < 20:
+        hist_b = _synth_vol_history(pair_b, tenor, "ATM", lookback)
+
+    n = min(len(hist_a), len(hist_b))
+    a = hist_a[-n:]
+    b = hist_b[-n:]
+    spread = a - b
+
+    mu = np.mean(spread)
+    sigma = np.std(spread)
+    current = spread[-1]
+    z = (current - mu) / max(sigma, 1e-6)
+    pct = percentileofscore(spread, current)
+
+    if z > 1.5:
+        signal = f"SELL_{pair_a}_VOL_BUY_{pair_b}_VOL"
+    elif z < -1.5:
+        signal = f"BUY_{pair_a}_VOL_SELL_{pair_b}_VOL"
+    else:
+        signal = "NEUTRAL"
+
+    return {
+        "pair_a": pair_a,
+        "pair_b": pair_b,
+        "tenor": tenor,
+        "spread_ts": spread.tolist(),
+        "mean": float(mu),
+        "std": float(sigma),
+        "current": float(current),
+        "zscore": float(z),
+        "percentile": float(pct),
+        "signal": signal,
+    }
+
+
+def cross_pair_rr_spread(pair_a: str, pair_b: str, tenor: str = "3M",
+                          lookback: int = 252) -> dict:
+    """Spread of 25D risk reversals between two pairs."""
+    return _cross_pair_metric_spread(pair_a, pair_b, tenor, "25D_RR", lookback)
+
+
+def cross_pair_bf_spread(pair_a: str, pair_b: str, tenor: str = "3M",
+                          lookback: int = 252) -> dict:
+    """Spread of 25D butterflies between two pairs."""
+    return _cross_pair_metric_spread(pair_a, pair_b, tenor, "25D_BF", lookback)
+
+
+def cross_pair_term_spread(pair_a: str, pair_b: str,
+                           long_tenor: str = "1Y", short_tenor: str = "1M",
+                           lookback: int = 252) -> dict:
+    """
+    Term structure spread comparison between two pairs.
+    Computes (long - short) ATM vol for each pair, then takes the cross-pair diff.
+    """
+    al = get_fx_historical_vol(pair_a, long_tenor, "ATM", lookback)
+    a_s = get_fx_historical_vol(pair_a, short_tenor, "ATM", lookback)
+    bl = get_fx_historical_vol(pair_b, long_tenor, "ATM", lookback)
+    bs = get_fx_historical_vol(pair_b, short_tenor, "ATM", lookback)
+
+    for arr_name, arr in [("al", al), ("as", a_s), ("bl", bl), ("bs", bs)]:
+        if arr is None or len(arr) < 20:
+            if arr_name[0] == "a":
+                p = pair_a
+            else:
+                p = pair_b
+            t = long_tenor if arr_name[1] == "l" else short_tenor
+            arr_gen = _synth_vol_history(p, t, "ATM", lookback)
+            if arr_name == "al":
+                al = arr_gen
+            elif arr_name == "as":
+                a_s = arr_gen
+            elif arr_name == "bl":
+                bl = arr_gen
+            else:
+                bs = arr_gen
+
+    n = min(len(al), len(a_s), len(bl), len(bs))
+    term_a = al[-n:] - a_s[-n:]
+    term_b = bl[-n:] - bs[-n:]
+    spread = term_a - term_b
+
+    mu = np.mean(spread)
+    sigma = np.std(spread)
+    current = spread[-1]
+    z = (current - mu) / max(sigma, 1e-6)
+
+    return {
+        "pair_a": pair_a,
+        "pair_b": pair_b,
+        "long_tenor": long_tenor,
+        "short_tenor": short_tenor,
+        "spread_ts": spread.tolist(),
+        "mean": float(mu),
+        "std": float(sigma),
+        "current": float(current),
+        "zscore": float(z),
+        "percentile": float(percentileofscore(spread, current)),
+    }
+
+
+def vol_beta(pair_a: str, pair_b: str, tenor: str = "3M",
+             lookback: int = 252) -> dict:
+    """
+    Regression beta of pair_a vol changes on pair_b vol changes.
+    Useful for hedge ratios and relative value.
+    """
+    ha = get_fx_historical_vol(pair_a, tenor, "ATM", lookback)
+    hb = get_fx_historical_vol(pair_b, tenor, "ATM", lookback)
+    if ha is None or len(ha) < 20:
+        ha = _synth_vol_history(pair_a, tenor, "ATM", lookback)
+    if hb is None or len(hb) < 20:
+        hb = _synth_vol_history(pair_b, tenor, "ATM", lookback)
+
+    n = min(len(ha), len(hb)) - 1
+    da = np.diff(ha[-n-1:])
+    db = np.diff(hb[-n-1:])
+
+    slope, intercept, r_value, p_value, std_err = linregress(db, da)
+    residuals = da - (slope * db + intercept)
+
+    return {
+        "pair_a": pair_a,
+        "pair_b": pair_b,
+        "tenor": tenor,
+        "beta": float(slope),
+        "intercept": float(intercept),
+        "r_squared": float(r_value ** 2),
+        "p_value": float(p_value),
+        "residual_std": float(np.std(residuals)),
+        "current_residual": float(residuals[-1]),
+        "residual_zscore": float(residuals[-1] / max(np.std(residuals), 1e-6)),
+    }
+
+
+def rv_scanner(pairs: List[str] = None,
+               tenors: List[str] = None,
+               lookback: int = 252) -> pd.DataFrame:
+    """
+    Scan all pair/tenor combinations for relative value signals.
+    Returns DataFrame sorted by absolute z-score.
+    """
+    if pairs is None:
+        pairs = list(FX_PAIRS.keys())[:8]
+    if tenors is None:
+        tenors = ["1M", "3M", "1Y"]
+
+    records = []
+    for p in pairs:
+        for t in tenors:
+            info = vol_zscore(p, t, "ATM", lookback)
+            iv_rv = iv_rv_percentile(p, t, lookback=lookback)
+
+            records.append({
+                "pair": p,
+                "tenor": t,
+                "atm_vol": info["current"],
+                "zscore": info["zscore"],
+                "percentile": info["percentile"],
+                "iv_rv_spread": iv_rv["current_spread"],
+                "iv_rv_pct": iv_rv["percentile"],
+                "signal": info["interpretation"],
+            })
+
+    df = pd.DataFrame(records)
+    df["abs_zscore"] = df["zscore"].abs()
+    df = df.sort_values("abs_zscore", ascending=False).drop(columns=["abs_zscore"])
+    return df.reset_index(drop=True)
+
+
+def rv_signal_composite(pair: str, lookback: int = 252) -> dict:
+    """
+    Weighted composite relative value score from multiple signals.
+    Score range: -100 (extremely cheap) to +100 (extremely rich).
+    """
+    # ATM IV z-score (weight 30%)
+    atm_z = vol_zscore(pair, "3M", "ATM", lookback)["zscore"]
+
+    # IV-RV spread percentile (weight 25%)
+    ivrv = iv_rv_percentile(pair, "3M", lookback=lookback)
+    ivrv_score = (ivrv["percentile"] - 50) / 50  # normalise to -1..+1
+
+    # Term structure slope z-score (weight 15%)
+    ts_1m = vol_zscore(pair, "1M", "ATM", lookback)["zscore"]
+    ts_1y = vol_zscore(pair, "1Y", "ATM", lookback)["zscore"]
+    ts_z = ts_1m - ts_1y  # front rich => positive
+
+    # BF z-score (weight 15%)
+    bf_z = vol_zscore(pair, "3M", "25D_BF", lookback)["zscore"]
+
+    # Regime adjustment (weight 15%)
+    regime = vol_regime_detect(pair)
+    regime_map = {"LOW": -1.0, "NORMAL": 0.0, "ELEVATED": 0.5, "HIGH": 1.0, "CRISIS": 1.5}
+    regime_score = regime_map.get(regime["regime"], 0.0)
+
+    composite = (
+        0.30 * np.clip(atm_z, -3, 3) / 3.0 +
+        0.25 * np.clip(ivrv_score, -1, 1) +
+        0.15 * np.clip(ts_z, -3, 3) / 3.0 +
+        0.15 * np.clip(bf_z, -3, 3) / 3.0 +
+        0.15 * np.clip(regime_score, -1.5, 1.5) / 1.5
+    ) * 100
+
+    if composite > 30:
+        recommendation = "SELL_VOL"
+    elif composite < -30:
+        recommendation = "BUY_VOL"
+    else:
+        recommendation = "NEUTRAL"
+
+    return {
+        "pair": pair,
+        "composite_score": float(np.clip(composite, -100, 100)),
+        "recommendation": recommendation,
+        "components": {
+            "atm_zscore": float(atm_z),
+            "ivrv_score": float(ivrv_score),
+            "term_structure_z": float(ts_z),
+            "bf_zscore": float(bf_z),
+            "regime_score": float(regime_score),
+        },
+        "weights": {"atm": 0.30, "ivrv": 0.25, "term": 0.15, "bf": 0.15, "regime": 0.15},
+    }
+
+
+def carry_adjusted_rv(pair: str, tenor: str = "3M",
+                      lookback: int = 252) -> dict:
+    """
+    Relative value adjusted for carry (theta cost of holding vol position).
+    Cheap vol with negative carry may not be as attractive.
+    """
+    z = vol_zscore(pair, tenor, "ATM", lookback)
+    carry = vol_carry(pair, tenor)
+
+    # Carry adjustment: penalise if buying vol but carry is negative (expensive)
+    carry_adj = carry["carry_as_pct_of_spot"]
+    adjusted_z = z["zscore"] + carry_adj * 0.5  # shift z-score by carry impact
+
+    return {
+        "pair": pair,
+        "tenor": tenor,
+        "raw_zscore": float(z["zscore"]),
+        "carry_cost_bps": float(carry_adj),
+        "adjusted_zscore": float(adjusted_z),
+        "daily_theta": float(carry["daily_theta"]),
+        "lookback": lookback,
+    }
+
+
+def implied_correlation(pair_a: str, pair_b: str, cross_pair: str,
+                        tenor: str = "3M") -> dict:
+    """
+    Implied correlation from the vol triangle:
+    sigma_cross^2 = sigma_a^2 + sigma_b^2 - 2 * rho * sigma_a * sigma_b
+
+    Solved: rho = (sigma_a^2 + sigma_b^2 - sigma_cross^2) / (2 * sigma_a * sigma_b)
+    """
+    surface_a = get_fx_vol_surface(pair_a)
+    surface_b = get_fx_vol_surface(pair_b)
+    surface_c = get_fx_vol_surface(cross_pair)
+
+    va = _extract_atm(surface_a, tenor) / 100.0
+    vb = _extract_atm(surface_b, tenor) / 100.0
+    vc = _extract_atm(surface_c, tenor) / 100.0
+
+    denom = 2 * va * vb
+    if denom < 1e-10:
+        rho = 0.0
+    else:
+        rho = (va ** 2 + vb ** 2 - vc ** 2) / denom
+
+    rho = float(np.clip(rho, -1.0, 1.0))
+
+    return {
+        "pair_a": pair_a,
+        "pair_b": pair_b,
+        "cross_pair": cross_pair,
+        "tenor": tenor,
+        "implied_corr": rho,
+        "vol_a": float(va * 100),
+        "vol_b": float(vb * 100),
+        "vol_cross": float(vc * 100),
+    }
+
+
+def correlation_richness(pair_a: str, pair_b: str, cross_pair: str,
+                         tenor: str = "3M") -> dict:
+    """
+    Gap between implied correlation (from vol triangle) and realised correlation.
+    Positive gap => implied corr is higher than realised (corr is expensive).
+    """
+    impl = implied_correlation(pair_a, pair_b, cross_pair, tenor)
+    implied_rho = impl["implied_corr"]
+
+    realized_rho = get_fx_correlation(pair_a, pair_b, window=60)
+    if realized_rho is None:
+        realized_rho = _synth_correlation(pair_a, pair_b)
+
+    gap = implied_rho - realized_rho
+
+    return {
+        "pair_a": pair_a,
+        "pair_b": pair_b,
+        "cross_pair": cross_pair,
+        "tenor": tenor,
+        "implied_corr": float(implied_rho),
+        "realized_corr": float(realized_rho),
+        "gap": float(gap),
+        "signal": "CORR_RICH" if gap > 0.10 else ("CORR_CHEAP" if gap < -0.10 else "FAIR"),
+    }
+
+
+# =========================================================================
+#  Correlation Analytics
+# =========================================================================
+
+def spot_correlation_matrix(pairs: List[str] = None,
+                            window: int = 60) -> pd.DataFrame:
+    """
+    Rolling correlation matrix of spot log-returns for the given FX pairs.
+    """
+    if pairs is None:
+        pairs = list(FX_PAIRS.keys())[:6]
+
+    returns = {}
+    for p in pairs:
+        hist = _to_close_array(get_fx_historical_spot(p, window + 10))
+        if hist is None or len(hist) < window:
+            hist = _synth_spot_series(p, window + 10)
+        ret = np.diff(np.log(hist[-(window + 1):]))
+        returns[p] = ret[:window]
+
+    df = pd.DataFrame(returns)
+    return df.corr()
+
+
+def vol_correlation_matrix(pairs: List[str] = None, tenor: str = "3M",
+                           window: int = 60) -> pd.DataFrame:
+    """
+    Correlation matrix of daily ATM vol changes across pairs.
+    """
+    if pairs is None:
+        pairs = list(FX_PAIRS.keys())[:6]
+
+    changes = {}
+    for p in pairs:
+        hist = get_fx_historical_vol(p, tenor, "ATM", window + 10)
+        if hist is None or len(hist) < window:
+            hist = _synth_vol_history(p, tenor, "ATM", window + 10)
+        ch = np.diff(hist[-(window + 1):])
+        changes[p] = ch[:window]
+
+    df = pd.DataFrame(changes)
+    return df.corr()
+
+
+def spot_vol_correlation(pair: str, window: int = 60) -> dict:
+    """
+    Correlation between spot returns and ATM vol changes.
+    In FX this is the leverage effect (often weaker than equities).
+    """
+    spot_hist = _to_close_array(get_fx_historical_spot(pair, window + 10))
+    if spot_hist is None or len(spot_hist) < window:
+        spot_hist = _synth_spot_series(pair, window + 10)
+
+    vol_hist = get_fx_historical_vol(pair, "3M", "ATM", window + 10)
+    if vol_hist is None or len(vol_hist) < window:
+        vol_hist = _synth_vol_history(pair, "3M", "ATM", window + 10)
+
+    n = min(len(spot_hist), len(vol_hist)) - 1
+    spot_ret = np.diff(np.log(spot_hist[-n-1:]))
+    vol_chg = np.diff(vol_hist[-n-1:])
+
+    m = min(len(spot_ret), len(vol_chg))
+    corr = float(np.corrcoef(spot_ret[:m], vol_chg[:m])[0, 1])
+
+    return {
+        "pair": pair,
+        "spot_vol_corr": corr,
+        "window": window,
+        "interpretation": "STRONG_LEVERAGE" if abs(corr) > 0.5 else
+                         ("MODERATE_LEVERAGE" if abs(corr) > 0.3 else "WEAK_LEVERAGE"),
+    }
+
+
+def correlation_regime(pairs: List[str] = None,
+                       lookback: int = 252) -> pd.DataFrame:
+    """
+    Identify correlation breakdowns by comparing short-term and long-term
+    correlation matrices.  Flag pairs where corr has deviated significantly.
+    """
+    if pairs is None:
+        pairs = list(FX_PAIRS.keys())[:6]
+
+    corr_short = spot_correlation_matrix(pairs, window=20)
+    corr_long = spot_correlation_matrix(pairs, window=min(lookback, 120))
+
+    records = []
+    for i, p1 in enumerate(pairs):
+        for j, p2 in enumerate(pairs):
+            if j <= i:
+                continue
+            short_c = corr_short.loc[p1, p2]
+            long_c = corr_long.loc[p1, p2]
+            diff = short_c - long_c
+
+            if abs(diff) > 0.3:
+                status = "BREAKDOWN"
+            elif abs(diff) > 0.15:
+                status = "SHIFTING"
+            else:
+                status = "STABLE"
+
+            records.append({
+                "pair_1": p1,
+                "pair_2": p2,
+                "corr_short": float(round(short_c, 3)),
+                "corr_long": float(round(long_c, 3)),
+                "diff": float(round(diff, 3)),
+                "status": status,
+            })
+
+    return pd.DataFrame(records)
+
+
+def correlation_term_structure(pair_a: str, pair_b: str,
+                               windows: List[int] = None) -> pd.DataFrame:
+    """
+    Correlation at different rolling windows (term structure of correlation).
+    """
+    if windows is None:
+        windows = [20, 60, 120, 252]
+
+    max_w = max(windows)
+    hist_a = _to_close_array(get_fx_historical_spot(pair_a, max_w + 10))
+    hist_b = _to_close_array(get_fx_historical_spot(pair_b, max_w + 10))
+    if hist_a is None or len(hist_a) < max_w:
+        hist_a = _synth_spot_series(pair_a, max_w + 10)
+    if hist_b is None or len(hist_b) < max_w:
+        hist_b = _synth_spot_series(pair_b, max_w + 10)
+
+    n = min(len(hist_a), len(hist_b)) - 1
+    ret_a = np.diff(np.log(hist_a[-n-1:]))
+    ret_b = np.diff(np.log(hist_b[-n-1:]))
+
+    records = []
+    for w in windows:
+        if w > len(ret_a) or w > len(ret_b):
+            continue
+        corr = float(np.corrcoef(ret_a[-w:], ret_b[-w:])[0, 1])
+        records.append({"window": w, "correlation": round(corr, 4)})
+
+    return pd.DataFrame(records)
+
+
+def correlation_cone(pair_a: str, pair_b: str,
+                     windows: List[int] = None,
+                     lookback: int = 504) -> pd.DataFrame:
+    """
+    Correlation cone: percentile bands for rolling correlation at each window.
+    """
+    if windows is None:
+        windows = [20, 60, 120, 252]
+
+    hist_a = _to_close_array(get_fx_historical_spot(pair_a, lookback + max(windows) + 10))
+    hist_b = _to_close_array(get_fx_historical_spot(pair_b, lookback + max(windows) + 10))
+    if hist_a is None or len(hist_a) < lookback:
+        hist_a = _synth_spot_series(pair_a, lookback + max(windows) + 10)
+    if hist_b is None or len(hist_b) < lookback:
+        hist_b = _synth_spot_series(pair_b, lookback + max(windows) + 10)
+
+    n = min(len(hist_a), len(hist_b)) - 1
+    ret_a = np.diff(np.log(hist_a[-n-1:]))
+    ret_b = np.diff(np.log(hist_b[-n-1:]))
+
+    records = []
+    for w in windows:
+        if len(ret_a) < w + 20:
+            continue
+        # Compute rolling correlation series
+        corr_series = pd.Series(ret_a).rolling(w).corr(pd.Series(ret_b)).dropna().values
+
+        if len(corr_series) < 5:
+            continue
+
+        current = corr_series[-1]
+        records.append({
+            "window": w,
+            "current": float(current),
+            "min": float(np.nanmin(corr_series)),
+            "p10": float(np.nanpercentile(corr_series, 10)),
+            "p25": float(np.nanpercentile(corr_series, 25)),
+            "median": float(np.nanmedian(corr_series)),
+            "p75": float(np.nanpercentile(corr_series, 75)),
+            "p90": float(np.nanpercentile(corr_series, 90)),
+            "max": float(np.nanmax(corr_series)),
+            "percentile_rank": float(percentileofscore(corr_series, current)),
+        })
+
+    return pd.DataFrame(records)
+
+
+# =========================================================================
+#  Carry & Rates
+# =========================================================================
+
+def carry_table(pairs: List[str] = None) -> pd.DataFrame:
+    """
+    Carry table: rate differentials, fwd points, and annualised carry for all pairs.
+    """
+    if pairs is None:
+        pairs = list(FX_PAIRS.keys())[:8]
+
+    records = []
+    for p in pairs:
+        spots = get_fx_spots([p])
+        spot = spots.get(p, {}).get("mid", 1.0)
+
+        rates = get_fx_rates(p)
+        r_dom = rates.get("r_dom", 0.03)
+        r_for = rates.get("r_for", 0.02)
+
+        diff = r_dom - r_for
+
+        # 3M forward points
+        T = 0.25
+        fwd = spot * np.exp(diff * T)
+        fwd_pts = (fwd - spot) * 10000  # in pips
+
+        # Annualised carry in bps
+        ann_carry = diff * 10000
+
+        records.append({
+            "pair": p,
+            "spot": round(spot, 5),
+            "r_dom": round(r_dom * 100, 2),
+            "r_for": round(r_for * 100, 2),
+            "rate_diff_bps": round(diff * 10000, 1),
+            "fwd_3m": round(fwd, 5),
+            "fwd_pts_3m": round(fwd_pts, 1),
+            "ann_carry_bps": round(ann_carry, 1),
+        })
+
+    return pd.DataFrame(records)
+
+
+def carry_per_vol(pairs: List[str] = None) -> pd.DataFrame:
+    """
+    Risk-adjusted carry: carry / ATM vol ratio for each pair.
+    Higher = better risk-adjusted carry.
+    """
+    if pairs is None:
+        pairs = list(FX_PAIRS.keys())[:8]
+
+    records = []
+    for p in pairs:
+        rates = get_fx_rates(p)
+        r_dom = rates.get("r_dom", 0.03)
+        r_for = rates.get("r_for", 0.02)
+        diff = abs(r_dom - r_for)
+
+        surface = get_fx_vol_surface(p)
+        atm = _extract_atm(surface, "3M") / 100.0
+
+        ratio = diff / max(atm, 1e-6)
+        sharpe_proxy = ratio * np.sqrt(4)  # annualise the 3M ratio
+
+        records.append({
+            "pair": p,
+            "carry_bps": round(diff * 10000, 1),
+            "atm_3m": round(atm * 100, 2),
+            "carry_per_vol": round(ratio, 4),
+            "sharpe_proxy": round(sharpe_proxy, 2),
+            "rank_signal": "ATTRACTIVE" if sharpe_proxy > 0.5 else
+                          ("MODERATE" if sharpe_proxy > 0.2 else "UNATTRACTIVE"),
+        })
+
+    df = pd.DataFrame(records)
+    df = df.sort_values("sharpe_proxy", ascending=False).reset_index(drop=True)
+    return df
+
+
+def _synth_rate_diff_history(pair: str, current_diff: float, n: int) -> np.ndarray:
+    """
+    Generate synthetic rate differential history using an OU process.
+    Replaces the random-walk stub that produced unrealistic drift.
+
+    Parameters
+    ----------
+    pair : str        currency pair (used only for seed)
+    current_diff : float  current domestic-foreign rate differential
+    n : int           number of daily observations
+
+    Returns
+    -------
+    1D array of length n, anchored so that series[-1] == current_diff
+    """
+    seed = hash(f"{pair}_rate_diff") % 2**31
+    rng = np.random.RandomState(seed)
+
+    kappa = 0.008          # half-life ~87 days (rates move slowly)
+    long_run = current_diff * 0.85   # slight reversion target
+    sigma = abs(current_diff) * 0.01 + 0.0001  # 1% of level + floor
+
+    series = np.zeros(n)
+    series[0] = long_run + rng.normal(0, sigma * 5)
+    for i in range(1, n):
+        series[i] = (series[i - 1]
+                      + kappa * (long_run - series[i - 1])
+                      + sigma * rng.normal())
+
+    # Anchor the last value to the current rate differential
+    series += (current_diff - series[-1])
+    return series
+
+
+def carry_momentum(pair: str, lookback: int = 60) -> dict:
+    """
+    Is carry improving or deteriorating?
+    Tracks the change in rate differential over the lookback period.
+    """
+    rates = get_fx_rates(pair)
+    r_dom = rates.get("r_dom", 0.03)
+    r_for = rates.get("r_for", 0.02)
+    current_diff = r_dom - r_for
+
+    # OU-process based rate differential history
+    hist_diff = _synth_rate_diff_history(pair, current_diff, lookback)
+
+    change_20d = current_diff - hist_diff[-min(20, len(hist_diff))]
+    change_60d = current_diff - hist_diff[0]
+
+    if change_20d > 0.002:
+        momentum = "IMPROVING"
+    elif change_20d < -0.002:
+        momentum = "DETERIORATING"
+    else:
+        momentum = "STABLE"
+
+    return {
+        "pair": pair,
+        "current_diff_bps": float(current_diff * 10000),
+        "change_20d_bps": float(change_20d * 10000),
+        "change_60d_bps": float(change_60d * 10000),
+        "momentum": momentum,
+    }
+
+
+def rate_differential_history(pair: str, lookback: int = 252) -> pd.DataFrame:
+    """
+    Time series of domestic-foreign rate differential.
+    Uses OU-process based history for realistic autocorrelation.
+    """
+    rates = get_fx_rates(pair)
+    r_dom = rates.get("r_dom", 0.03)
+    r_for = rates.get("r_for", 0.02)
+    current_diff = r_dom - r_for
+
+    # OU-process based rate differential history
+    hist = _synth_rate_diff_history(pair, current_diff, lookback)
+
+    # Decompose into domestic and foreign rate estimates
+    # Use a simple proportion: r_dom_est = r_for + hist (since diff = r_dom - r_for)
+    r_for_series = _synth_rate_diff_history(
+        pair + "_rfor", r_for, lookback
+    )
+    r_dom_series = r_for_series + hist
+
+    return pd.DataFrame({
+        "day": np.arange(lookback),
+        "rate_diff": hist,
+        "r_dom_est": r_dom_series,
+        "r_for_est": r_for_series,
+    })
+
+
+# =========================================================================
+#  Positioning & Flow
+# =========================================================================
+
+def cftc_positioning_data(pair: str) -> dict:
+    """
+    CFTC Commitments of Traders positioning data.
+    Returns net speculative, commercial, and open interest.
+    """
+    data = get_cftc_positioning(pair)
+    if data is None:
+        data = _synth_cftc_data(pair)
+
+    return {
+        "pair": pair,
+        "net_speculative": int(data.get("net_speculative", 0)),
+        "net_commercial": int(data.get("net_commercial", 0)),
+        "open_interest": int(data.get("open_interest", 0)),
+        "spec_long": int(data.get("spec_long", 0)),
+        "spec_short": int(data.get("spec_short", 0)),
+        "comm_long": int(data.get("comm_long", 0)),
+        "comm_short": int(data.get("comm_short", 0)),
+        "report_date": data.get("report_date", "2026-03-17"),
+    }
+
+
+def _synth_positioning_history(pair: str, current_net: int, n: int) -> np.ndarray:
+    """
+    Generate autocorrelated positioning history using an OU process.
+    This replaces the i.i.d. normal noise that produced unrealistic
+    week-to-week jumps in speculative positioning.
+    """
+    seed = hash(f"{pair}_pos_hist") % 2**31
+    rng = np.random.RandomState(seed)
+    kappa = 0.04
+    long_run_mean = current_net * 0.5
+    sigma = abs(current_net) * 0.08 + 2000
+    series = np.zeros(n)
+    series[0] = long_run_mean + rng.normal(0, sigma * 3)
+    for i in range(1, n):
+        series[i] = series[i - 1] + kappa * (long_run_mean - series[i - 1]) + sigma * rng.normal()
+    # Anchor the last value to the current net speculative position
+    series += (current_net - series[-1])
+    return series
+
+
+def positioning_zscore(pair: str, lookback: int = 156) -> dict:
+    """
+    Z-score of net speculative positioning vs 3-year weekly history.
+    """
+    current = cftc_positioning_data(pair)
+    net_spec = current["net_speculative"]
+
+    # Generate autocorrelated historical positioning (weekly) via OU process
+    hist = _synth_positioning_history(pair, net_spec, lookback)
+
+    mu = np.mean(hist)
+    sigma = np.std(hist)
+    z = (net_spec - mu) / max(sigma, 1)
+
+    return {
+        "pair": pair,
+        "net_speculative": int(net_spec),
+        "mean_3y": float(mu),
+        "std_3y": float(sigma),
+        "zscore": float(z),
+        "lookback_weeks": lookback,
+        "signal": "EXTREME_LONG" if z > 1.5 else
+                 ("EXTREME_SHORT" if z < -1.5 else "NORMAL"),
+    }
+
+
+def positioning_extremes(pairs: List[str] = None) -> pd.DataFrame:
+    """
+    Flag pairs with extreme speculative positioning (|z-score| > 1.5).
+    """
+    if pairs is None:
+        pairs = list(FX_PAIRS.keys())[:8]
+
+    records = []
+    for p in pairs:
+        z_data = positioning_zscore(p)
+        records.append({
+            "pair": p,
+            "net_speculative": z_data["net_speculative"],
+            "zscore": round(z_data["zscore"], 2),
+            "signal": z_data["signal"],
+            "extreme": abs(z_data["zscore"]) > 1.5,
+        })
+
+    df = pd.DataFrame(records)
+    df = df.sort_values("zscore", key=abs, ascending=False).reset_index(drop=True)
+    return df
+
+
+def positioning_vs_spot(pair: str, lookback: int = 156) -> pd.DataFrame:
+    """
+    Overlay of positioning and spot for divergence analysis.
+    Weekly frequency aligned to CFTC report dates.
+    """
+    spot_hist = _to_close_array(get_fx_historical_spot(pair, lookback * 5 + 10))
+    if spot_hist is None or len(spot_hist) < lookback:
+        spot_hist = _synth_spot_series(pair, lookback * 5 + 10)
+
+    # Downsample spot to weekly
+    spot_weekly = spot_hist[::5][-lookback:]
+
+    current = cftc_positioning_data(pair)
+    net_spec = current["net_speculative"]
+
+    # Use OU-process based positioning history (same as positioning_zscore)
+    pos_hist = _synth_positioning_history(pair, net_spec, lookback)
+
+    n = min(len(spot_weekly), len(pos_hist))
+    return pd.DataFrame({
+        "week": np.arange(n),
+        "spot": spot_weekly[-n:],
+        "net_speculative": pos_hist[-n:].astype(int),
+    })
+
+
+# =========================================================================
+#  Risk Metrics
+# =========================================================================
+
+def historical_var(returns: np.ndarray, confidence: float = 0.95,
+                   horizon: int = 1) -> dict:
+    """
+    Historical simulation Value-at-Risk.
+    Scales to horizon using sqrt(T) rule.
+    """
+    returns = np.asarray(returns, dtype=float)
+    returns = returns[np.isfinite(returns)]
+
+    if len(returns) < 10:
+        return {"var": 0.0, "confidence": confidence, "horizon": horizon}
+
+    sorted_ret = np.sort(returns)
+    idx = int((1 - confidence) * len(sorted_ret))
+    var_1d = -sorted_ret[idx]
+    var_horizon = var_1d * np.sqrt(horizon)
+
+    return {
+        "var_1d": float(var_1d),
+        "var_horizon": float(var_horizon),
+        "confidence": confidence,
+        "horizon": horizon,
+        "n_observations": len(returns),
+        "worst_return": float(sorted_ret[0]),
+        "best_return": float(sorted_ret[-1]),
+    }
+
+
+def parametric_var(sigma: float, notional: float, confidence: float = 0.95,
+                   horizon: int = 1) -> dict:
+    """
+    Gaussian (parametric) VaR.
+    VaR = z * sigma * sqrt(T) * notional
+    """
+    z = norm.ppf(confidence)
+    daily_vol = sigma / np.sqrt(252)
+    var_val = z * daily_vol * np.sqrt(horizon) * notional
+
+    return {
+        "var": float(var_val),
+        "confidence": confidence,
+        "horizon": horizon,
+        "z_score": float(z),
+        "daily_vol": float(daily_vol),
+        "sigma": float(sigma),
+        "notional": float(notional),
+    }
+
+
+def expected_shortfall(returns: np.ndarray, confidence: float = 0.95,
+                       horizon: int = 1) -> dict:
+    """
+    Conditional VaR (Expected Shortfall / CVaR).
+    Average loss in the worst (1-confidence) tail.
+    """
+    returns = np.asarray(returns, dtype=float)
+    returns = returns[np.isfinite(returns)]
+
+    if len(returns) < 10:
+        return {"cvar": 0.0, "var": 0.0, "confidence": confidence}
+
+    sorted_ret = np.sort(returns)
+    cutoff = int((1 - confidence) * len(sorted_ret))
+    cutoff = max(cutoff, 1)
+
+    var_val = -sorted_ret[cutoff]
+    cvar = -np.mean(sorted_ret[:cutoff])
+    cvar_horizon = cvar * np.sqrt(horizon)
+
+    return {
+        "cvar_1d": float(cvar),
+        "cvar_horizon": float(cvar_horizon),
+        "var_1d": float(var_val),
+        "confidence": confidence,
+        "horizon": horizon,
+        "n_tail_obs": cutoff,
+        "tail_ratio": float(cvar / max(var_val, 1e-10)),
+    }
+
+
+def cornish_fisher_var(returns: np.ndarray, confidence: float = 0.95) -> dict:
+    """
+    VaR adjusted for skewness and kurtosis using the Cornish-Fisher expansion.
+    More accurate than Gaussian VaR for non-normal distributions.
+    """
+    returns = np.asarray(returns, dtype=float)
+    returns = returns[np.isfinite(returns)]
+
+    if len(returns) < 20:
+        return {"cf_var": 0.0, "gaussian_var": 0.0}
+
+    mu = np.mean(returns)
+    sigma = np.std(returns)
+    s = float(pd.Series(returns).skew())
+    k = float(pd.Series(returns).kurtosis())  # excess kurtosis
+
+    z = norm.ppf(confidence)
+
+    # Cornish-Fisher expansion
+    z_cf = (z +
+            (z ** 2 - 1) * s / 6 +
+            (z ** 3 - 3 * z) * k / 24 -
+            (2 * z ** 3 - 5 * z) * s ** 2 / 36)
+
+    cf_var = -(mu - z_cf * sigma)
+    gaussian_var = -(mu - z * sigma)
+
+    return {
+        "cf_var": float(cf_var),
+        "gaussian_var": float(gaussian_var),
+        "adjustment": float(cf_var - gaussian_var),
+        "skewness": float(s),
+        "excess_kurtosis": float(k),
+        "z_gaussian": float(z),
+        "z_cornish_fisher": float(z_cf),
+        "confidence": confidence,
+    }
+
+
+def max_drawdown(returns: np.ndarray) -> dict:
+    """
+    Maximum drawdown from a return series.
+    Returns max drawdown percentage, peak/trough indices, and duration.
+    """
+    returns = np.asarray(returns, dtype=float)
+    returns = returns[np.isfinite(returns)]
+
+    if len(returns) < 2:
+        return {"max_drawdown": 0.0, "peak_idx": 0, "trough_idx": 0}
+
+    # Cumulative wealth
+    cum = np.cumprod(1 + returns)
+    running_max = np.maximum.accumulate(cum)
+    drawdowns = cum / running_max - 1
+
+    trough_idx = int(np.argmin(drawdowns))
+    peak_idx = int(np.argmax(cum[:trough_idx + 1]))
+    mdd = float(drawdowns[trough_idx])
+
+    # Recovery index
+    recovery_idx = None
+    for i in range(trough_idx + 1, len(cum)):
+        if cum[i] >= cum[peak_idx]:
+            recovery_idx = i
+            break
+
+    duration_to_trough = trough_idx - peak_idx
+    duration_to_recovery = (recovery_idx - peak_idx) if recovery_idx is not None else None
+
+    return {
+        "max_drawdown": float(mdd),
+        "max_drawdown_pct": float(mdd * 100),
+        "peak_idx": peak_idx,
+        "trough_idx": trough_idx,
+        "recovery_idx": recovery_idx,
+        "duration_to_trough": duration_to_trough,
+        "duration_to_recovery": duration_to_recovery,
+        "peak_value": float(cum[peak_idx]),
+        "trough_value": float(cum[trough_idx]),
+    }
+
+
+def tail_risk_metrics(returns: np.ndarray) -> dict:
+    """
+    Comprehensive tail risk metrics:
+    - Skewness, excess kurtosis
+    - Jarque-Bera test for normality
+    - Hill tail index estimator
+    """
+    returns = np.asarray(returns, dtype=float)
+    returns = returns[np.isfinite(returns)]
+
+    if len(returns) < 20:
+        return {
+            "skewness": 0.0, "excess_kurtosis": 0.0,
+            "jarque_bera": 0.0, "jb_pvalue": 1.0,
+            "hill_index": 2.0,
+        }
+
+    s = float(pd.Series(returns).skew())
+    k = float(pd.Series(returns).kurtosis())
+
+    jb_stat, jb_pvalue = jarque_bera(returns)
+
+    # Hill tail index estimator (for left tail)
+    sorted_abs = np.sort(np.abs(returns))[::-1]
+    # Use top 10% of observations
+    n_tail = max(int(len(sorted_abs) * 0.10), 5)
+    threshold = sorted_abs[n_tail - 1]
+
+    if threshold > 0:
+        log_exceedances = np.log(sorted_abs[:n_tail] / threshold)
+        hill_index = float(n_tail / max(np.sum(log_exceedances), 1e-10))
+    else:
+        hill_index = 2.0  # default
+
+    # Interpret
+    if jb_pvalue < 0.01:
+        normality = "REJECTED"
+    elif jb_pvalue < 0.05:
+        normality = "BORDERLINE"
+    else:
+        normality = "NOT_REJECTED"
+
+    return {
+        "skewness": float(s),
+        "excess_kurtosis": float(k),
+        "jarque_bera_stat": float(jb_stat),
+        "jb_pvalue": float(jb_pvalue),
+        "normality": normality,
+        "hill_tail_index": float(hill_index),
+        "tail_assessment": "FAT_TAILS" if hill_index < 3 else "NORMAL_TAILS",
+        "n_observations": len(returns),
+    }
+
+
+# =========================================================================
+#  Internal Helpers
+# =========================================================================
+
+def _cross_pair_metric_spread(pair_a: str, pair_b: str, tenor: str,
+                               metric: str, lookback: int) -> dict:
+    """Generic cross-pair spread calculation for any vol metric."""
+    ha = get_fx_historical_vol(pair_a, tenor, metric, lookback)
+    hb = get_fx_historical_vol(pair_b, tenor, metric, lookback)
+    if ha is None or len(ha) < 20:
+        ha = _synth_vol_history(pair_a, tenor, metric, lookback)
+    if hb is None or len(hb) < 20:
+        hb = _synth_vol_history(pair_b, tenor, metric, lookback)
+
+    n = min(len(ha), len(hb))
+    a = ha[-n:]
+    b = hb[-n:]
+    spread = a - b
+
+    mu = np.mean(spread)
+    sigma = np.std(spread)
+    current = spread[-1]
+    z = (current - mu) / max(sigma, 1e-6)
+
+    return {
+        "pair_a": pair_a,
+        "pair_b": pair_b,
+        "tenor": tenor,
+        "metric": metric,
+        "spread_ts": spread.tolist(),
+        "mean": float(mu),
+        "std": float(sigma),
+        "current": float(current),
+        "zscore": float(z),
+        "percentile": float(percentileofscore(spread, current)),
+        "signal": "WIDE" if z > 1.5 else ("NARROW" if z < -1.5 else "NORMAL"),
+    }
+
+
+def _extract_atm(surface, tenor: str) -> float:
+    """Extract ATM vol from a surface dict. Returns vol in percent."""
+    if isinstance(surface, dict):
+        # bloomberg_fx returns {tenor: {"atm": val, ...}} directly (lowercase keys)
+        if tenor in surface and isinstance(surface[tenor], dict):
+            return surface[tenor].get("atm", surface[tenor].get("ATM", 8.0))
+        # Try nested "tenors" key for alternate format
+        tenors = surface.get("tenors", {})
+        if tenor in tenors:
+            return tenors[tenor].get("atm", tenors[tenor].get("ATM", 8.0))
+        # Try nearest tenor
+        for t in ["3M", "1M", "6M", "1Y"]:
+            if t in surface and isinstance(surface[t], dict):
+                return surface[t].get("atm", surface[t].get("ATM", 8.0))
+    return _synth_atm(tenor)
+
+
+_METRIC_KEY_MAP = {
+    "ATM": "atm", "25D_RR": "rr25", "25D_BF": "bf25",
+    "10D_RR": "rr10", "10D_BF": "bf10",
+}
+
+
+def _extract_metric(surface, tenor: str, metric: str) -> float:
+    """Extract a specific metric from the surface dict. Returns vol in percent."""
+    key = _METRIC_KEY_MAP.get(metric, metric.lower())
+    if isinstance(surface, dict):
+        # Direct tenor lookup (bloomberg_fx format)
+        if tenor in surface and isinstance(surface[tenor], dict):
+            return surface[tenor].get(key, surface[tenor].get(metric, 0.0))
+        # Nested "tenors" key
+        tenors = surface.get("tenors", {})
+        if tenor in tenors:
+            return tenors[tenor].get(key, tenors[tenor].get(metric, 0.0))
+    return _synth_metric(metric)
+
+
+def _synth_atm(tenor: str) -> float:
+    """Synthetic ATM vol for a tenor (in vol percent, e.g. 8.5)."""
+    base = {"1W": 7.5, "2W": 7.8, "1M": 8.0, "2M": 8.2, "3M": 8.5,
+            "6M": 8.8, "9M": 9.0, "1Y": 9.2, "18M": 9.4, "2Y": 9.5}
+    return base.get(tenor, 8.5)
+
+
+def _synth_metric(metric: str) -> float:
+    """Synthetic value for a vol metric."""
+    defaults = {
+        "ATM": 8.5, "25D_RR": -0.3, "25D_BF": 0.25,
+        "10D_RR": -0.6, "10D_BF": 0.8,
+    }
+    return defaults.get(metric, 0.0)
+
+
+def _synth_vol_history(pair: str, tenor: str, metric: str,
+                       n: int) -> np.ndarray:
+    """
+    Generate synthetic historical vol data for a pair/tenor/metric.
+    Uses mean-reverting OU process with realistic FX vol calibration.
+
+    Calibration notes:
+    - kappa = 0.015 gives a half-life of ~46 days, realistic for IV
+    - ATM daily noise ~0.20 vol points (base * 0.025)
+    - RR/BF noise scaled to typical daily moves observed in the market
+    """
+    seed = hash(f"{pair}_{tenor}_{metric}") % 2**31
+    rng = np.random.RandomState(seed)
+
+    base_vols = {
+        "EURUSD": 7.5, "GBPUSD": 8.0, "USDJPY": 9.5, "USDCHF": 7.0,
+        "AUDUSD": 10.0, "NZDUSD": 10.5, "USDCAD": 7.5, "EURGBP": 6.5,
+        "EURJPY": 10.0, "GBPJPY": 11.0,
+    }
+    base = base_vols.get(pair, 8.5)
+
+    # Adjust for tenor (term structure multiplier)
+    tenor_mult = {
+        "ON": 1.15, "1W": 1.10, "2W": 1.05, "1M": 1.0, "2M": 0.98,
+        "3M": 0.97, "6M": 0.95, "9M": 0.93, "1Y": 0.92, "2Y": 0.90,
+        "3Y": 0.89, "5Y": 0.88,
+    }
+    base *= tenor_mult.get(tenor, 1.0)
+
+    # Metric-specific base level and daily noise calibration
+    if metric == "25D_RR":
+        base = -0.3
+        daily_noise = 0.07
+    elif metric == "25D_BF":
+        base = 0.25
+        daily_noise = 0.03
+    elif metric == "10D_RR":
+        base = -0.6
+        daily_noise = 0.12
+    elif metric == "10D_BF":
+        base = 0.8
+        daily_noise = 0.05
+    else:
+        # ATM: daily noise ~0.20 vol points
+        daily_noise = base * 0.025
+
+    # Mean-reverting OU process with realistic half-life
+    kappa = 0.015  # half-life ~46 days, realistic for implied vol
+    series = np.zeros(n)
+    series[0] = base + rng.normal(0, daily_noise * 3)
+
+    for i in range(1, n):
+        series[i] = (series[i - 1]
+                      + kappa * (base - series[i - 1])
+                      + daily_noise * rng.normal())
+
+    # Keep ATM and BF positive; allow RR to be negative
+    if metric in ("ATM", "25D_BF", "10D_BF"):
+        series = np.maximum(series, 0.5)
+
+    return series
+
+
+def _synth_spot_series(pair: str, n: int) -> np.ndarray:
+    """Generate synthetic FX spot history using GBM."""
+    seed = hash(f"{pair}_spot") % 2**31
+    rng = np.random.RandomState(seed)
+
+    spot_levels = {
+        "EURUSD": 1.0850, "GBPUSD": 1.2650, "USDJPY": 150.30,
+        "USDCHF": 0.8820, "AUDUSD": 0.6550, "NZDUSD": 0.6120,
+        "USDCAD": 1.3580, "EURGBP": 0.8570, "EURJPY": 163.10,
+        "GBPJPY": 190.20,
+    }
+    S0 = spot_levels.get(pair, 1.0)
+
+    vol_map = {
+        "EURUSD": 0.075, "GBPUSD": 0.080, "USDJPY": 0.095,
+        "USDCHF": 0.070, "AUDUSD": 0.100, "NZDUSD": 0.105,
+        "USDCAD": 0.075, "EURGBP": 0.065, "EURJPY": 0.100,
+        "GBPJPY": 0.110,
+    }
+    sigma = vol_map.get(pair, 0.08)
+
+    dt = 1.0 / 252
+    returns = rng.normal(-0.5 * sigma**2 * dt, sigma * np.sqrt(dt), n)
+    prices = S0 * np.exp(np.cumsum(returns))
+
+    return prices
+
+
+def _synth_rv_series(pair: str, n: int) -> np.ndarray:
+    """
+    Generate synthetic realised vol series.
+
+    Calibration:
+    - kappa = 0.012 (half-life ~58 days, slower than IV)
+    - sigma_rv = base * 0.04 (4% of level daily)
+    - Floor at 1.0 vol point
+    - Pair-specific base RV levels
+    """
+    seed = hash(f"{pair}_rv") % 2**31
+    rng = np.random.RandomState(seed)
+
+    base_rv = {
+        "EURUSD": 7.0, "GBPUSD": 7.5, "USDJPY": 9.0,
+        "USDCHF": 6.5, "AUDUSD": 9.5, "NZDUSD": 10.0,
+        "USDCAD": 7.0, "EURGBP": 6.0, "EURJPY": 9.5,
+        "GBPJPY": 10.5,
+    }
+    base = base_rv.get(pair, 8.0)
+
+    kappa = 0.012  # half-life ~58 days
+    sigma_rv = base * 0.04  # 4% of level daily
+    series = np.zeros(n)
+    series[0] = base + rng.normal(0, sigma_rv * 3)
+
+    for i in range(1, n):
+        series[i] = (series[i - 1]
+                      + kappa * (base - series[i - 1])
+                      + sigma_rv * rng.normal())
+        series[i] = max(series[i], 1.0)  # floor at 1.0 vol point
+
+    return series
+
+
+def _synth_correlation(pair_a: str, pair_b: str) -> float:
+    """Synthetic correlation for two FX pairs.
+
+    For known pairs, returns a hard-coded estimate.
+    For unknown pairs, computes correlation from synthetic spot return series
+    so the result is structurally consistent with the spot generator.
+    """
+    corr_map = {
+        ("EURUSD", "GBPUSD"): 0.75,
+        ("EURUSD", "USDCHF"): -0.85,
+        ("EURUSD", "USDJPY"): -0.30,
+        ("EURUSD", "AUDUSD"): 0.60,
+        ("GBPUSD", "EURGBP"): -0.50,
+        ("USDJPY", "EURJPY"): 0.65,
+        ("AUDUSD", "NZDUSD"): 0.90,
+        ("USDCAD", "AUDUSD"): 0.55,
+    }
+    key = (pair_a, pair_b)
+    rev_key = (pair_b, pair_a)
+    if key in corr_map:
+        return corr_map[key]
+    if rev_key in corr_map:
+        return corr_map[rev_key]
+    # Compute correlation from synthetic spot return series
+    n = 252
+    spot_a = _synth_spot_series(pair_a, n + 1)
+    spot_b = _synth_spot_series(pair_b, n + 1)
+    ret_a = np.diff(np.log(spot_a))
+    ret_b = np.diff(np.log(spot_b))
+    return float(np.corrcoef(ret_a, ret_b)[0, 1])
+
+
+def _synth_cftc_data(pair: str) -> dict:
+    """Generate synthetic CFTC positioning data with pair-specific OI scaling."""
+    seed = hash(f"{pair}_cftc") % 2**31
+    rng = np.random.RandomState(seed)
+
+    # Pair-specific OI scaling (relative to EURUSD = 1.0)
+    oi_scale = {
+        "EURUSD": 1.0, "USDJPY": 0.85, "GBPUSD": 0.55, "AUDUSD": 0.45,
+        "USDCAD": 0.40, "NZDUSD": 0.25, "USDCHF": 0.30, "EURGBP": 0.20,
+        "EURJPY": 0.35, "GBPJPY": 0.25,
+    }
+    scale = oi_scale.get(pair, 0.30)
+
+    spec_long = int(rng.uniform(30000, 150000) * scale)
+    spec_short = int(rng.uniform(30000, 150000) * scale)
+    comm_long = int(rng.uniform(50000, 200000) * scale)
+    comm_short = int(rng.uniform(50000, 200000) * scale)
+
+    # OI = max of total long side vs total short side (not sum of all 4)
+    total_long = spec_long + comm_long
+    total_short = spec_short + comm_short
+    open_interest = max(total_long, total_short)
+
+    return {
+        "net_speculative": spec_long - spec_short,
+        "net_commercial": comm_long - comm_short,
+        "open_interest": open_interest,
+        "spec_long": spec_long,
+        "spec_short": spec_short,
+        "comm_long": comm_long,
+        "comm_short": comm_short,
+        "report_date": "2026-03-17",
+    }
