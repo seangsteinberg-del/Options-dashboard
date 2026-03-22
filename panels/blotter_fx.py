@@ -158,13 +158,13 @@ def _generate_sample_trades():
     trades = []
     for i in range(22):
         try:
-            pair = np.random.choice(sample_pairs)
+            pair = str(np.random.choice(sample_pairs))
             S = sample_spots.get(pair, 1.0)
             is_call = np.random.random() > 0.45
             is_buy = np.random.random() > 0.45
             cp = 1 if is_call else -1
-            delta_val = np.random.choice([0.10, 0.15, 0.25, 0.35, 0.50])
-            tenor = np.random.choice(TENORS)
+            delta_val = float(np.random.choice([0.10, 0.15, 0.25, 0.35, 0.50]))
+            tenor = str(np.random.choice(TENORS))
             T = tenor_to_years(tenor)
             r_d, r_f = 0.04, 0.03
 
@@ -176,36 +176,36 @@ def _generate_sample_trades():
             K = F * np.exp((-cp * 0.5 + np.random.uniform(-0.3, 0.3)) * sigma * np.sqrt(max(T, 1e-6)))
             K = round(K, 4 if S < 10 else 2)
             expiry = now + timedelta(days=tenor_to_days(tenor))
-            notional = np.random.choice([1_000_000, 5_000_000, 10_000_000,
-                                          25_000_000, 50_000_000])
+            notional = int(np.random.choice([1_000_000, 5_000_000, 10_000_000,
+                                          25_000_000, 50_000_000]))
             premium_per_unit = max(_gk_price(S, K, T, r_d, r_f, sigma, cp), 0.0001)
-            premium = round(premium_per_unit * notional, 2)
-            actual_delta = round(_gk_delta(S, K, T, r_d, r_f, sigma, cp), 4)
-            vega = round(_gk_vega(S, K, T, r_d, r_f, sigma) * notional, 2)
-            book = np.random.choice(BOOKS)
-            strategy = np.random.choice(STRATEGIES)
-            cpty = np.random.choice(["JPM", "GS", "CITI", "BARC", "MS", "UBS",
-                                      "HSBC", "DB", "BNP", "SG", "RBC", "TD"])
-            ts = now - timedelta(minutes=np.random.uniform(5, 600))
+            premium = round(float(premium_per_unit * notional), 2)
+            actual_delta = round(float(_gk_delta(S, K, T, r_d, r_f, sigma, cp)), 4)
+            vega = round(float(_gk_vega(S, K, T, r_d, r_f, sigma) * notional), 2)
+            book = str(np.random.choice(BOOKS))
+            strategy = str(np.random.choice(STRATEGIES))
+            cpty = str(np.random.choice(["JPM", "GS", "CITI", "BARC", "MS", "UBS",
+                                      "HSBC", "DB", "BNP", "SG", "RBC", "TD"]))
+            ts = now - timedelta(minutes=float(np.random.uniform(5, 600)))
             trades.append({
                 "id": f"FX-{20000 + i:05d}",
                 "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
                 "pair": pair,
                 "type": "CALL" if is_call else "PUT",
                 "side": "BUY" if is_buy else "SELL",
-                "strike": K,
+                "strike": float(K),
                 "delta": actual_delta,
                 "tenor": tenor,
                 "expiry": expiry.strftime("%Y-%m-%d"),
                 "notional": notional,
                 "premium": premium,
-                "premium_per_unit": round(premium_per_unit, 6),
-                "vol": round(sigma * 100, 2),
+                "premium_per_unit": round(float(premium_per_unit), 6),
+                "vol": round(float(sigma * 100), 2),
                 "vega": vega,
                 "book": book,
                 "strategy": strategy,
                 "counterparty": cpty,
-                "cut": np.random.choice(CUT_OPTIONS),
+                "cut": str(np.random.choice(CUT_OPTIONS)),
                 "notes": "",
                 "status": "FILLED",
             })

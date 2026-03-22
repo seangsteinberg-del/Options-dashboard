@@ -1160,7 +1160,7 @@ def register_callbacks(app):
     def _run_backtest(n_clicks, strategy, pair, tenor, delta, lookback,
                       entry_signal, exit_rule, notional):
         if not n_clicks:
-            return no_update
+            return (no_update,) * 6
 
         # Validate inputs
         if not strategy or not pair or not tenor:
