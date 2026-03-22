@@ -287,7 +287,7 @@ _FX_FALLBACK: Dict[str, dict] = {
         "vol_history_params": {"mean": 7.20, "std": 1.5, "mr_speed": 0.03, "vol_of_vol": 0.8},
     },
     "USDJPY": {
-        "spot": 149.50, "r_dom": 0.0530, "r_for": -0.0010,
+        "spot": 149.50, "r_dom": -0.0010, "r_for": 0.0530,
         "beta_to_dxy": 0.85, "daily_vol": 0.072,
         "vol_surface": _make_vol_surface(10.80, 0.70, 0.45, 1.40, 0.80),
         "vol_history_params": {"mean": 10.80, "std": 2.0, "mr_speed": 0.025, "vol_of_vol": 1.0},
@@ -299,7 +299,7 @@ _FX_FALLBACK: Dict[str, dict] = {
         "vol_history_params": {"mean": 8.50, "std": 1.6, "mr_speed": 0.03, "vol_of_vol": 0.85},
     },
     "USDCHF": {
-        "spot": 0.8820, "r_dom": 0.0530, "r_for": 0.0175,
+        "spot": 0.8820, "r_dom": 0.0175, "r_for": 0.0530,
         "beta_to_dxy": 0.90, "daily_vol": 0.060,
         "vol_surface": _make_vol_surface(7.80, -0.35, 0.22, -0.75, 0.40),
         "vol_history_params": {"mean": 7.80, "std": 1.4, "mr_speed": 0.035, "vol_of_vol": 0.75},
@@ -317,148 +317,148 @@ _FX_FALLBACK: Dict[str, dict] = {
         "vol_history_params": {"mean": 10.40, "std": 1.9, "mr_speed": 0.028, "vol_of_vol": 0.92},
     },
     "USDCAD": {
-        "spot": 1.3580, "r_dom": 0.0530, "r_for": 0.0500,
+        "spot": 1.3580, "r_dom": 0.0500, "r_for": 0.0530,
         "beta_to_dxy": 0.65, "daily_vol": 0.058,
         "vol_surface": _make_vol_surface(7.00, -0.30, 0.22, -0.65, 0.40),
         "vol_history_params": {"mean": 7.00, "std": 1.3, "mr_speed": 0.032, "vol_of_vol": 0.72},
     },
     # ── G10 Crosses ───────────────────────────────────────────────────────
     "EURGBP": {
-        "spot": 0.8580, "r_dom": 0.0390, "r_for": 0.0520,
+        "spot": 0.8580, "r_dom": 0.0520, "r_for": 0.0390,
         "beta_to_dxy": -0.15, "daily_vol": 0.055,
         "vol_surface": _make_vol_surface(6.80, -0.30, 0.20, -0.65, 0.38),
         "vol_history_params": {"mean": 6.80, "std": 1.2, "mr_speed": 0.035, "vol_of_vol": 0.70},
     },
     "EURJPY": {
-        "spot": 162.20, "r_dom": 0.0390, "r_for": -0.0010,
+        "spot": 162.20, "r_dom": -0.0010, "r_for": 0.0390,
         "beta_to_dxy": -0.10, "daily_vol": 0.080,
         "vol_surface": _make_vol_surface(10.50, 0.55, 0.40, 1.10, 0.70),
         "vol_history_params": {"mean": 10.50, "std": 2.0, "mr_speed": 0.025, "vol_of_vol": 0.95},
     },
     "GBPJPY": {
-        "spot": 189.10, "r_dom": 0.0520, "r_for": -0.0010,
+        "spot": 189.10, "r_dom": -0.0010, "r_for": 0.0520,
         "beta_to_dxy": -0.05, "daily_vol": 0.090,
         "vol_surface": _make_vol_surface(11.80, 0.80, 0.50, 1.60, 0.85),
         "vol_history_params": {"mean": 11.80, "std": 2.2, "mr_speed": 0.022, "vol_of_vol": 1.05},
     },
     "AUDJPY": {
-        "spot": 97.45, "r_dom": 0.0435, "r_for": -0.0010,
+        "spot": 97.45, "r_dom": -0.0010, "r_for": 0.0435,
         "beta_to_dxy": -0.20, "daily_vol": 0.088,
         "vol_surface": _make_vol_surface(11.50, 0.65, 0.45, 1.30, 0.75),
         "vol_history_params": {"mean": 11.50, "std": 2.1, "mr_speed": 0.024, "vol_of_vol": 1.00},
     },
     "EURCHF": {
-        "spot": 0.9570, "r_dom": 0.0390, "r_for": 0.0175,
+        "spot": 0.9570, "r_dom": 0.0175, "r_for": 0.0390,
         "beta_to_dxy": -0.05, "daily_vol": 0.050,
         "vol_surface": _make_vol_surface(5.80, -0.45, 0.25, -0.90, 0.45),
         "vol_history_params": {"mean": 5.80, "std": 1.5, "mr_speed": 0.030, "vol_of_vol": 0.80},
     },
     "EURAUD": {
-        "spot": 1.6640, "r_dom": 0.0390, "r_for": 0.0435,
+        "spot": 1.6640, "r_dom": 0.0435, "r_for": 0.0390,
         "beta_to_dxy": 0.25, "daily_vol": 0.070,
         "vol_surface": _make_vol_surface(9.20, -0.45, 0.30, -0.95, 0.55),
         "vol_history_params": {"mean": 9.20, "std": 1.7, "mr_speed": 0.028, "vol_of_vol": 0.88},
     },
     "EURNZD": {
-        "spot": 1.7845, "r_dom": 0.0390, "r_for": 0.0550,
+        "spot": 1.7845, "r_dom": 0.0550, "r_for": 0.0390,
         "beta_to_dxy": 0.20, "daily_vol": 0.074,
         "vol_surface": _make_vol_surface(9.80, -0.50, 0.32, -1.05, 0.58),
         "vol_history_params": {"mean": 9.80, "std": 1.8, "mr_speed": 0.027, "vol_of_vol": 0.90},
     },
     "NZDJPY": {
-        "spot": 90.90, "r_dom": 0.0550, "r_for": -0.0010,
+        "spot": 90.90, "r_dom": -0.0010, "r_for": 0.0550,
         "beta_to_dxy": -0.18, "daily_vol": 0.085,
         "vol_surface": _make_vol_surface(11.20, 0.60, 0.42, 1.25, 0.72),
         "vol_history_params": {"mean": 11.20, "std": 2.0, "mr_speed": 0.024, "vol_of_vol": 0.98},
     },
     "AUDNZD": {
-        "spot": 1.0720, "r_dom": 0.0435, "r_for": 0.0550,
+        "spot": 1.0720, "r_dom": 0.0550, "r_for": 0.0435,
         "beta_to_dxy": -0.05, "daily_vol": 0.048,
         "vol_surface": _make_vol_surface(6.20, -0.20, 0.18, -0.45, 0.32),
         "vol_history_params": {"mean": 6.20, "std": 1.0, "mr_speed": 0.035, "vol_of_vol": 0.65},
     },
     "CADCHF": {
-        "spot": 0.6495, "r_dom": 0.0500, "r_for": 0.0175,
+        "spot": 0.6495, "r_dom": 0.0175, "r_for": 0.0500,
         "beta_to_dxy": 0.10, "daily_vol": 0.062,
         "vol_surface": _make_vol_surface(7.50, -0.30, 0.22, -0.65, 0.40),
         "vol_history_params": {"mean": 7.50, "std": 1.3, "mr_speed": 0.032, "vol_of_vol": 0.72},
     },
     "CADJPY": {
-        "spot": 110.10, "r_dom": 0.0500, "r_for": -0.0010,
+        "spot": 110.10, "r_dom": -0.0010, "r_for": 0.0500,
         "beta_to_dxy": 0.15, "daily_vol": 0.082,
         "vol_surface": _make_vol_surface(10.80, 0.55, 0.40, 1.15, 0.70),
         "vol_history_params": {"mean": 10.80, "std": 1.9, "mr_speed": 0.025, "vol_of_vol": 0.95},
     },
     # ── Scandies ──────────────────────────────────────────────────────────
     "EURNOK": {
-        "spot": 11.45, "r_dom": 0.0390, "r_for": 0.0450,
+        "spot": 11.45, "r_dom": 0.0450, "r_for": 0.0390,
         "beta_to_dxy": 0.30, "daily_vol": 0.082,
         "vol_surface": _make_vol_surface(10.20, -0.50, 0.35, -1.05, 0.60),
         "vol_history_params": {"mean": 10.20, "std": 1.8, "mr_speed": 0.028, "vol_of_vol": 0.90},
     },
     "EURSEK": {
-        "spot": 11.28, "r_dom": 0.0390, "r_for": 0.0400,
+        "spot": 11.28, "r_dom": 0.0400, "r_for": 0.0390,
         "beta_to_dxy": 0.25, "daily_vol": 0.070,
         "vol_surface": _make_vol_surface(8.80, -0.40, 0.28, -0.85, 0.50),
         "vol_history_params": {"mean": 8.80, "std": 1.5, "mr_speed": 0.030, "vol_of_vol": 0.82},
     },
     "USDSEK": {
-        "spot": 10.40, "r_dom": 0.0530, "r_for": 0.0400,
+        "spot": 10.40, "r_dom": 0.0400, "r_for": 0.0530,
         "beta_to_dxy": 0.75, "daily_vol": 0.085,
         "vol_surface": _make_vol_surface(10.60, -0.45, 0.32, -0.95, 0.55),
         "vol_history_params": {"mean": 10.60, "std": 1.9, "mr_speed": 0.027, "vol_of_vol": 0.92},
     },
     "USDNOK": {
-        "spot": 10.55, "r_dom": 0.0530, "r_for": 0.0450,
+        "spot": 10.55, "r_dom": 0.0450, "r_for": 0.0530,
         "beta_to_dxy": 0.78, "daily_vol": 0.092,
         "vol_surface": _make_vol_surface(11.40, -0.55, 0.38, -1.15, 0.65),
         "vol_history_params": {"mean": 11.40, "std": 2.0, "mr_speed": 0.026, "vol_of_vol": 0.95},
     },
     # ── Emerging Markets ──────────────────────────────────────────────────
     "USDMXN": {
-        "spot": 17.25, "r_dom": 0.0530, "r_for": 0.1125,
+        "spot": 17.25, "r_dom": 0.1125, "r_for": 0.0530,
         "beta_to_dxy": 0.55, "daily_vol": 0.095,
         "vol_surface": _make_vol_surface(13.50, 1.20, 0.65, 2.40, 1.10, term_slope=1.04),
         "vol_history_params": {"mean": 13.50, "std": 2.5, "mr_speed": 0.020, "vol_of_vol": 1.20},
     },
     "USDBRL": {
-        "spot": 4.98, "r_dom": 0.0530, "r_for": 0.1175,
+        "spot": 4.98, "r_dom": 0.1175, "r_for": 0.0530,
         "beta_to_dxy": 0.50, "daily_vol": 0.105,
         "vol_surface": _make_vol_surface(15.20, 1.50, 0.80, 3.00, 1.35, term_slope=1.05),
         "vol_history_params": {"mean": 15.20, "std": 3.0, "mr_speed": 0.018, "vol_of_vol": 1.40},
     },
     "USDTRY": {
-        "spot": 32.50, "r_dom": 0.0530, "r_for": 0.4500,
+        "spot": 32.50, "r_dom": 0.4500, "r_for": 0.0530,
         "beta_to_dxy": 0.20, "daily_vol": 0.140,
         "vol_surface": _make_vol_surface(24.50, 2.80, 1.50, 5.50, 2.80, term_slope=1.08),
         "vol_history_params": {"mean": 24.50, "std": 5.0, "mr_speed": 0.012, "vol_of_vol": 2.20},
     },
     "USDZAR": {
-        "spot": 18.65, "r_dom": 0.0530, "r_for": 0.0825,
+        "spot": 18.65, "r_dom": 0.0825, "r_for": 0.0530,
         "beta_to_dxy": 0.60, "daily_vol": 0.115,
         "vol_surface": _make_vol_surface(16.80, 1.60, 0.85, 3.20, 1.45, term_slope=1.04),
         "vol_history_params": {"mean": 16.80, "std": 3.2, "mr_speed": 0.018, "vol_of_vol": 1.50},
     },
     "USDCNH": {
-        "spot": 7.24, "r_dom": 0.0530, "r_for": 0.0250,
+        "spot": 7.24, "r_dom": 0.0250, "r_for": 0.0530,
         "beta_to_dxy": 0.72, "daily_vol": 0.048,
         "vol_surface": _make_vol_surface(6.20, 0.40, 0.25, 0.85, 0.45, term_slope=1.02),
         "vol_history_params": {"mean": 6.20, "std": 1.2, "mr_speed": 0.030, "vol_of_vol": 0.70},
     },
     "USDINR": {
-        "spot": 83.20, "r_dom": 0.0530, "r_for": 0.0650,
+        "spot": 83.20, "r_dom": 0.0650, "r_for": 0.0530,
         "beta_to_dxy": 0.55, "daily_vol": 0.038,
         "vol_surface": _make_vol_surface(4.80, 0.60, 0.30, 1.20, 0.55, term_slope=1.03),
         "vol_history_params": {"mean": 4.80, "std": 0.8, "mr_speed": 0.040, "vol_of_vol": 0.55},
     },
     "USDSGD": {
-        "spot": 1.3420, "r_dom": 0.0530, "r_for": 0.0380,
+        "spot": 1.3420, "r_dom": 0.0380, "r_for": 0.0530,
         "beta_to_dxy": 0.68, "daily_vol": 0.040,
         "vol_surface": _make_vol_surface(5.50, 0.25, 0.18, 0.55, 0.32, term_slope=1.01),
         "vol_history_params": {"mean": 5.50, "std": 0.9, "mr_speed": 0.035, "vol_of_vol": 0.60},
     },
     "USDKRW": {
-        "spot": 1325.0, "r_dom": 0.0530, "r_for": 0.0350,
+        "spot": 1325.0, "r_dom": 0.0350, "r_for": 0.0530,
         "beta_to_dxy": 0.62, "daily_vol": 0.065,
         "vol_surface": _make_vol_surface(8.50, 0.80, 0.45, 1.60, 0.80, term_slope=1.03),
         "vol_history_params": {"mean": 8.50, "std": 1.6, "mr_speed": 0.028, "vol_of_vol": 0.88},
@@ -574,8 +574,8 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
                 tenor_code = tenor.upper()
                 # OVDV fields: e.g., EURUSDV1M BGN Curncy for ATM
                 atm_tick = f"{pair.upper()}V{tenor_code} BGN Curncy"
-                rr25_tick = f"{pair.upper()}R{tenor_code} BGN Curncy"
-                bf25_tick = f"{pair.upper()}B{tenor_code} BGN Curncy"
+                rr25_tick = f"{pair.upper()}25R{tenor_code} BGN Curncy"
+                bf25_tick = f"{pair.upper()}25B{tenor_code} BGN Curncy"
                 rr10_tick = f"{pair.upper()}10R{tenor_code} BGN Curncy"
                 bf10_tick = f"{pair.upper()}10B{tenor_code} BGN Curncy"
                 tickers = [atm_tick, rr25_tick, bf25_tick, rr10_tick, bf10_tick]
@@ -630,8 +630,10 @@ def get_fx_rates(pair: str) -> dict:
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
-            ccy_dom = pair[:3] if pair[:3] != "USD" else pair[3:]
-            ccy_for = pair[3:] if pair[:3] != "USD" else pair[:3]
+            # FX options convention: domestic = quote currency, foreign = base currency
+            # For EURUSD: domestic=USD (quote), foreign=EUR (base)
+            ccy_dom = pair[3:]   # quote currency (pricing currency)
+            ccy_for = pair[:3]   # base currency (underlying asset)
             # Simplification: use 3M deposit rates
             dom_tick = _deposit_bbg(ccy_dom, "3M")
             for_tick = _deposit_bbg(ccy_for, "3M")
