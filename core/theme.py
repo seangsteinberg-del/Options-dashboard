@@ -1,62 +1,67 @@
 """
-Dark trading-desk theme configuration — v2.
+Dark trading-desk theme configuration — v3.
 
-Glassmorphism cards, animated gradients, neon accents,
-Bloomberg Terminal-inspired color palette.
+Refined Bloomberg palette: confident blue + warm amber.
+Ultra-clean institutional aesthetic. Two primary accents only.
 """
 
 from core.bloomberg import is_connected
 
 # ── Color Palette ──────────────────────────────────────────────────────────
 COLORS = {
-    # Backgrounds (deeper, richer)
-    "bg_primary":       "#060a13",
-    "bg_secondary":     "#0c1220",
-    "bg_card":          "#111827",
-    "bg_card_hover":    "#1a2235",
+    # Backgrounds — deep navy, never pure black
+    "bg_primary":       "#070b14",
+    "bg_secondary":     "#0c1222",
+    "bg_card":          "#0f1729",
+    "bg_card_hover":    "#162035",
     "bg_input":         "#0a0f1c",
     "bg_header":        "#080d18",
-    "bg_glass":         "rgba(17, 24, 39, 0.75)",
+    "bg_glass":         "rgba(12, 18, 32, 0.90)",
 
-    # Borders
-    "border":           "#1e2a45",
-    "border_focus":     "#3b82f6",
-    "border_subtle":    "#151d30",
-    "border_glow":      "rgba(59, 130, 246, 0.3)",
+    # Borders — barely visible structure
+    "border":           "#1a2540",
+    "border_focus":     "#4a9eff",
+    "border_subtle":    "#131c30",
+    "border_glow":      "rgba(74, 158, 255, 0.25)",
 
-    # Text
-    "text_primary":     "#e2e8f0",
-    "text_secondary":   "#7c8db5",
-    "text_muted":       "#475569",
-    "text_bright":      "#f8fafc",
+    # Text — clear 4-tier hierarchy
+    "text_primary":     "#c8d6e5",   # main data / values
+    "text_secondary":   "#6b7d99",   # labels / descriptions
+    "text_muted":       "#3d4f68",   # least important
+    "text_bright":      "#e8edf4",   # highlighted / headers
 
-    # Accents (neon-bright)
-    "accent_blue":      "#3b82f6",
-    "accent_cyan":      "#06b6d4",
-    "accent_green":     "#10b981",
-    "accent_red":       "#ef4444",
-    "accent_orange":    "#f59e0b",
-    "accent_purple":    "#8b5cf6",
-    "accent_pink":      "#ec4899",
-    "accent_teal":      "#14b8a6",
-    "accent_indigo":    "#6366f1",
-    "accent_lime":      "#84cc16",
-    "accent_amber":     "#f59e0b",
-    "accent_rose":      "#f43f5e",
+    # Primary accent — confident blue (all interactive elements)
+    "accent_blue":      "#4a9eff",
+    "accent_cyan":      "#4a9eff",   # alias for backwards compat
+    "accent_indigo":    "#4a9eff",   # alias
 
-    # P&L
-    "pnl_profit":       "#10b981",
-    "pnl_loss":         "#ef4444",
-    "pnl_neutral":      "#6b7280",
+    # Secondary accent — warm amber/gold (highlights, warnings, secondary data)
+    "accent_orange":    "#f0a030",
+    "accent_amber":     "#f0a030",   # alias
+    "accent_yellow":    "#f0a030",   # alias
 
-    # Gradients
-    "grad_start":       "#3b82f6",
-    "grad_end":         "#8b5cf6",
-    "grad_cyan":        "#06b6d4",
-    "grad_green":       "#10b981",
+    # Tertiary — used sparingly for specific semantic meanings only
+    "accent_green":     "#22c55e",   # profit, success, positive
+    "accent_red":       "#e5484d",   # loss, danger, negative
+    "accent_purple":    "#8b7cf6",   # structuring / exotics (muted)
+    "accent_teal":      "#4a9eff",   # alias to primary
+    "accent_pink":      "#e5484d",   # alias to loss red
+    "accent_lime":      "#22c55e",   # alias to profit green
+    "accent_rose":      "#e5484d",   # alias to loss red
+
+    # P&L — distinctive, not generic
+    "pnl_profit":       "#22c55e",   # money green
+    "pnl_loss":         "#e5484d",   # blood red
+    "pnl_neutral":      "#5a6a80",
+
+    # Gradients — blue to amber for warmth
+    "grad_start":       "#4a9eff",
+    "grad_end":         "#f0a030",
+    "grad_cyan":        "#4a9eff",
+    "grad_green":       "#22c55e",
 
     # Bloomberg-style orange for the "connected" indicator
-    "bbg_orange":       "#ff6600",
+    "bbg_orange":       "#f0a030",
 }
 
 
@@ -80,26 +85,31 @@ CHART_TEMPLATE = {
         },
         "title": {"font": {"color": COLORS["text_primary"], "size": 14}},
         "xaxis": {
-            "gridcolor": "rgba(30,42,69,0.5)",
-            "zerolinecolor": COLORS["border"],
+            "gridcolor": "rgba(255,255,255,0.04)",
+            "zerolinecolor": "rgba(255,255,255,0.08)",
             "tickfont": {"size": 10, "color": COLORS["text_muted"]},
             "linecolor": COLORS["border_subtle"],
         },
         "yaxis": {
-            "gridcolor": "rgba(30,42,69,0.5)",
-            "zerolinecolor": COLORS["border"],
+            "gridcolor": "rgba(255,255,255,0.04)",
+            "zerolinecolor": "rgba(255,255,255,0.08)",
             "tickfont": {"size": 10, "color": COLORS["text_muted"]},
             "linecolor": COLORS["border_subtle"],
         },
         "colorway": [
-            COLORS["accent_cyan"], COLORS["accent_blue"], COLORS["accent_purple"],
-            COLORS["accent_green"], COLORS["accent_orange"], COLORS["accent_pink"],
-            COLORS["accent_red"], COLORS["accent_teal"], COLORS["accent_indigo"],
+            "#4a9eff",   # primary blue
+            "#f0a030",   # amber
+            "#8b7cf6",   # muted purple
+            "#22c55e",   # green
+            "#e5484d",   # red
+            "#5ec4d4",   # soft teal
+            "#c084fc",   # lavender
+            "#fb923c",   # soft orange
         ],
         "margin": {"l": 50, "r": 20, "t": 40, "b": 40},
         "hoverlabel": {
-            "bgcolor": COLORS["bg_secondary"],
-            "bordercolor": COLORS["border"],
+            "bgcolor": "#0f1729",
+            "bordercolor": "#1a2540",
             "font": {"color": COLORS["text_primary"], "family": "monospace", "size": 12},
         },
     }
@@ -111,21 +121,21 @@ CHART_TEMPLATE = {
 CARD_STYLE = {
     "backgroundColor": COLORS["bg_card"],
     "border": f"1px solid {COLORS['border']}",
-    "borderRadius": "16px",
+    "borderRadius": "12px",
     "padding": "24px",
     "marginBottom": "16px",
-    "boxShadow": "0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.03)",
-    "backdropFilter": "blur(12px)",
+    "boxShadow": "0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.03)",
+    "backdropFilter": "blur(16px)",
     "transition": "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
     "position": "relative",
     "overflow": "hidden",
 }
 
 CARD_HEADER_STYLE = {
-    "color": COLORS["text_primary"],
-    "fontSize": "13px",
+    "color": COLORS["text_bright"],
+    "fontSize": "12px",
     "fontWeight": "700",
-    "fontFamily": "'JetBrains Mono', monospace",
+    "fontFamily": "'Inter', -apple-system, sans-serif",
     "marginBottom": "18px",
     "paddingBottom": "12px",
     "borderBottom": f"1px solid {COLORS['border_subtle']}",
@@ -136,7 +146,7 @@ CARD_HEADER_STYLE = {
 INPUT_STYLE = {
     "backgroundColor": COLORS["bg_input"],
     "border": f"1px solid {COLORS['border']}",
-    "borderRadius": "10px",
+    "borderRadius": "8px",
     "color": COLORS["text_primary"],
     "fontFamily": "'JetBrains Mono', monospace",
     "fontSize": "13px",
@@ -149,7 +159,7 @@ LABEL_STYLE = {
     "color": COLORS["text_secondary"],
     "fontSize": "10px",
     "fontWeight": "600",
-    "fontFamily": "'JetBrains Mono', monospace",
+    "fontFamily": "'Inter', -apple-system, sans-serif",
     "textTransform": "uppercase",
     "letterSpacing": "1.2px",
     "marginBottom": "6px",
@@ -160,7 +170,7 @@ DROPDOWN_STYLE = {
     "backgroundColor": COLORS["bg_input"],
     "color": COLORS["text_primary"],
     "border": f"1px solid {COLORS['border']}",
-    "borderRadius": "10px",
+    "borderRadius": "8px",
     "fontFamily": "'JetBrains Mono', monospace",
     "fontSize": "13px",
 }
@@ -168,7 +178,7 @@ DROPDOWN_STYLE = {
 STAT_BOX_STYLE = {
     "backgroundColor": COLORS["bg_secondary"],
     "border": f"1px solid {COLORS['border_subtle']}",
-    "borderRadius": "12px",
+    "borderRadius": "10px",
     "padding": "16px 20px",
     "textAlign": "center",
     "minWidth": "120px",
@@ -181,34 +191,34 @@ BUTTON_STYLE = {
     "backgroundColor": COLORS["accent_blue"],
     "color": COLORS["text_bright"],
     "border": "none",
-    "borderRadius": "10px",
+    "borderRadius": "8px",
     "padding": "11px 28px",
-    "fontFamily": "'JetBrains Mono', monospace",
+    "fontFamily": "'Inter', -apple-system, sans-serif",
     "fontSize": "12px",
     "fontWeight": "700",
     "cursor": "pointer",
-    "letterSpacing": "1px",
+    "letterSpacing": "0.8px",
     "textTransform": "uppercase",
     "transition": "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-    "boxShadow": f"0 4px 14px rgba(59,130,246,0.3)",
+    "boxShadow": "0 4px 14px rgba(74,158,255,0.25)",
 }
 
 BUTTON_DANGER_STYLE = {**BUTTON_STYLE, "backgroundColor": COLORS["accent_red"],
-                       "boxShadow": "0 4px 14px rgba(239,68,68,0.3)"}
+                       "boxShadow": "0 4px 14px rgba(229,72,77,0.25)"}
 BUTTON_SUCCESS_STYLE = {**BUTTON_STYLE, "backgroundColor": COLORS["accent_green"],
-                        "boxShadow": "0 4px 14px rgba(16,185,129,0.3)"}
+                        "boxShadow": "0 4px 14px rgba(34,197,94,0.25)"}
 
 TAB_STYLE = {
     "backgroundColor": "transparent",
     "border": f"1px solid {COLORS['border']}",
     "borderBottom": "none",
-    "borderRadius": "10px 10px 0 0",
+    "borderRadius": "8px 8px 0 0",
     "color": COLORS["text_muted"],
-    "fontFamily": "'JetBrains Mono', monospace",
+    "fontFamily": "'Inter', -apple-system, sans-serif",
     "fontSize": "11px",
     "fontWeight": "600",
-    "padding": "14px 24px",
-    "letterSpacing": "1.5px",
+    "padding": "12px 22px",
+    "letterSpacing": "1.2px",
     "textTransform": "uppercase",
     "transition": "all 0.2s ease",
 }
@@ -216,10 +226,10 @@ TAB_STYLE = {
 TAB_SELECTED_STYLE = {
     **TAB_STYLE,
     "backgroundColor": COLORS["bg_card"],
-    "color": COLORS["accent_cyan"],
+    "color": COLORS["accent_blue"],
     "borderBottom": "none",
-    "borderTop": f"2px solid {COLORS['accent_cyan']}",
-    "boxShadow": f"0 -2px 12px rgba(6,182,212,0.15)",
+    "borderTop": f"2px solid {COLORS['accent_blue']}",
+    "boxShadow": "0 -2px 12px rgba(74,158,255,0.12)",
 }
 
 TABLE_HEADER_STYLE = {
@@ -247,5 +257,5 @@ def make_stat_style(color=None):
     style = {**STAT_BOX_STYLE}
     if color:
         style["borderTop"] = f"2px solid {color}"
-        style["boxShadow"] = f"0 -2px 12px {color}26"
+        style["boxShadow"] = f"0 -2px 12px {color}20"
     return style

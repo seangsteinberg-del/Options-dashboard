@@ -1165,7 +1165,7 @@ def _generate_spot_history(pair: str, days: int = 252,
                          + daily_sigma * rng.normal())
 
     prices = np.exp(log_prices)
-    dates = pd.date_range(end=datetime.now(), periods=days, freq="B")
+    dates = pd.date_range(end=datetime.now(), periods=days, freq="D")
 
     daily_range = daily_sigma * prices
     return pd.DataFrame({
@@ -1223,7 +1223,7 @@ def _generate_vol_history(pair: str, tenor: str = "1M",
     elif metric.startswith("bf"):
         series = np.maximum(series, 0.01)
 
-    dates = pd.date_range(end=datetime.now(), periods=days, freq="B")
+    dates = pd.date_range(end=datetime.now(), periods=len(series), freq="B")
     result = pd.Series(np.round(series, 2), index=dates,
                        name=f"{pair}_{tenor}_{metric}")
     return result
@@ -1266,7 +1266,7 @@ def _generate_correlated_histories(pairs: List[str], days: int = 252,
     corr_Z = Z @ L.T
 
     results = {}
-    dates = pd.date_range(end=datetime.now(), periods=days, freq="B")
+    dates = pd.date_range(end=datetime.now(), periods=days, freq="D")
 
     for idx, pair in enumerate(pairs):
         fb = _FX_FALLBACK.get(pair.upper())
@@ -1319,7 +1319,7 @@ def _generate_rate_history(ccy: str, days: int = 252,
     tenors = ["1M", "3M", "6M", "1Y", "2Y", "5Y"]
     tenor_spreads = [0.97, 1.00, 1.02, 1.04, 1.06, 1.08]
 
-    dates = pd.date_range(end=datetime.now(), periods=days, freq="B")
+    dates = pd.date_range(end=datetime.now(), periods=days, freq="D")
     data = {}
 
     for tenor, spread in zip(tenors, tenor_spreads):
@@ -1368,7 +1368,7 @@ def _generate_positioning_history(pair: str, days: int = 252,
     else:
         amplitude = 120000
 
-    dates = pd.date_range(end=datetime.now(), periods=days, freq="B")
+    dates = pd.date_range(end=datetime.now(), periods=days, freq="D")
 
     # Generate weekly data (every 5 business days) and forward-fill
     weekly_points = days // 5 + 1

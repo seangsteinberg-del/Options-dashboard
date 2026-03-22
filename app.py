@@ -90,7 +90,7 @@ WORKSPACES = [
     {
         "id": "fx-vol",
         "label": "FX VOL",
-        "accent": COLORS["accent_cyan"],
+        "accent": COLORS["accent_blue"],
         "tabs": [
             {"id": "vol-surface-fx", "label": "VOL SURFACE FX", "module": vol_surface_fx},
             {"id": "vol-scanner",    "label": "VOL SCANNER",    "module": vol_scanner},
@@ -99,7 +99,7 @@ WORKSPACES = [
     {
         "id": "structuring",
         "label": "STRUCTURING",
-        "accent": COLORS["accent_purple"],
+        "accent": COLORS["accent_blue"],
         "tabs": [
             {"id": "structure-builder", "label": "STRUCTURE BUILDER", "module": structure_builder},
             {"id": "exotics-pricer",    "label": "EXOTICS PRICER",    "module": exotics_pricer},
@@ -108,7 +108,7 @@ WORKSPACES = [
     {
         "id": "risk",
         "label": "RISK",
-        "accent": COLORS["accent_red"],
+        "accent": COLORS["accent_blue"],
         "tabs": [
             {"id": "risk-fx",       "label": "RISK FX",       "module": risk_fx},
             {"id": "hedging-tools", "label": "HEDGING TOOLS", "module": hedging_tools},
@@ -117,7 +117,7 @@ WORKSPACES = [
     {
         "id": "rv-analytics",
         "label": "RV & ANALYTICS",
-        "accent": COLORS["accent_green"],
+        "accent": COLORS["accent_blue"],
         "tabs": [
             {"id": "relative-value",  "label": "RELATIVE VALUE",  "module": relative_value},
             {"id": "events-calendar", "label": "EVENTS CALENDAR", "module": events_calendar},
@@ -127,7 +127,7 @@ WORKSPACES = [
     {
         "id": "trading",
         "label": "TRADING",
-        "accent": COLORS["accent_orange"],
+        "accent": COLORS["accent_amber"],
         "tabs": [
             {"id": "blotter-fx", "label": "BLOTTER FX", "module": blotter_fx},
         ],
@@ -135,7 +135,7 @@ WORKSPACES = [
     {
         "id": "equity-legacy",
         "label": "EQUITY (LEGACY)",
-        "accent": COLORS["accent_indigo"],
+        "accent": COLORS["accent_blue"],
         "tabs": [
             {"id": "eq-vol-surface", "label": "VOL SURFACE",   "module": vol_surface},
             {"id": "eq-pricer",      "label": "PRICER",         "module": pricer},
@@ -307,14 +307,7 @@ def make_header():
                     html.Span("FX OPTIONS", style={
                         "fontWeight": "800", "fontSize": "22px",
                         "letterSpacing": "3px",
-                        "background": (
-                            f"linear-gradient(135deg, {COLORS['accent_cyan']}, "
-                            f"{COLORS['accent_blue']}, {COLORS['accent_purple']})"
-                        ),
-                        "backgroundSize": "200% 200%",
-                        "animation": "gradient-shift 4s ease infinite",
-                        "-webkit-background-clip": "text",
-                        "-webkit-text-fill-color": "transparent",
+                        "color": COLORS["accent_blue"],
                     }),
                     html.Span(" WORKSTATION", style={
                         "fontWeight": "300", "color": COLORS["text_muted"],
@@ -867,14 +860,14 @@ if __name__ == "__main__":
     panels_eq = sum(len(ws["tabs"]) for ws in WORKSPACES if ws["id"] == "equity-legacy")
 
     print()
-    print("\u2550" * 64)
+    print("=" * 64)
     print(f"  FX OPTIONS WORKSTATION v{VERSION}")
     print(f"  Institutional Derivatives Analytics")
     print(f"  Data : {bbg_status}")
     print(f"  Model: Garman-Kohlhagen / SABR / Vanna-Volga / Monte Carlo")
     print(f"  Panels: {panels_fx} FX + {panels_eq} Equity (legacy) = {panels_fx + panels_eq} total")
-    print("\u2550" * 64)
-    print(f"\n  \u27a4  Open: http://localhost:8050")
-    print(f"  \u27a4  Ctrl+K for command palette\n")
+    print("=" * 64)
+    print(f"\n  ->  Open: http://localhost:8050")
+    print(f"  ->  Ctrl+K for command palette\n")
 
     app.run(debug=True, host="0.0.0.0", port=8050)
