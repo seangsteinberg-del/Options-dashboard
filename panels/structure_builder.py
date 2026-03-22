@@ -917,10 +917,11 @@ def _stat_box(label, value, color=COLORS["accent_cyan"]):
 # Layout
 # ============================================================================
 
-def _make_leg_row(idx, cp="call", side="buy", delta=0.25, ratio=1, tenor_mult=1.0):
+def _make_leg_row(idx, cp="call", side="buy", delta=0.25, ratio=1, tenor_mult=1.0, visible=True):
     """Generate one leg configuration row with dropdowns and inputs."""
     prefix = f"stb-leg-{idx}"
     row_bg = COLORS["bg_secondary"] if idx % 2 == 0 else COLORS["bg_card"]
+    display = "flex" if visible else "none"
     return html.Div([
         html.Div(f"L{idx+1}", style={
             "color": COLORS["text_muted"], "fontSize": "11px", "fontWeight": "700",
@@ -965,8 +966,8 @@ def _make_leg_row(idx, cp="call", side="buy", delta=0.25, ratio=1, tenor_mult=1.
         html.Div(id={"type": "stb-prem-disp", "index": idx},
                  style={"color": COLORS["text_secondary"], "fontSize": "10px",
                         "minWidth": "65px", "textAlign": "center", "paddingTop": "8px"}),
-    ], style={
-        "display": "flex", "gap": "6px", "alignItems": "center",
+    ], id={"type": "stb-leg-row", "index": idx}, style={
+        "display": display, "gap": "6px", "alignItems": "center",
         "padding": "5px 8px", "borderRadius": "6px",
         "backgroundColor": row_bg,
         "marginBottom": "3px",
@@ -981,15 +982,16 @@ def layout():
 
     # Build initial leg rows (default: Call = 1 leg)
     initial_legs = PRESETS["Call"]
+    num_initial = len(initial_legs)
     leg_rows = []
     for i in range(MAX_LEGS):
-        if i < len(initial_legs):
+        if i < num_initial:
             lg = initial_legs[i]
             leg_rows.append(_make_leg_row(
                 i, lg["cp"], lg["side"], lg["delta"], lg["ratio"],
-                lg.get("tenor_mult", 1.0)))
+                lg.get("tenor_mult", 1.0), visible=True))
         else:
-            leg_rows.append(_make_leg_row(i))
+            leg_rows.append(_make_leg_row(i, visible=False))
 
     return html.Div([
         html.Div([
@@ -1200,6 +1202,30 @@ def register_callbacks(app):
         if n_clicks is None:
             return no_update
         return max((current or 2) - 1, 1)
+
+    # -- Toggle leg row visibility based on num_legs --
+    @app.callback(
+        [Output({"type": "stb-leg-row", "index": i}, "style") for i in range(MAX_LEGS)],
+        [Input("stb-num-legs", "value")],
+    )
+    def toggle_leg_rows(num_legs):
+        num_legs = max(1, min(num_legs or 1, MAX_LEGS))
+        styles = []
+        for i in range(MAX_LEGS):
+            row_bg = COLORS["bg_secondary"] if i % 2 == 0 else COLORS["bg_card"]
+            if i < num_legs:
+                styles.append({
+                    "display": "flex", "gap": "6px", "alignItems": "center",
+                    "padding": "5px 8px", "borderRadius": "6px",
+                    "backgroundColor": row_bg, "marginBottom": "3px",
+                })
+            else:
+                styles.append({
+                    "display": "none", "gap": "6px", "alignItems": "center",
+                    "padding": "5px 8px", "borderRadius": "6px",
+                    "backgroundColor": row_bg, "marginBottom": "3px",
+                })
+        return styles
 
     # -- Main computation callback --
     @app.callback(

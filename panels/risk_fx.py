@@ -155,11 +155,19 @@ def _safe_atm_vol(surface):
     (keyed by tenor -> strike type) instead of plain floats.  Always
     returns a decimal vol (e.g. 0.08 for 8%).
     """
+    if surface is None:
+        return 0.10
     if isinstance(surface, dict):
         for tenor in ("3M", "1M", "6M", "1Y"):
             if tenor in surface and isinstance(surface[tenor], dict):
                 v = surface[tenor].get("atm", 8.0)
                 return v / 100.0 if v > 1.0 else v
+        # Fallback: if the dict has no recognized tenor keys, try to
+        # find any dict-valued entry with an "atm" key
+        for k, v in surface.items():
+            if isinstance(v, dict) and "atm" in v:
+                raw = v["atm"]
+                return raw / 100.0 if raw > 1.0 else raw
     if isinstance(surface, (int, float)):
         return surface if surface < 1.0 else surface / 100.0
     return 0.10

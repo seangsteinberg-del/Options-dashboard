@@ -396,13 +396,23 @@ def register_callbacks(app):
 
         # Fetch market data
         spot_data = get_fx_spots([pair])
-        S0 = spot_data.get(pair, {}).get("mid", 1.10)
-        rates = get_fx_rates(pair)
-        r_d = rates.get("r_dom", 0.05)
-        r_f = rates.get("r_for", 0.03)
+        spot_entry = spot_data.get(pair, {})
+        S0 = spot_entry.get("mid", 1.10) if isinstance(spot_entry, dict) else float(spot_entry or 1.10)
+        rates_raw = get_fx_rates(pair)
+        r_d = rates_raw.get("r_dom", 0.05) if isinstance(rates_raw, dict) else 0.05
+        r_f = rates_raw.get("r_for", 0.03) if isinstance(rates_raw, dict) else 0.03
         vol_surf = get_fx_vol_surface(pair)
         T_total = tenor_to_years(tenor)
-        atm_vol_raw = vol_surf.get("3M", vol_surf.get("1M", {})).get("atm", 8.0)
+        # Safely extract ATM vol: vol_surf is a nested dict keyed by tenor
+        atm_vol_raw = 8.0
+        if isinstance(vol_surf, dict):
+            # Try the selected tenor first, then fallback to 3M, 1M
+            for t_key in [tenor, "3M", "1M", "6M"]:
+                if t_key in vol_surf and isinstance(vol_surf[t_key], dict):
+                    atm_vol_raw = vol_surf[t_key].get("atm", 8.0)
+                    break
+        elif isinstance(vol_surf, (int, float)):
+            atm_vol_raw = float(vol_surf)
         atm_vol = atm_vol_raw / 100.0 if atm_vol_raw > 1.0 else atm_vol_raw
 
         # Determine pip size
@@ -738,7 +748,8 @@ def register_callbacks(app):
             sd = get_fx_spots([pair])
             spots[pair] = sd.get(pair, {}).get("mid", 1.10)
             rt = get_fx_rates(pair)
-            rates[pair] = rt
+            # Convert to r_d/r_f keys expected by _get_rate in fx_portfolio
+            rates[pair] = {"r_d": rt.get("r_dom", 0.04), "r_f": rt.get("r_for", 0.02)}
             vol_surfaces[pair] = get_fx_vol_surface(pair)
 
         # Compute current risk

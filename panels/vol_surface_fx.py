@@ -176,6 +176,48 @@ def _get_surface_data(pair):
     }
 
 
+def _filter_delta_range(sd, delta_range):
+    """Filter a surface data dict to show only selected delta columns.
+
+    When delta_range == "25-50", keep only 25P, ATM, 25C (indices 1,2,3).
+    When delta_range == "10-50" (default), keep all five columns.
+    """
+    if delta_range != "25-50":
+        return sd  # "10-50" -> show all deltas
+    # Column indices: 0=10P, 1=25P, 2=ATM, 3=25C, 4=10C
+    keep_cols = [1, 2, 3]
+    full_labels = sd["delta_labels"]  # list of strings
+    full_numeric = sd["delta_numeric"]  # numpy array
+    return {
+        **sd,
+        "vol_grid": sd["vol_grid"][:, keep_cols],
+        "delta_labels": [full_labels[i] for i in keep_cols],
+        "delta_numeric": full_numeric[keep_cols],
+    }
+
+
+def _filter_surface_data(sd, selected_tenors):
+    """Filter a surface data dict to keep only the selected tenors."""
+    if not selected_tenors:
+        return sd  # nothing selected -> keep all
+    keep_idx = [i for i, t in enumerate(sd["tenors"]) if t in selected_tenors]
+    if not keep_idx:
+        return sd  # none match -> keep all to avoid empty charts
+    return {
+        "tenors": [sd["tenors"][i] for i in keep_idx],
+        "T_years": sd["T_years"][keep_idx],
+        "atm": sd["atm"][keep_idx],
+        "rr25": sd["rr25"][keep_idx],
+        "bf25": sd["bf25"][keep_idx],
+        "rr10": sd["rr10"][keep_idx],
+        "bf10": sd["bf10"][keep_idx],
+        "vol_grid": sd["vol_grid"][keep_idx],
+        "delta_labels": sd["delta_labels"],
+        "delta_numeric": sd["delta_numeric"],
+        "surface_raw": sd["surface_raw"],
+    }
+
+
 def _get_spot_and_rates(pair):
     """Fetch spot mid, forward 1M, and interest rates."""
     spots = get_fx_spots([pair])
@@ -273,7 +315,7 @@ def _fmt_pctile(p):
 def chart_surface_3d(pair, sd, spot, r_dom, r_for, **kw):
     """1. 3D Vol Surface -- go.Surface in delta-space."""
     fig = go.Figure()
-    delta_grid_sorted = np.array(sorted(DELTA_NUMERIC))
+    delta_grid_sorted = sd["delta_numeric"]
     fig.add_trace(go.Surface(
         x=delta_grid_sorted * 100,
         y=sd["T_years"],
@@ -311,7 +353,7 @@ def chart_heatmap(pair, sd, spot, r_dom, r_for, **kw):
     fig = go.Figure()
     text_vals = [[f"{v:.2f}" for v in row] for row in sd["vol_grid"]]
     fig.add_trace(go.Heatmap(
-        x=DELTA_LABELS,
+        x=sd["delta_labels"],
         y=sd["tenors"],
         z=sd["vol_grid"],
         colorscale="Plasma",
@@ -604,6 +646,55 @@ def chart_smile_curve(pair, sd, spot, r_dom, r_for, **kw):
         textposition="top center",
         textfont=dict(size=9, color=COLORS["text_secondary"]),
     ))
+
+    # ── Model overlays (SABR / Vanna-Volga) ──
+    model_sel = kw.get("model", "market")
+
+    if model_sel == "sabr":
+        try:
+            T = tenor_to_years(tenor_use)
+            F = spot * np.exp((r_dom - r_for) * T)
+            beta = 0.5
+            atm_dec = atm / 100.0
+            rr25_dec = rr25 / 100.0
+            bf25_dec = bf25 / 100.0
+            alpha_est = atm_dec * F ** (1 - beta)
+            rho_est = float(np.clip(rr25_dec / max(atm_dec, 0.001) * (-0.8), -0.95, 0.95))
+            nu_est = float(np.clip(bf25_dec / max(atm_dec, 0.001) * 3.0 + 0.3, 0.05, 3.0))
+
+            delta_sabr = np.linspace(-0.25, 0.25, 80)
+            sabr_strikes = np.array([
+                F * np.exp(-d * atm_dec * np.sqrt(T)) for d in delta_sabr
+            ])
+            sabr_vols = np.array([
+                sabr_vol(F, K, T, alpha_est, beta, rho_est, nu_est) * 100.0
+                for K in sabr_strikes
+            ])
+            fig.add_trace(go.Scatter(
+                x=delta_sabr * 100, y=sabr_vols,
+                mode="lines", name="SABR Fit",
+                line=dict(color=COLORS["accent_orange"], width=2, dash="dash"),
+            ))
+        except Exception:
+            pass
+
+    elif model_sel == "vv":
+        try:
+            T = tenor_to_years(tenor_use)
+            vv_result = vv_smile(
+                spot, T, r_dom, r_for,
+                atm / 100.0, smile["p25"] / 100.0, smile["c25"] / 100.0,
+                n_strikes=80,
+            )
+            vv_deltas = (vv_result["deltas"] - 0.5) * 100  # centre around 0
+            vv_vols = vv_result["vols"] * 100.0
+            fig.add_trace(go.Scatter(
+                x=vv_deltas, y=vv_vols,
+                mode="lines", name="Vanna-Volga",
+                line=dict(color=COLORS["accent_purple"], width=2, dash="dashdot"),
+            ))
+        except Exception:
+            pass
 
     _apply_chart_template(fig, f"Smile -- {pair} {tenor_use}")
     fig.update_layout(
@@ -1302,7 +1393,7 @@ def _overlay_cross_pair_on_atm(fig, cross_pair, cross_sd):
 
 def _overlay_cross_surface_wireframe(fig, cross_pair, cross_sd):
     """Add a wireframe overlay of the cross-pair surface on a 3D surface chart."""
-    delta_grid_sorted = np.array(sorted(DELTA_NUMERIC))
+    delta_grid_sorted = cross_sd["delta_numeric"]
     fig.add_trace(go.Surface(
         x=delta_grid_sorted * 100,
         y=cross_sd["T_years"],
@@ -1598,8 +1689,10 @@ def register_callbacks(app):
         pair = pair or "EURUSD"
         model = model or "market"
 
-        # Fetch data
-        sd = _get_surface_data(pair)
+        # Fetch data and apply tenor / delta filters
+        sd_full = _get_surface_data(pair)
+        sd = _filter_surface_data(sd_full, selected_tenors)
+        sd = _filter_delta_range(sd, delta_range or "10-50")
         spot, fwd_1m, r_dom, r_for = _get_spot_and_rates(pair)
 
         # Extra kwargs for chart functions
@@ -1611,6 +1704,8 @@ def register_callbacks(app):
             "compare": compare,
             "cross_pair": cross_pair,
             "model": model,
+            "selected_tenors": selected_tenors,
+            "delta_range": delta_range or "10-50",
         }
 
         # If model is SABR or VV, overlay on smile_curve and surface_3d
@@ -1653,8 +1748,8 @@ def register_callbacks(app):
         except Exception:
             logger.exception("Comparison overlay failed for %s", pair)
 
-        # Build stat boxes
-        stats = _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for)
+        # Build stat boxes (always use full surface for KPIs)
+        stats = _build_stat_boxes(pair, sd_full, spot, fwd_1m, r_dom, r_for)
 
         # Build overnight summary strip
         try:

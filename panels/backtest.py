@@ -1056,6 +1056,8 @@ def _build_trade_log(results):
         {"name": "Exit Value",     "id": "exit_value",     "type": "numeric", "format": dash_table.Format.Format(precision=0, group=True)},
         {"name": "P&L",            "id": "pnl",            "type": "numeric", "format": dash_table.Format.Format(precision=0, group=True)},
         {"name": "P&L %",          "id": "pnl_pct",        "type": "numeric", "format": dash_table.Format.Format(precision=2)},
+        {"name": "Hold Days",      "id": "hold_days",      "type": "numeric"},
+        {"name": "Exit Reason",    "id": "exit_reason",    "type": "text"},
         {"name": "Regime",         "id": "regime",         "type": "text"},
         {"name": "Signal",         "id": "signal",         "type": "text"},
     ]
@@ -1099,6 +1101,20 @@ def _build_trade_log(results):
             {
                 "if": {"filter_query": "{pnl_pct} <= 0", "column_id": "pnl_pct"},
                 "color": COLORS["accent_red"],
+            },
+            {
+                "if": {"filter_query": '{exit_reason} contains "TP"', "column_id": "exit_reason"},
+                "color": COLORS["accent_green"],
+                "fontWeight": "700",
+            },
+            {
+                "if": {"filter_query": '{exit_reason} contains "SL"', "column_id": "exit_reason"},
+                "color": COLORS["accent_red"],
+                "fontWeight": "700",
+            },
+            {
+                "if": {"filter_query": '{exit_reason} = "expiry"', "column_id": "exit_reason"},
+                "color": COLORS["text_muted"],
             },
             {
                 "if": {"state": "active"},

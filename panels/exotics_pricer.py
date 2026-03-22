@@ -392,21 +392,28 @@ def _stat_box(label, value_str, color=COLORS["accent_cyan"]):
 def _get_mkt(pair, tenor):
     """Fetch spot, rates, ATM vol for a pair/tenor."""
     spots = get_fx_spots([pair])
-    spot = spots.get(pair, {}).get("mid", 1.0)
+    spot_data = spots.get(pair, {})
+    if isinstance(spot_data, dict):
+        spot = spot_data.get("mid", 1.0)
+    else:
+        spot = float(spot_data) if spot_data else 1.0
     rates = get_fx_rates(pair)
-    r_d = rates.get("r_dom", 0.05)
-    r_f = rates.get("r_for", 0.03)
+    r_d = rates.get("r_dom", 0.05) if isinstance(rates, dict) else 0.05
+    r_f = rates.get("r_for", 0.03) if isinstance(rates, dict) else 0.03
     vol_surf = get_fx_vol_surface(pair)
     T = tenor_to_years(tenor)
     atm_vol_raw = 8.0
-    if vol_surf and tenor in vol_surf:
-        atm_vol_raw = vol_surf[tenor].get("atm", 8.0)
-    elif vol_surf:
-        # Pick nearest available tenor
-        available = list(vol_surf.keys())
-        if available:
-            nearest = min(available, key=lambda t: abs(tenor_to_years(t) - T))
-            atm_vol_raw = vol_surf[nearest].get("atm", 8.0)
+    if isinstance(vol_surf, dict):
+        if tenor in vol_surf and isinstance(vol_surf[tenor], dict):
+            atm_vol_raw = vol_surf[tenor].get("atm", 8.0)
+        else:
+            # Pick nearest available tenor from dict-valued entries
+            available = [k for k in vol_surf.keys() if isinstance(vol_surf[k], dict)]
+            if available:
+                nearest = min(available, key=lambda t: abs(tenor_to_years(t) - T))
+                atm_vol_raw = vol_surf[nearest].get("atm", 8.0)
+    elif isinstance(vol_surf, (int, float)):
+        atm_vol_raw = float(vol_surf)
     # Convert vol-points (e.g. 8.5) to decimal (0.085) for GK pricing
     atm_vol = atm_vol_raw / 100.0 if atm_vol_raw > 1.0 else atm_vol_raw
     return spot, r_d, r_f, atm_vol, T
@@ -743,14 +750,19 @@ def register_callbacks(app):
                 rates2 = get_fx_rates(pair2)
                 rd2 = rates2.get("r_dom", 0.05)
                 vol_surf2 = get_fx_vol_surface(pair2)
-                sigma2 = 0.10
-                if vol_surf2 and tenor in vol_surf2:
-                    sigma2 = vol_surf2[tenor].get("atm", 0.10)
-                elif vol_surf2:
-                    avail2 = list(vol_surf2.keys())
-                    if avail2:
-                        near2 = min(avail2, key=lambda t: abs(tenor_to_years(t) - T))
-                        sigma2 = vol_surf2[near2].get("atm", 0.10)
+                sigma2_raw = 8.0
+                if isinstance(vol_surf2, dict):
+                    if tenor in vol_surf2 and isinstance(vol_surf2[tenor], dict):
+                        sigma2_raw = vol_surf2[tenor].get("atm", 8.0)
+                    else:
+                        avail2 = [k for k in vol_surf2.keys() if isinstance(vol_surf2[k], dict)]
+                        if avail2:
+                            near2 = min(avail2, key=lambda t: abs(tenor_to_years(t) - T))
+                            sigma2_raw = vol_surf2[near2].get("atm", 8.0)
+                elif isinstance(vol_surf2, (int, float)):
+                    sigma2_raw = float(vol_surf2)
+                # Convert vol-points (e.g. 8.5) to decimal (0.085) for GK pricing
+                sigma2 = sigma2_raw / 100.0 if sigma2_raw > 1.0 else sigma2_raw
                 # Look up realized correlation from bloomberg_fx data
                 try:
                     corr_series = get_fx_correlation(pair, pair2, window=120, days=252)
@@ -1107,6 +1119,31 @@ def _price_at_spot(product, s, T, rd, rf, sigma, cp, K, B,
             T_start = tenor_to_years(fwd_offset)
             T_end = T if T > T_start else T_start + T
             return forward_start_price(s, T_start, T_end, rd, rf, sigma, cp, fwd_money)
+        elif product == "best_of":
+            # For spot sensitivity, vary S1 (primary pair) while keeping S2 fixed
+            spot2_data = get_fx_spots([pair2])
+            S2 = spot2_data.get(pair2, {}).get("mid", 1.0)
+            rates2 = get_fx_rates(pair2)
+            rd2 = rates2.get("r_dom", 0.05)
+            vol_surf2 = get_fx_vol_surface(pair2)
+            sigma2_raw = 8.0
+            if vol_surf2 and tenor in vol_surf2:
+                sigma2_raw = vol_surf2[tenor].get("atm", 8.0)
+            elif vol_surf2:
+                avail2 = list(vol_surf2.keys())
+                if avail2:
+                    near2 = min(avail2, key=lambda t: abs(tenor_to_years(t) - T))
+                    sigma2_raw = vol_surf2[near2].get("atm", 8.0)
+            sigma2 = sigma2_raw / 100.0 if sigma2_raw > 1.0 else sigma2_raw
+            try:
+                corr_series = get_fx_correlation(pair, pair2, window=120, days=252)
+                rho = float(corr_series.iloc[-1]) if len(corr_series) > 0 else 0.5
+            except Exception:
+                rho = 0.5
+            bo_type = bestof_type or "best-of"
+            r = best_of_price(s, S2, K, T, rd, rd2, rf, sigma, sigma2, rho, cp,
+                              bo_type, n_paths=5000, seed=42)
+            return r["price"]
         elif product == "tarf":
             r = tarf_price(s, K, t_barrier, T, rd, rf, sigma,
                            n_fixings=t_fix, target_profit=t_target,
@@ -1159,6 +1196,31 @@ def _price_at_vol(product, S, T, rd, rf, v, cp, K, B,
             T_start = tenor_to_years(fwd_offset)
             T_end = T if T > T_start else T_start + T
             return forward_start_price(S, T_start, T_end, rd, rf, v, cp, fwd_money)
+        elif product == "best_of":
+            # For vol sensitivity, vary sigma1 while keeping sigma2 proportionally scaled
+            spot2_data = get_fx_spots([pair2])
+            S2 = spot2_data.get(pair2, {}).get("mid", 1.0)
+            rates2 = get_fx_rates(pair2)
+            rd2 = rates2.get("r_dom", 0.05)
+            vol_surf2 = get_fx_vol_surface(pair2)
+            sigma2_raw = 8.0
+            if vol_surf2 and tenor in vol_surf2:
+                sigma2_raw = vol_surf2[tenor].get("atm", 8.0)
+            elif vol_surf2:
+                avail2 = list(vol_surf2.keys())
+                if avail2:
+                    near2 = min(avail2, key=lambda t: abs(tenor_to_years(t) - T))
+                    sigma2_raw = vol_surf2[near2].get("atm", 8.0)
+            sigma2 = sigma2_raw / 100.0 if sigma2_raw > 1.0 else sigma2_raw
+            try:
+                corr_series = get_fx_correlation(pair, pair2, window=120, days=252)
+                rho = float(corr_series.iloc[-1]) if len(corr_series) > 0 else 0.5
+            except Exception:
+                rho = 0.5
+            bo_type = bestof_type or "best-of"
+            r = best_of_price(S, S2, K, T, rd, rd2, rf, v, sigma2, rho, cp,
+                              bo_type, n_paths=5000, seed=42)
+            return r["price"]
         elif product == "tarf":
             r = tarf_price(S, K, t_barrier, T, rd, rf, v,
                            n_fixings=t_fix, target_profit=t_target,
