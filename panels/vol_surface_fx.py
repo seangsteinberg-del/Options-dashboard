@@ -148,6 +148,7 @@ def _get_surface_data(pair):
             bf10_vals.append(row.get("bf10", row.get("10D_BF", 0)))
 
     if not tenors_avail:
+        logging.getLogger(__name__).warning("Vol surface empty for %s — using hardcoded fallback", pair)
         tenors_avail = ["1M"]
         atm_vals, rr25_vals, bf25_vals = [8.0], [0.0], [0.2]
         rr10_vals, bf10_vals = [0.0], [0.5]
@@ -1758,6 +1759,33 @@ def register_callbacks(app):
 
         # Build stat boxes (always use full surface for KPIs)
         stats = _build_stat_boxes(pair, sd_full, spot, fwd_1m, r_dom, r_for)
+
+        # Data source indicator
+        try:
+            from core.bloomberg import is_connected
+            is_live = is_connected()
+        except Exception:
+            is_live = False
+        source_badge = html.Div(
+            "LIVE" if is_live else "SYNTHETIC",
+            style={
+                "color": "#00cc66" if is_live else "#ff8800",
+                "border": f"1px solid {'#00cc66' if is_live else '#ff8800'}",
+                "padding": "4px 8px",
+                "fontFamily": "'JetBrains Mono', monospace",
+                "fontSize": "9px",
+                "fontWeight": "700",
+                "letterSpacing": "1px",
+                "display": "flex",
+                "alignItems": "center",
+                "justifyContent": "center",
+                "minWidth": "80px",
+            },
+        )
+        if isinstance(stats, list):
+            stats.insert(0, source_badge)
+        else:
+            stats = [source_badge, stats]
 
         # Build overnight summary strip
         try:

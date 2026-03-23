@@ -655,6 +655,29 @@ def register_callbacks(app):
                 ], style=_make_stat_style(color))
             )
 
+        # Breach warning banner
+        if n_breaches > 0:
+            breach_details = [b for b in breaches if b["severity"] in ("BREACH", "CRITICAL")]
+            breach_text = " | ".join(
+                f"{b.get('metric', '?').upper()}: {b.get('current', '?')} vs limit {b.get('limit', '?')}"
+                for b in breach_details[:4]
+            )
+            stat_boxes.insert(0, html.Div(
+                f"\u26A0 LIMIT BREACH: {breach_text}",
+                style={
+                    "backgroundColor": "rgba(255,51,51,0.12)",
+                    "border": "1px solid #ff3333",
+                    "color": "#ff3333",
+                    "padding": "6px 12px",
+                    "fontFamily": "'JetBrains Mono', monospace",
+                    "fontSize": "10px",
+                    "fontWeight": "700",
+                    "letterSpacing": "0.5px",
+                    "width": "100%",
+                    "marginBottom": "6px",
+                },
+            ))
+
         # Build position table
         pos_table = _build_position_table(positions, spots, rates, vol_surfaces)
 

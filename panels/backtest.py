@@ -150,8 +150,9 @@ def _generate_backtest_data(pair, lookback_years):
     Returns a DataFrame indexed by date with columns:
         spot, atm_vol, rr25, bf25, r_d, r_f
     """
+    import time as _time
     n_days = int(lookback_years * 252)
-    seed = abs(hash(pair)) % (2 ** 31)
+    seed = (abs(hash(pair)) + int(_time.time() * 1000)) % (2 ** 31)
     rng = np.random.RandomState(seed)
 
     # --- Spot path (GBM with mean-reverting drift) ---

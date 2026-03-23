@@ -337,9 +337,9 @@ def _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surf
     for i, leg in enumerate(legs_config):
         cp_str = leg.get("cp", "call")
         side_str = leg.get("side", "buy")
-        delta_abs = float(leg.get("delta", 0.25))
-        ratio = int(leg.get("ratio", 1))
-        tenor_mult = float(leg.get("tenor_mult", 1.0))
+        delta_abs = max(0.01, min(0.99, float(leg.get("delta", 0.25))))
+        ratio = max(1, min(10, int(leg.get("ratio", 1))))
+        tenor_mult = max(0.25, min(5.0, float(leg.get("tenor_mult", 1.0))))
 
         cp_sign = 1 if cp_str == "call" else -1
         side_sign = 1 if side_str == "buy" else -1

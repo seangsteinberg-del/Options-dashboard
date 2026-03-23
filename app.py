@@ -219,8 +219,8 @@ def _fx_spot_data():
     return data
 
 
-def make_ticker_tape():
-    """Scrolling FX ticker tape across the top of the workstation."""
+def _build_ticker_items():
+    """Build ticker tape span elements from live spot data."""
     spot = _fx_spot_data()
     items = []
     for pair in FX_PAIRS:
@@ -245,11 +245,17 @@ def make_ticker_tape():
             "display": "inline-block",
             "fontFamily": "'JetBrains Mono', monospace",
         }))
+    return items
 
+
+def make_ticker_tape():
+    """Scrolling FX ticker tape across the top of the workstation (auto-refreshes)."""
+    items = _build_ticker_items()
     return html.Div([
-        html.Div(items + items,
+        html.Div(items + items, id="ticker-tape-content",
                  className="ticker-tape-inner",
                  style={"display": "inline-flex", "whiteSpace": "nowrap"}),
+        dcc.Interval(id="ticker-refresh-interval", interval=30_000, n_intervals=0),
     ], className="ticker-tape")
 
 
@@ -1186,6 +1192,20 @@ app.clientside_callback(
     Input("metric-popup-compare-btn", "n_clicks"),
     prevent_initial_call=True,
 )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Ticker Tape Live Refresh (every 30s)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.callback(
+    Output("ticker-tape-content", "children"),
+    Input("ticker-refresh-interval", "n_intervals"),
+    prevent_initial_call=True,
+)
+def _refresh_ticker(_n):
+    items = _build_ticker_items()
+    return items + items
 
 
 # ═══════════════════════════════════════════════════════════════════════════

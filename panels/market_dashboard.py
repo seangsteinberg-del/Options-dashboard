@@ -20,10 +20,13 @@ Layout:
   └──────────────────────────┴──────────────────────────────────┘
 """
 
+import logging
 import numpy as np
 from dash import html, dcc, Input, Output, State, callback_context, ALL, MATCH
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
+
+logger = logging.getLogger(__name__)
 
 from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
@@ -113,6 +116,7 @@ def _build_movers(pairs):
     try:
         from core.bloomberg_fx import get_fx_spots, get_fx_vol_surface
     except Exception:
+        logger.warning("Cannot import bloomberg_fx for movers")
         return []
 
     spots = get_fx_spots() or {}
@@ -219,7 +223,9 @@ def _build_kpi_data(rows):
         risk = compute_portfolio_risk(portfolio)
         book_vega = risk.get("total_vega", 0)
         book_theta = risk.get("total_theta", 0)
-    except Exception:
+    except Exception as _e:
+        import logging as _lg
+        _lg.getLogger(__name__).debug("Portfolio load fallback: %s", _e)
         book_vega, book_theta = 45000, -18000
     kpis["book_vega"]  = f"${book_vega/1000:.0f}K"
     kpis["book_theta"] = f"-${abs(book_theta)/1000:.0f}K"
@@ -229,7 +235,9 @@ def _build_kpi_data(rows):
         evts = _gather_events()
         n48 = sum(1 for e in evts if e["days_away"] <= 2)
         kpis["events_48h"] = n48
-    except Exception:
+    except Exception as _e:
+        import logging as _lg
+        _lg.getLogger(__name__).debug("Events fallback: %s", _e)
         kpis["events_48h"] = 0
 
     return kpis
@@ -717,18 +725,12 @@ def _render_book_greeks():
 # ── Callbacks ────────────────────────────────────────────────────────────────
 
 def register_callbacks(app):
+    # ── Fast callback: timestamp + KPIs + movers table (every interval) ──
     @app.callback(
         [
             Output(f"{_P}-timestamp", "children"),
             Output(f"{_P}-kpis", "children"),
             Output(f"{_P}-movers", "children"),
-            Output(f"{_P}-vol-index", "figure"),
-            Output(f"{_P}-skew", "figure"),
-            Output(f"{_P}-term", "figure"),
-            Output(f"{_P}-book-greeks", "children"),
-            Output(f"{_P}-delta-bars", "figure"),
-            Output(f"{_P}-events", "children"),
-            Output(f"{_P}-positioning", "children"),
         ],
         [
             Input(f"{_P}-interval", "n_intervals"),
@@ -736,28 +738,49 @@ def register_callbacks(app):
             Input(f"{_P}-sort", "value"),
         ],
     )
-    def update_dashboard(n, group, sort_key):
+    def update_kpis_movers(n, group, sort_key):
         from datetime import datetime
         ts = datetime.now().strftime("%H:%M:%S  %d-%b-%Y")
-
         pairs = _pairs_for(group or "ALL")
         rows = _build_movers(pairs)
         kpis = _build_kpi_data(rows)
+        return ts, _render_kpis(kpis), _render_movers_table(rows, sort_key or "spot")
+
+    # ── Charts callback (vol index, skew, term, delta bars) ──
+    @app.callback(
+        [
+            Output(f"{_P}-vol-index", "figure"),
+            Output(f"{_P}-skew", "figure"),
+            Output(f"{_P}-term", "figure"),
+            Output(f"{_P}-delta-bars", "figure"),
+        ],
+        [
+            Input(f"{_P}-interval", "n_intervals"),
+            Input(f"{_P}-group", "value"),
+        ],
+    )
+    def update_charts(n, group):
+        pairs = _pairs_for(group or "ALL")
+        return (_build_vol_index_chart(pairs), _build_skew_chart(pairs),
+                _build_term_chart(pairs), _build_delta_bars())
+
+    # ── Slow callback: book greeks + events + positioning ──
+    @app.callback(
+        [
+            Output(f"{_P}-book-greeks", "children"),
+            Output(f"{_P}-events", "children"),
+            Output(f"{_P}-positioning", "children"),
+        ],
+        [
+            Input(f"{_P}-interval", "n_intervals"),
+            Input(f"{_P}-group", "value"),
+        ],
+    )
+    def update_book_events(n, group):
+        pairs = _pairs_for(group or "ALL")
         events = _gather_events()
         positioning = _build_positioning(pairs)
-
-        return (
-            ts,
-            _render_kpis(kpis),
-            _render_movers_table(rows, sort_key or "spot"),
-            _build_vol_index_chart(pairs),
-            _build_skew_chart(pairs),
-            _build_term_chart(pairs),
-            _render_book_greeks(),
-            _build_delta_bars(),
-            _render_events(events),
-            _render_positioning(positioning),
-        )
+        return _render_book_greeks(), _render_events(events), _render_positioning(positioning)
 
     # ── Row click → update store (which app.py propagates to global-pair) ──
     @app.callback(
