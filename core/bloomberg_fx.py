@@ -533,14 +533,14 @@ def _fx_bbg_ticker(pair: str) -> str:
 
 
 def _fx_vol_bbg(pair: str) -> str:
-    """OVDV vol ticker, e.g., EURUSDV1M CMPN Curncy."""
-    return f"{pair.upper()}V CMPN Curncy"
+    """OVDV vol ticker, e.g., EURUSDV1M Curncy."""
+    return f"{pair.upper()}V Curncy"
 
 
 def _deposit_bbg(ccy: str, tenor: str) -> str:
-    """Deposit rate ticker, e.g., USDRC CMPN Index for 3M USD deposit.
-    Uses Bloomberg composite deposit rate tickers (post-LIBOR).
-    Format: {CCY_PREFIX}DR{TENOR_LETTER} CMPN Index
+    """Deposit rate ticker, e.g., USDRC Index for 3M USD deposit.
+    Uses Bloomberg deposit rate tickers (post-LIBOR).
+    Format: {CCY_PREFIX}DR{TENOR_LETTER} Index
     Verified against cuemacro/findatapy base_depos_tickers_list.csv.
     """
     ccy_map = {
@@ -554,7 +554,7 @@ def _deposit_bbg(ccy: str, tenor: str) -> str:
     tenor_letter = {"1M": "RA", "2M": "RB", "3M": "RC", "6M": "RF",
                     "9M": "RI", "1Y": "R1", "2Y": "R2", "3Y": "R3", "5Y": "R5"}
     suffix = tenor_letter.get(tenor.upper(), "RC")
-    return f"{prefix}{suffix} CMPN Index"
+    return f"{prefix}{suffix} Index"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -654,11 +654,11 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
             for tenor in _ALL_TENORS:
                 tc = tenor.upper()
                 mapping = [
-                    (f"{vol_pfx}{tc} CMPN Curncy", tenor, "atm"),
-                    (f"{rr25_pfx}{tc} CMPN Curncy", tenor, "rr25"),
-                    (f"{bf25_pfx}{tc} CMPN Curncy", tenor, "bf25"),
-                    (f"{rr10_pfx}{tc} CMPN Curncy", tenor, "rr10"),
-                    (f"{bf10_pfx}{tc} CMPN Curncy", tenor, "bf10"),
+                    (f"{vol_pfx}{tc} Curncy", tenor, "atm"),
+                    (f"{rr25_pfx}{tc} Curncy", tenor, "rr25"),
+                    (f"{bf25_pfx}{tc} Curncy", tenor, "bf25"),
+                    (f"{rr10_pfx}{tc} Curncy", tenor, "rr10"),
+                    (f"{bf10_pfx}{tc} Curncy", tenor, "bf10"),
                 ]
                 for tick, t, m in mapping:
                     all_tickers.append(tick)
@@ -821,7 +821,7 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
             fwd_tenor_map = {"ON": "ON", "1W": "1W", "2W": "2W", "1M": "1M", "2M": "2M",
                              "3M": "3M", "6M": "6M", "9M": "9M", "1Y": "12M", "2Y": "2Y",
                              "3Y": "3Y", "5Y": "5Y"}
-            tickers = [f"{fwd_sym}{fwd_tenor_map.get(t, t)} CMPN Curncy" for t in _ALL_TENORS]
+            tickers = [f"{fwd_sym}{fwd_tenor_map.get(t, t)} Curncy" for t in _ALL_TENORS]
             df = bdp(tickers, ["PX_LAST"])
             spot_data = get_fx_spots([pair])
             if pair not in spot_data:
@@ -924,7 +924,7 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
                 pfx = spec.bb_bf10_prefix if spec else f"{pair_u}10B"
             else:
                 pfx = spec.bb_vol_prefix if spec else f"{pair_u}V"
-            ticker = f"{pfx}{tc} CMPN Curncy"
+            ticker = f"{pfx}{tc} Curncy"
 
             start = (datetime.now() - timedelta(days=int(days * 1.5))).strftime("%Y%m%d")
             df = bdh(ticker, ["PX_LAST"], start)
