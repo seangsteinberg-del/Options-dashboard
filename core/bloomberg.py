@@ -431,7 +431,7 @@ def get_spot_prices(tickers: List[str]) -> Dict[str, dict]:
                 "rv30": _safe_float(row.get("VOLATILITY_30D")),
             }
         else:
-            result[orig] = _fallback_spot(orig)
+            logger.warning(f"Ticker {orig} ({bbg}) missing from BDP response — skipped")
 
     return result
 
@@ -461,7 +461,8 @@ def get_options_chain(underlying: str, expiry: str = None,
 
         chain_df = bds(bbg, "OPT_CHAIN", **overrides)
         if chain_df.empty:
-            return _fallback_options_chain(underlying, expiry)
+            logger.warning(f"OPT_CHAIN empty for {bbg} — returning empty DataFrame")
+            return pd.DataFrame()
 
         opt_tickers = chain_df.iloc[:, 0].tolist()
 
@@ -492,7 +493,7 @@ def get_options_chain(underlying: str, expiry: str = None,
 
     except Exception as e:
         logger.error(f"Options chain request failed: {e}")
-        return _fallback_options_chain(underlying, expiry)
+        return pd.DataFrame()
 
 
 def get_vol_surface(underlying: str, r: float = 0.05, q: float = 0.015) -> Tuple:
@@ -537,8 +538,7 @@ def get_vol_surface(underlying: str, r: float = 0.05, q: float = 0.015) -> Tuple
 
     except Exception as e:
         logger.error(f"Vol surface request failed: {e}")
-        from core.pricing import generate_vol_surface
-        return generate_vol_surface()
+        return np.array([]), np.array([]), np.array([[]])
 
 
 def get_historical_prices(ticker: str, days: int = 252) -> pd.DataFrame:
@@ -548,7 +548,8 @@ def get_historical_prices(ticker: str, days: int = 252) -> pd.DataFrame:
     df = bdh(_to_bbg_ticker(ticker), fields, start)
 
     if df.empty:
-        return _fallback_historical(ticker, days)
+        logger.warning(f"BDH empty for {ticker} — returning empty DataFrame")
+        return pd.DataFrame()
 
     df = df.rename(columns={
         "PX_OPEN": "open", "PX_HIGH": "high", "PX_LOW": "low",
@@ -617,14 +618,14 @@ def _build_vol_surface_from_chain(underlying, r, q):
 
     chain = get_options_chain(underlying)
     if chain.empty or "iv" not in chain.columns:
-        spot_data = _fallback_spot(underlying)
-        return generate_vol_surface(S=spot_data["price"])
+        logger.warning(f"No chain data for {underlying} — returning empty surface")
+        return np.array([]), np.array([]), np.array([[]])
 
     # Group by expiry and build surface
     calls = chain[chain["type"].str.upper() == "CALL"]
     if calls.empty:
-        spot_data = _fallback_spot(underlying)
-        return generate_vol_surface(S=spot_data["price"])
+        logger.warning(f"No call data for {underlying} — returning empty surface")
+        return np.array([]), np.array([]), np.array([[]])
 
     expiries = sorted(calls["expiry"].unique())
     strikes = np.sort(calls["strike"].unique().astype(float))

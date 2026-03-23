@@ -714,8 +714,10 @@ def get_fx_vol_point(pair: str, tenor: str = "1M",
         req_days = _TENOR_DAYS.get(tenor.upper(), 30)
         best_tenor = min(surface.keys(),
                          key=lambda t: abs(_TENOR_DAYS.get(t, 9999) - req_days))
-        return surface[best_tenor].get("atm", 10.0)
-    return 10.0
+        val = surface[best_tenor].get("atm")
+        if val is not None:
+            return val
+    return None
 
 
 def get_fx_rates(pair: str) -> dict:
@@ -749,8 +751,7 @@ def get_fx_rates(pair: str) -> dict:
         except Exception as e:
             logger.error(f"FX rates BBG request failed: {e}")
             _log_fetch_failure("get_fx_rates", pair, str(e))
-            # Return fallback rates so downstream calculations don't break
-            return _fallback_rates(pair)
+            return {}
 
     # SYNTHETIC mode only — Bloomberg not connected
     res = _fallback_rates(pair)
@@ -975,9 +976,14 @@ def get_fx_option_chain(pair: str, tenor: str = "1M") -> pd.DataFrame:
                 })
                 _cache_set(ck, df, "vol_surface")
                 return df
+            logger.warning(f"FX OPT_CHAIN empty for {pair}/{tenor}")
+            return pd.DataFrame()
         except Exception as e:
             logger.error(f"FX option chain BBG request failed: {e}")
+            _log_fetch_failure("get_fx_option_chain", pair, str(e))
+            return pd.DataFrame()
 
+    # SYNTHETIC mode only — Bloomberg not connected
     df = _fallback_option_chain(pair, tenor)
     _cache_set(ck, df, "vol_surface")
     return df
@@ -1000,7 +1006,11 @@ def get_cftc_positioning(pair: str) -> dict:
     if cached is not None:
         return cached
 
-    # CFTC data is weekly; Bloomberg lookup rarely works in real-time
+    if _HAS_EQUITY_BBG and is_connected():
+        # CFTC data not available via Bloomberg real-time — return empty
+        return {}
+
+    # SYNTHETIC mode only — Bloomberg not connected
     result = _fallback_positioning(pair)
     _cache_set(ck, result, "positioning")
     return result
@@ -1052,7 +1062,7 @@ def get_fx_implied_correlation(pair_a: str, pair_b: str, cross: str,
     va = get_fx_vol_point(pair_a, tenor, "atm")
     vb = get_fx_vol_point(pair_b, tenor, "atm")
     vc = get_fx_vol_point(cross, tenor, "atm")
-    if va <= 0 or vb <= 0:
+    if not va or not vb or not vc or va <= 0 or vb <= 0:
         return 0.0
     rho = (va**2 + vb**2 - vc**2) / (2.0 * va * vb)
     return round(max(min(rho, 1.0), -1.0), 4)
@@ -1616,7 +1626,7 @@ def get_fx_board(pairs: List[str] = None) -> pd.DataFrame:
     for pair in pairs:
         sd = spots.get(pair, {})
         vol_1m = get_fx_vol_point(pair, "1M", "atm")
-        rates = get_fx_rates(pair)
+        rates = get_fx_rates(pair) or {}
         rows.append({
             "pair": pair,
             "bid": sd.get("bid", 0),
@@ -1626,7 +1636,7 @@ def get_fx_board(pairs: List[str] = None) -> pd.DataFrame:
             "chg_pct": sd.get("change_pct", 0),
             "high": sd.get("high", 0),
             "low": sd.get("low", 0),
-            "vol_1m": vol_1m,
+            "vol_1m": vol_1m or 0,
             "r_dom": rates.get("r_dom", 0),
             "r_for": rates.get("r_for", 0),
         })
@@ -1703,11 +1713,13 @@ def get_fx_carry_rankings(pairs: List[str] = None) -> pd.DataFrame:
     rows = []
     for pair in pairs:
         rates = get_fx_rates(pair)
+        if not rates:
+            continue
         rows.append({
             "pair": pair,
-            "r_dom": rates["r_dom"],
-            "r_for": rates["r_for"],
-            "carry": round(rates["rate_diff"] * 100, 2),
+            "r_dom": rates.get("r_dom", 0),
+            "r_for": rates.get("r_for", 0),
+            "carry": round(rates.get("rate_diff", 0) * 100, 2),
         })
     df = pd.DataFrame(rows).sort_values("carry", ascending=False)
     df = df.reset_index(drop=True)
