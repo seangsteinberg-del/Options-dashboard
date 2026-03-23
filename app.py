@@ -363,6 +363,11 @@ def make_header():
                     "display": "flex", "alignItems": "center",
                     "marginRight": "16px",
                 }),
+                # ── Per-category data source breakdown ──
+                html.Div(id="data-source-status", children=[], style={
+                    "display": "flex", "alignItems": "center",
+                    "gap": "8px", "marginRight": "16px",
+                }),
                 html.Div([
                     html.Span("MODEL ", style={
                         "color": "#666666", "fontSize": "9px",
@@ -706,6 +711,9 @@ def serve_layout():
         dcc.Store(id="global-tenor", data="3M"),
         dcc.Store(id="watchlist-store", data=DEFAULT_WATCHLIST),
         dcc.Store(id="metric-popup-data", data=None),
+
+        # ── Data source status refresh (every 10s) ──
+        dcc.Interval(id="data-source-interval", interval=10_000, n_intervals=0),
 
         # ── Hidden keyboard listener for Ctrl+K ──
         html.Div(id="kb-listener", style={"display": "none"}),
@@ -1206,6 +1214,50 @@ app.clientside_callback(
 def _refresh_ticker(_n):
     items = _build_ticker_items()
     return items + items
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Data Source Status (live provenance tracking)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.callback(
+    Output("data-source-status", "children"),
+    Input("data-source-interval", "n_intervals"),
+)
+def _update_data_source_status(_n):
+    from core.bloomberg_fx import get_source_summary
+    summary = get_source_summary()
+
+    if summary["total"] == 0:
+        return [html.Span("NO DATA", style={
+            "color": "#666666", "fontSize": "9px", "fontWeight": "700",
+            "fontFamily": "'JetBrains Mono', monospace", "letterSpacing": "0.5px",
+        })]
+
+    badges = []
+    labels = {
+        "spots": "SPOT", "vol_surface": "VOL", "rates": "RATES",
+        "historical_spot": "HIST", "historical_vol": "HVOL",
+    }
+    for cat, source in summary.get("categories", {}).items():
+        is_live = source == "BLOOMBERG"
+        color = "#00cc66" if is_live else "#ff3333"
+        label = labels.get(cat, cat.upper()[:4])
+        badges.append(html.Span(
+            f"{label}",
+            title=f"{cat}: {source}",
+            style={
+                "color": color,
+                "fontSize": "8px",
+                "fontWeight": "700",
+                "fontFamily": "'JetBrains Mono', monospace",
+                "letterSpacing": "0.5px",
+                "padding": "1px 4px",
+                "border": f"1px solid {color}",
+            },
+        ))
+
+    return badges
 
 
 # ═══════════════════════════════════════════════════════════════════════════
