@@ -22,7 +22,7 @@ Layout:
 
 import logging
 import numpy as np
-from dash import html, dcc, Input, Output, State, callback_context, ALL, MATCH
+from dash import html, dcc, Input, Output, State, callback_context, ALL, MATCH, no_update
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 
@@ -32,8 +32,9 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, TAB_STYLE, TAB_SELECTED_STYLE,
     TABLE_HEADER_STYLE, TABLE_CELL_STYLE, clickable_stat, make_stat_style,
-    GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
+    GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG, CSV_BTN_STYLE,
 )
+from core.csv_export import export_csv
 from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -507,6 +508,7 @@ def layout():
     return html.Div([
         dcc.Store(id=f"{_P}-selected-pair", data=None),
         dcc.Interval(id=f"{_P}-interval", interval=30_000, n_intervals=0),
+        dcc.Download(id=f"{_P}-csv-download"),
 
         # ── Title + Controls ──
         html.Div([
@@ -548,10 +550,13 @@ def layout():
 
             # Right column: charts stacked
             html.Div([
+                html.Button("CSV", id=f"{_P}-csv-vol", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id=f"{_P}-vol-index", config={"displayModeBar": False, "responsive": True},
                           style={"height": f"{_CHART_H}px"}),
+                html.Button("CSV", id=f"{_P}-csv-skew", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id=f"{_P}-skew", config={"displayModeBar": False, "responsive": True},
                           style={"height": f"{_SMALL_H}px"}),
+                html.Button("CSV", id=f"{_P}-csv-term", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id=f"{_P}-term", config={"displayModeBar": False, "responsive": True},
                           style={"height": f"{_SMALL_H}px"}),
             ], style={"flex": "1", "minWidth": "350px", "display": "flex",
@@ -570,6 +575,7 @@ def layout():
                 html.Div(id=f"{_P}-book-greeks", style={
                     "display": "flex", "gap": GAP, "padding": "6px 8px",
                 }),
+                html.Button("CSV", id=f"{_P}-csv-delta", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id=f"{_P}-delta-bars", config={"displayModeBar": False, "responsive": True},
                           style={"height": f"{CHART_SM}px"}),
             ], style={"flex": "1", "border": "1px solid #222240"}),
@@ -801,3 +807,34 @@ def register_callbacks(app):
             return id_dict["index"]
         except Exception:
             raise PreventUpdate
+
+    # ── CSV Export ──────────────────────────────────────────────────────
+    @app.callback(
+        Output(f"{_P}-csv-download", "data"),
+        [Input(f"{_P}-csv-vol", "n_clicks"),
+         Input(f"{_P}-csv-skew", "n_clicks"),
+         Input(f"{_P}-csv-term", "n_clicks"),
+         Input(f"{_P}-csv-delta", "n_clicks")],
+        [State(f"{_P}-vol-index", "figure"),
+         State(f"{_P}-skew", "figure"),
+         State(f"{_P}-term", "figure"),
+         State(f"{_P}-delta-bars", "figure")],
+        prevent_initial_call=True,
+    )
+    def mdash_csv_export(n1, n2, n3, n4, fig1, fig2, fig3, fig4):
+        ctx = callback_context
+        if not ctx.triggered:
+            return no_update
+        btn = ctx.triggered[0]["prop_id"].split(".")[0]
+        mapping = {
+            f"{_P}-csv-vol": (fig1, "MarketDash", "VolIndex"),
+            f"{_P}-csv-skew": (fig2, "MarketDash", "Skew"),
+            f"{_P}-csv-term": (fig3, "MarketDash", "TermShape"),
+            f"{_P}-csv-delta": (fig4, "MarketDash", "DeltaBars"),
+        }
+        if btn not in mapping:
+            return no_update
+        fig, panel, chart_type = mapping[btn]
+        if not fig:
+            return no_update
+        return export_csv(fig, panel, chart_type)

@@ -13,7 +13,7 @@ Four sub-tabs:
 import json
 import numpy as np
 import pandas as pd
-from dash import html, dcc, Input, Output, State, callback_context, ALL, MATCH, dash_table
+from dash import html, dcc, Input, Output, State, callback_context, ALL, MATCH, dash_table, no_update
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -22,8 +22,9 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, TAB_STYLE, TAB_SELECTED_STYLE,
     TABLE_HEADER_STYLE, TABLE_CELL_STYLE, clickable_stat, make_stat_style,
-    GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
+    GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG, CSV_BTN_STYLE,
 )
+from core.csv_export import export_csv
 from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -838,6 +839,8 @@ def _build_calendar_spread(pair):
 
 def layout():
     return html.Div([
+        # CSV download
+        dcc.Download(id=f"{_P}-csv-download"),
         # Stores
         dcc.Store(id=f"{_P}-corr-pair-a", data="EURUSD"),
         dcc.Store(id=f"{_P}-corr-pair-b", data="USDJPY"),
@@ -875,16 +878,24 @@ def layout():
         # ══════════ CROSS-PAIR TAB ══════════
         html.Div(id=f"{_P}-cross-container", children=[
             html.Div([
-                dcc.Graph(id=f"{_P}-vol-spread", config={"displayModeBar": False, "responsive": True},
-                          style={"flex": "1", "minWidth": "350px"}),
-                dcc.Graph(id=f"{_P}-skew-scatter", config={"displayModeBar": False, "responsive": True},
-                          style={"flex": "1", "minWidth": "350px"}),
+                html.Div([
+                    html.Button("CSV", id=f"{_P}-csv-vol-spread", n_clicks=0, style=CSV_BTN_STYLE),
+                    dcc.Graph(id=f"{_P}-vol-spread", config={"displayModeBar": False, "responsive": True}),
+                ], style={"flex": "1", "minWidth": "350px"}),
+                html.Div([
+                    html.Button("CSV", id=f"{_P}-csv-skew-scatter", n_clicks=0, style=CSV_BTN_STYLE),
+                    dcc.Graph(id=f"{_P}-skew-scatter", config={"displayModeBar": False, "responsive": True}),
+                ], style={"flex": "1", "minWidth": "350px"}),
             ], style={"display": "flex", "gap": GAP}),
             html.Div([
-                dcc.Graph(id=f"{_P}-zscore-matrix", config={"displayModeBar": False, "responsive": True},
-                          style={"flex": "1", "minWidth": "350px"}),
-                dcc.Graph(id=f"{_P}-ivrv-panel", config={"displayModeBar": False, "responsive": True},
-                          style={"flex": "1", "minWidth": "350px"}),
+                html.Div([
+                    html.Button("CSV", id=f"{_P}-csv-zscore", n_clicks=0, style=CSV_BTN_STYLE),
+                    dcc.Graph(id=f"{_P}-zscore-matrix", config={"displayModeBar": False, "responsive": True}),
+                ], style={"flex": "1", "minWidth": "350px"}),
+                html.Div([
+                    html.Button("CSV", id=f"{_P}-csv-ivrv", n_clicks=0, style=CSV_BTN_STYLE),
+                    dcc.Graph(id=f"{_P}-ivrv-panel", config={"displayModeBar": False, "responsive": True}),
+                ], style={"flex": "1", "minWidth": "350px"}),
             ], style={"display": "flex", "gap": GAP, "marginTop": GAP}),
             # Signal table
             html.Div(id=f"{_P}-signal-table", style={"marginTop": SECTION_GAP}),
@@ -901,6 +912,7 @@ def layout():
                                      value=60, clearable=False,
                                      style={**DROPDOWN_STYLE, "width": "80px"}),
                     ], style={"display": "flex", "alignItems": "center", "gap": GAP, "marginBottom": GAP}),
+                    html.Button("CSV", id=f"{_P}-csv-corr", n_clicks=0, style=CSV_BTN_STYLE),
                     dcc.Graph(id=f"{_P}-corr-heatmap", config={"displayModeBar": False, "responsive": True},
                               style={"height": f"{CHART_LG}px"}),
                 ], style={"flex": "3"}),
@@ -915,6 +927,7 @@ def layout():
                 ], style={"flex": "2", "padding": GAP}),
             ], style={"display": "flex", "gap": GAP}),
             html.Div(id=f"{_P}-corr-breakdown", style={"marginTop": SECTION_GAP}),
+            html.Button("CSV", id=f"{_P}-csv-rolling", n_clicks=0, style=CSV_BTN_STYLE),
             dcc.Graph(id=f"{_P}-rolling-chart", config={"displayModeBar": False, "responsive": True},
                       style={"height": f"{CHART_SM}px", "marginTop": GAP}),
         ]),
@@ -931,6 +944,7 @@ def layout():
                 ], style={"flex": "1", "border": "1px solid #222240", "padding": GAP}),
                 html.Div([
                     html.Div(id=f"{_P}-risk-sentiment", style={"marginBottom": GAP}),
+                    html.Button("CSV", id=f"{_P}-csv-cb", n_clicks=0, style=CSV_BTN_STYLE),
                     dcc.Graph(id=f"{_P}-cb-chart", config={"displayModeBar": False, "responsive": True},
                               style={"height": f"{CHART_SM}px"}),
                 ], style={"flex": "1"}),
@@ -941,6 +955,7 @@ def layout():
                     dcc.Dropdown(id=f"{_P}-dxy-lookback", options=LOOKBACK_OPTIONS, value=252,
                                  clearable=False, style={**DROPDOWN_STYLE, "width": "80px"}),
                 ], style={"display": "flex", "alignItems": "center", "gap": GAP, "padding": f"{GAP} 0"}),
+                html.Button("CSV", id=f"{_P}-csv-dxy", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id=f"{_P}-dxy-chart", config={"displayModeBar": False, "responsive": True},
                           style={"height": f"{CHART_SM}px"}),
             ], style={"marginTop": SECTION_GAP}),
@@ -965,11 +980,16 @@ def layout():
                                  style={**DROPDOWN_STYLE, "width": "110px"}),
                 ], style={"display": "flex", "alignItems": "center", "gap": GAP, "padding": f"{GAP} 0"}),
                 html.Div([
-                    dcc.Graph(id=f"{_P}-carry-term", config={"displayModeBar": False, "responsive": True},
-                              style={"flex": "1", "minWidth": "350px"}),
-                    dcc.Graph(id=f"{_P}-carry-fwd", config={"displayModeBar": False, "responsive": True},
-                              style={"flex": "1", "minWidth": "350px"}),
+                    html.Div([
+                        html.Button("CSV", id=f"{_P}-csv-carry-term", n_clicks=0, style=CSV_BTN_STYLE),
+                        dcc.Graph(id=f"{_P}-carry-term", config={"displayModeBar": False, "responsive": True}),
+                    ], style={"flex": "1", "minWidth": "350px"}),
+                    html.Div([
+                        html.Button("CSV", id=f"{_P}-csv-carry-fwd", n_clicks=0, style=CSV_BTN_STYLE),
+                        dcc.Graph(id=f"{_P}-carry-fwd", config={"displayModeBar": False, "responsive": True}),
+                    ], style={"flex": "1", "minWidth": "350px"}),
                 ], style={"display": "flex", "gap": GAP}),
+                html.Button("CSV", id=f"{_P}-csv-carry-cal", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id=f"{_P}-carry-calendar", config={"displayModeBar": False, "responsive": True},
                           style={"height": f"{CHART_MD}px", "marginTop": GAP}),
             ], style={"marginTop": SECTION_GAP}),
@@ -1205,3 +1225,50 @@ def register_callbacks(app):
     def update_carry_charts(pair, comp):
         p = pair or "EURUSD"
         return _build_term_chart(p, comp), _build_fwd_vol(p), _build_calendar_spread(p)
+
+    # ── CSV Export ──────────────────────────────────────────────────────
+    @app.callback(
+        Output(f"{_P}-csv-download", "data"),
+        [Input(f"{_P}-csv-vol-spread", "n_clicks"),
+         Input(f"{_P}-csv-skew-scatter", "n_clicks"),
+         Input(f"{_P}-csv-zscore", "n_clicks"),
+         Input(f"{_P}-csv-ivrv", "n_clicks"),
+         Input(f"{_P}-csv-corr", "n_clicks"),
+         Input(f"{_P}-csv-rolling", "n_clicks"),
+         Input(f"{_P}-csv-cb", "n_clicks"),
+         Input(f"{_P}-csv-dxy", "n_clicks"),
+         Input(f"{_P}-csv-carry-term", "n_clicks"),
+         Input(f"{_P}-csv-carry-fwd", "n_clicks"),
+         Input(f"{_P}-csv-carry-cal", "n_clicks")],
+        [State(f"{_P}-vol-spread", "figure"),
+         State(f"{_P}-skew-scatter", "figure"),
+         State(f"{_P}-zscore-matrix", "figure"),
+         State(f"{_P}-ivrv-panel", "figure"),
+         State(f"{_P}-corr-heatmap", "figure"),
+         State(f"{_P}-rolling-chart", "figure"),
+         State(f"{_P}-cb-chart", "figure"),
+         State(f"{_P}-dxy-chart", "figure"),
+         State(f"{_P}-carry-term", "figure"),
+         State(f"{_P}-carry-fwd", "figure"),
+         State(f"{_P}-carry-calendar", "figure")],
+        prevent_initial_call=True,
+    )
+    def rvp_csv_export(*args):
+        ctx = callback_context
+        if not ctx.triggered:
+            return no_update
+        btn = ctx.triggered[0]["prop_id"].split(".")[0]
+        names = ["vol-spread", "skew-scatter", "zscore", "ivrv",
+                 "corr", "rolling", "cb", "dxy",
+                 "carry-term", "carry-fwd", "carry-cal"]
+        labels = ["VolSpread", "SkewScatter", "ZScoreMatrix", "IVRV",
+                  "CorrHeatmap", "RollingCorr", "CBDivergence", "DXYProxy",
+                  "CarryTerm", "CarryFwd", "CarryCalendar"]
+        n = len(names)
+        for i, name in enumerate(names):
+            if btn == f"{_P}-csv-{name}":
+                fig = args[n + i]
+                if fig:
+                    return export_csv(fig, "RelValue", labels[i])
+                return no_update
+        return no_update

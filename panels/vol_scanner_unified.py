@@ -11,7 +11,7 @@ Three view tabs inside one panel:
 
 import json
 import numpy as np
-from dash import html, dcc, Input, Output, State, callback_context, ALL, MATCH, dash_table
+from dash import html, dcc, Input, Output, State, callback_context, ALL, MATCH, dash_table, no_update
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 
@@ -19,8 +19,9 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, TAB_STYLE, TAB_SELECTED_STYLE,
     TABLE_HEADER_STYLE, TABLE_CELL_STYLE, clickable_stat, make_stat_style,
-    GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
+    GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG, CSV_BTN_STYLE,
 )
+from core.csv_export import export_csv
 from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -765,6 +766,7 @@ def layout():
         dcc.Store(id=f"{_P}-drill-tenor", data="3M"),
         dcc.Store(id=f"{_P}-scanner-store", data=[]),
         dcc.Interval(id=f"{_P}-interval", interval=60_000, n_intervals=0),
+        dcc.Download(id=f"{_P}-csv-download"),
 
         # ── Title + Controls ──
         html.Div([
@@ -811,12 +813,21 @@ def layout():
                     "marginBottom": "8px", "fontFamily": _MONO,
                 }),
                 html.Div([
-                    dcc.Graph(id=f"{_P}-spark-atm", config={"displayModeBar": False, "responsive": True},
-                              style={"flex": "1", "minWidth": "200px"}),
-                    dcc.Graph(id=f"{_P}-spark-ivrv", config={"displayModeBar": False, "responsive": True},
-                              style={"flex": "1", "minWidth": "200px"}),
-                    dcc.Graph(id=f"{_P}-spark-term", config={"displayModeBar": False, "responsive": True},
-                              style={"flex": "1", "minWidth": "200px"}),
+                    html.Div([
+                        html.Button("CSV", id=f"{_P}-csv-spark-atm", n_clicks=0, style=CSV_BTN_STYLE),
+                        dcc.Graph(id=f"{_P}-spark-atm", config={"displayModeBar": False, "responsive": True},
+                                  style={"flex": "1", "minWidth": "200px"}),
+                    ], style={"flex": "1", "minWidth": "200px"}),
+                    html.Div([
+                        html.Button("CSV", id=f"{_P}-csv-spark-ivrv", n_clicks=0, style=CSV_BTN_STYLE),
+                        dcc.Graph(id=f"{_P}-spark-ivrv", config={"displayModeBar": False, "responsive": True},
+                                  style={"flex": "1", "minWidth": "200px"}),
+                    ], style={"flex": "1", "minWidth": "200px"}),
+                    html.Div([
+                        html.Button("CSV", id=f"{_P}-csv-spark-term", n_clicks=0, style=CSV_BTN_STYLE),
+                        dcc.Graph(id=f"{_P}-spark-term", config={"displayModeBar": False, "responsive": True},
+                                  style={"flex": "1", "minWidth": "200px"}),
+                    ], style={"flex": "1", "minWidth": "200px"}),
                 ], style={"display": "flex", "gap": GAP}),
             ]),
         ]),
@@ -826,11 +837,13 @@ def layout():
             html.Div([
                 # Main heatmap
                 html.Div([
+                    html.Button("CSV", id=f"{_P}-csv-heatmap", n_clicks=0, style=CSV_BTN_STYLE),
                     dcc.Graph(id=f"{_P}-heatmap", config={"displayModeBar": False, "responsive": True},
                               style={"height": f"{CHART_LG}px"}),
                 ], style={"flex": "3"}),
                 # Cross-pair bar
                 html.Div([
+                    html.Button("CSV", id=f"{_P}-csv-cross-bar", n_clicks=0, style=CSV_BTN_STYLE),
                     dcc.Graph(id=f"{_P}-cross-bar", config={"displayModeBar": False, "responsive": True},
                               style={"height": f"{CHART_MD}px"}),
                 ], style={"flex": "2"}),
@@ -845,12 +858,21 @@ def layout():
                     "marginBottom": GAP, "fontFamily": _MONO,
                 }),
                 html.Div([
-                    dcc.Graph(id=f"{_P}-drill-atm", config={"displayModeBar": False, "responsive": True},
-                              style={"flex": "1", "minWidth": "200px"}),
-                    dcc.Graph(id=f"{_P}-drill-ivrv", config={"displayModeBar": False, "responsive": True},
-                              style={"flex": "1", "minWidth": "200px"}),
-                    dcc.Graph(id=f"{_P}-drill-cone", config={"displayModeBar": False, "responsive": True},
-                              style={"flex": "1", "minWidth": "200px"}),
+                    html.Div([
+                        html.Button("CSV", id=f"{_P}-csv-drill-atm", n_clicks=0, style=CSV_BTN_STYLE),
+                        dcc.Graph(id=f"{_P}-drill-atm", config={"displayModeBar": False, "responsive": True},
+                                  style={"flex": "1", "minWidth": "200px"}),
+                    ], style={"flex": "1", "minWidth": "200px"}),
+                    html.Div([
+                        html.Button("CSV", id=f"{_P}-csv-drill-ivrv", n_clicks=0, style=CSV_BTN_STYLE),
+                        dcc.Graph(id=f"{_P}-drill-ivrv", config={"displayModeBar": False, "responsive": True},
+                                  style={"flex": "1", "minWidth": "200px"}),
+                    ], style={"flex": "1", "minWidth": "200px"}),
+                    html.Div([
+                        html.Button("CSV", id=f"{_P}-csv-drill-cone", n_clicks=0, style=CSV_BTN_STYLE),
+                        dcc.Graph(id=f"{_P}-drill-cone", config={"displayModeBar": False, "responsive": True},
+                                  style={"flex": "1", "minWidth": "200px"}),
+                    ], style={"flex": "1", "minWidth": "200px"}),
                     html.Div(id=f"{_P}-drill-stats", style={"minWidth": "120px"}),
                 ], style={"display": "flex", "gap": GAP}),
             ]),
@@ -859,6 +881,7 @@ def layout():
         # ── Skew View Container ──
         html.Div(id=f"{_P}-skew-container", style={"display": "none"}, children=[
             # Skew surface
+            html.Button("CSV", id=f"{_P}-csv-skew-surface", n_clicks=0, style=CSV_BTN_STYLE),
             dcc.Graph(id=f"{_P}-skew-surface", config={"displayModeBar": False, "responsive": True},
                       style={"height": f"{CHART_LG}px"}),
 
@@ -872,17 +895,26 @@ def layout():
                 ], style={"display": "flex", "alignItems": "center", "gap": GAP,
                           "padding": "4px 0"}),
                 html.Div([
-                    dcc.Graph(id=f"{_P}-rr-spot", config={"displayModeBar": False, "responsive": True},
-                              style={"flex": "1", "minWidth": "300px"}),
-                    dcc.Graph(id=f"{_P}-smile", config={"displayModeBar": False, "responsive": True},
-                              style={"flex": "1", "minWidth": "300px"}),
+                    html.Div([
+                        html.Button("CSV", id=f"{_P}-csv-rr-spot", n_clicks=0, style=CSV_BTN_STYLE),
+                        dcc.Graph(id=f"{_P}-rr-spot", config={"displayModeBar": False, "responsive": True},
+                                  style={"flex": "1", "minWidth": "300px"}),
+                    ], style={"flex": "1", "minWidth": "300px"}),
+                    html.Div([
+                        html.Button("CSV", id=f"{_P}-csv-smile", n_clicks=0, style=CSV_BTN_STYLE),
+                        dcc.Graph(id=f"{_P}-smile", config={"displayModeBar": False, "responsive": True},
+                                  style={"flex": "1", "minWidth": "300px"}),
+                    ], style={"flex": "1", "minWidth": "300px"}),
                 ], style={"display": "flex", "gap": GAP}),
             ]),
 
             # BF map + Tail table
             html.Div([
-                dcc.Graph(id=f"{_P}-bf-map", config={"displayModeBar": False, "responsive": True},
-                          style={"flex": "3", "height": f"{CHART_MD}px"}),
+                html.Div([
+                    html.Button("CSV", id=f"{_P}-csv-bf-map", n_clicks=0, style=CSV_BTN_STYLE),
+                    dcc.Graph(id=f"{_P}-bf-map", config={"displayModeBar": False, "responsive": True},
+                              style={"flex": "3", "height": f"{CHART_MD}px"}),
+                ], style={"flex": "3"}),
                 html.Div([
                     html.Div("TAIL PROBABILITIES", style={
                         "color": "#808080", "fontSize": "9px", "fontWeight": "700",
@@ -1156,3 +1188,52 @@ def register_callbacks(app):
             return pair
         raise PreventUpdate
         raise PreventUpdate
+
+    # ── CSV Export ──────────────────────────────────────────────────────
+    @app.callback(
+        Output(f"{_P}-csv-download", "data"),
+        [Input(f"{_P}-csv-spark-atm", "n_clicks"),
+         Input(f"{_P}-csv-spark-ivrv", "n_clicks"),
+         Input(f"{_P}-csv-spark-term", "n_clicks"),
+         Input(f"{_P}-csv-heatmap", "n_clicks"),
+         Input(f"{_P}-csv-cross-bar", "n_clicks"),
+         Input(f"{_P}-csv-drill-atm", "n_clicks"),
+         Input(f"{_P}-csv-drill-ivrv", "n_clicks"),
+         Input(f"{_P}-csv-drill-cone", "n_clicks"),
+         Input(f"{_P}-csv-skew-surface", "n_clicks"),
+         Input(f"{_P}-csv-rr-spot", "n_clicks"),
+         Input(f"{_P}-csv-smile", "n_clicks"),
+         Input(f"{_P}-csv-bf-map", "n_clicks")],
+        [State(f"{_P}-spark-atm", "figure"),
+         State(f"{_P}-spark-ivrv", "figure"),
+         State(f"{_P}-spark-term", "figure"),
+         State(f"{_P}-heatmap", "figure"),
+         State(f"{_P}-cross-bar", "figure"),
+         State(f"{_P}-drill-atm", "figure"),
+         State(f"{_P}-drill-ivrv", "figure"),
+         State(f"{_P}-drill-cone", "figure"),
+         State(f"{_P}-skew-surface", "figure"),
+         State(f"{_P}-rr-spot", "figure"),
+         State(f"{_P}-smile", "figure"),
+         State(f"{_P}-bf-map", "figure")],
+        prevent_initial_call=True,
+    )
+    def vsu_csv_export(*args):
+        ctx = callback_context
+        if not ctx.triggered:
+            return no_update
+        btn = ctx.triggered[0]["prop_id"].split(".")[0]
+        names = ["spark-atm", "spark-ivrv", "spark-term", "heatmap",
+                 "cross-bar", "drill-atm", "drill-ivrv", "drill-cone",
+                 "skew-surface", "rr-spot", "smile", "bf-map"]
+        labels = ["SparkATM", "SparkIVRV", "SparkTerm", "Heatmap",
+                  "CrossBar", "DrillATM", "DrillIVRV", "DrillCone",
+                  "SkewSurface", "RRSpot", "Smile", "BFMap"]
+        n = len(names)
+        for i, name in enumerate(names):
+            if btn == f"{_P}-csv-{name}":
+                fig = args[n + i]
+                if fig:
+                    return export_csv(fig, "VolScanner", labels[i])
+                return no_update
+        return no_update

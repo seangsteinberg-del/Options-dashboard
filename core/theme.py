@@ -235,6 +235,19 @@ BUTTON_STYLE = {
 BUTTON_DANGER_STYLE = {**BUTTON_STYLE, "backgroundColor": "#ff3333", "color": "#000000"}
 BUTTON_SUCCESS_STYLE = {**BUTTON_STYLE, "backgroundColor": "#00cc66", "color": "#000000"}
 
+CSV_BTN_STYLE = {
+    "backgroundColor": "transparent",
+    "color": "#808080",
+    "border": "1px solid #333",
+    "borderRadius": "0px",
+    "padding": "1px 6px",
+    "fontSize": "8px",
+    "fontFamily": "'JetBrains Mono', monospace",
+    "cursor": "pointer",
+    "letterSpacing": "0.5px",
+    "textTransform": "uppercase",
+}
+
 TAB_STYLE = {
     "backgroundColor": "transparent",
     "border": "1px solid #222240",

@@ -19,7 +19,9 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
     make_stat_style, clickable_stat,
+    CSV_BTN_STYLE,
 )
+from core.csv_export import export_csv
 from core.fx_analytics import vol_percentile
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs
 from core.fx_conventions import (
@@ -999,6 +1001,7 @@ def layout():
             leg_rows.append(_make_leg_row(i, visible=False))
 
     return html.Div([
+        dcc.Download(id="stb-csv-download"),
         html.Div([
             # ── Left: Input Panel ──────────────────────────────────────
             html.Div([
@@ -1098,16 +1101,19 @@ def layout():
                 # Chart grid row 1 (3 charts)
                 html.Div([
                     html.Div([
+                        html.Button("CSV", id="stb-csv-payoff", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="stb-payoff-chart", style={"height": "380px"},
                                   config={"displayModeBar": True, "scrollZoom": False}),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "340px",
                               "padding": "12px"}, className="dashboard-card"),
                     html.Div([
+                        html.Button("CSV", id="stb-csv-greeks", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="stb-greeks-chart", style={"height": "380px"},
                                   config={"displayModeBar": True, "scrollZoom": False}),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "340px",
                               "padding": "12px"}, className="dashboard-card"),
                     html.Div([
+                        html.Button("CSV", id="stb-csv-heatmap", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="stb-heatmap-chart", style={"height": "380px"},
                                   config={"displayModeBar": True, "scrollZoom": False}),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "340px",
@@ -1118,6 +1124,7 @@ def layout():
                 # Chart grid row 2 (3 charts)
                 html.Div([
                     html.Div([
+                        html.Button("CSV", id="stb-csv-3d", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="stb-3d-chart", style={"height": "380px"},
                                   config={"displayModeBar": True, "scrollZoom": True}),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "340px",
@@ -1126,6 +1133,7 @@ def layout():
                         **CARD_STYLE, "flex": "1", "minWidth": "340px", "padding": "12px",
                     }, className="dashboard-card"),
                     html.Div([
+                        html.Button("CSV", id="stb-csv-scenario", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="stb-scenario-chart", style={"height": "380px"},
                                   config={"displayModeBar": True, "scrollZoom": False}),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "340px",
@@ -1436,3 +1444,37 @@ def register_callbacks(app):
         })
 
         return html.Div([header, subtitle, stat_row])
+
+    # ── CSV Export ──────────────────────────────────────────────────────
+    @app.callback(
+        Output("stb-csv-download", "data"),
+        [Input("stb-csv-payoff", "n_clicks"),
+         Input("stb-csv-greeks", "n_clicks"),
+         Input("stb-csv-heatmap", "n_clicks"),
+         Input("stb-csv-3d", "n_clicks"),
+         Input("stb-csv-scenario", "n_clicks")],
+        [State("stb-payoff-chart", "figure"),
+         State("stb-greeks-chart", "figure"),
+         State("stb-heatmap-chart", "figure"),
+         State("stb-3d-chart", "figure"),
+         State("stb-scenario-chart", "figure")],
+        prevent_initial_call=True,
+    )
+    def stb_csv_export(n1, n2, n3, n4, n5, fig1, fig2, fig3, fig4, fig5):
+        ctx = callback_context
+        if not ctx.triggered:
+            return no_update
+        btn = ctx.triggered[0]["prop_id"].split(".")[0]
+        mapping = {
+            "stb-csv-payoff": (fig1, "StructBuilder", "Payoff"),
+            "stb-csv-greeks": (fig2, "StructBuilder", "Greeks"),
+            "stb-csv-heatmap": (fig3, "StructBuilder", "Heatmap"),
+            "stb-csv-3d": (fig4, "StructBuilder", "Surface3D"),
+            "stb-csv-scenario": (fig5, "StructBuilder", "Scenario"),
+        }
+        if btn not in mapping:
+            return no_update
+        fig, panel, chart_type = mapping[btn]
+        if not fig:
+            return no_update
+        return export_csv(fig, panel, chart_type)

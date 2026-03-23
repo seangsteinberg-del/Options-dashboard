@@ -12,7 +12,7 @@ Provides:
 """
 
 import dash
-from dash import html, dcc, Input, Output, State, no_update, dash_table
+from dash import html, dcc, Input, Output, State, no_update, dash_table, callback_context
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
@@ -23,8 +23,9 @@ import json
 from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE, LABEL_STYLE,
     DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE, BUTTON_SUCCESS_STYLE,
-    make_stat_style,
+    make_stat_style, CSV_BTN_STYLE,
 )
+from core.csv_export import export_csv
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs
 from core.fx_portfolio import add_position, get_all_positions, BOOKS
 from core.fx_conventions import (
@@ -272,6 +273,7 @@ def layout():
     book_opts = [{"label": b.replace("_", " "), "value": b} for b in BOOKS]
 
     return html.Div([
+        dcc.Download(id="fxb-csv-download"),
         # ── Row 1: Trade Entry + Execution Log ──────────────────
         html.Div([
             # LEFT: Trade Entry Form
@@ -408,14 +410,17 @@ def layout():
         # ── Row 2: Flow Analytics (3 charts) ────────────────────
         html.Div([
             html.Div([
+                html.Button("CSV", id="fxb-csv-notional", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id="fxb-notional-chart", style={"height": "340px"}),
             ], style={**CARD_STYLE, "flex": "1", "minWidth": "320px"},
                className="dashboard-card"),
             html.Div([
+                html.Button("CSV", id="fxb-csv-premium", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id="fxb-premium-flow-chart", style={"height": "340px"}),
             ], style={**CARD_STYLE, "flex": "1", "minWidth": "320px"},
                className="dashboard-card"),
             html.Div([
+                html.Button("CSV", id="fxb-csv-activity", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id="fxb-activity-chart", style={"height": "340px"}),
             ], style={**CARD_STYLE, "flex": "1", "minWidth": "320px"},
                className="dashboard-card"),
@@ -898,3 +903,31 @@ def register_callbacks(app):
 
         return (exec_table, notional_fig, prem_fig, activity_fig,
                 day_stats, new_store, exec_msg, exec_style)
+
+    # ── CSV Export ──────────────────────────────────────────────────────
+    @app.callback(
+        Output("fxb-csv-download", "data"),
+        [Input("fxb-csv-notional", "n_clicks"),
+         Input("fxb-csv-premium", "n_clicks"),
+         Input("fxb-csv-activity", "n_clicks")],
+        [State("fxb-notional-chart", "figure"),
+         State("fxb-premium-flow-chart", "figure"),
+         State("fxb-activity-chart", "figure")],
+        prevent_initial_call=True,
+    )
+    def fxb_csv_export(n1, n2, n3, fig1, fig2, fig3):
+        ctx = callback_context
+        if not ctx.triggered:
+            return no_update
+        btn = ctx.triggered[0]["prop_id"].split(".")[0]
+        mapping = {
+            "fxb-csv-notional": (fig1, "Blotter", "Notional"),
+            "fxb-csv-premium": (fig2, "Blotter", "PremiumFlow"),
+            "fxb-csv-activity": (fig3, "Blotter", "Activity"),
+        }
+        if btn not in mapping:
+            return no_update
+        fig, panel, chart_type = mapping[btn]
+        if not fig:
+            return no_update
+        return export_csv(fig, panel, chart_type)

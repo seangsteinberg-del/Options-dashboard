@@ -24,7 +24,9 @@ from core.theme import (
     make_stat_style, TAB_STYLE, LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE,
     clickable_stat,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
+    CSV_BTN_STYLE,
 )
+from core.csv_export import export_csv
 from core.bloomberg_fx import (
     get_fx_vol_surface, get_fx_spots, get_fx_rates,
     get_fx_historical_vol, get_fx_realized_vol, get_all_pairs,
@@ -1428,6 +1430,7 @@ def layout():
         # Hidden stores and interval
         dcc.Interval(id="vsfx-interval", interval=30000, n_intervals=0, disabled=True),
         dcc.Store(id="vsfx-preset-store", data="Trader"),
+        dcc.Download(id="vsfx-csv-download"),
 
         # ── Outer flex container ──────────────────────────────────
         html.Div([
@@ -1574,6 +1577,7 @@ def layout():
                 # 2x2 Chart Grid
                 html.Div([
                     html.Div([
+                        html.Button("CSV", id="vsfx-csv-q1", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q1",
                                       config={"displayModeBar": True, "scrollZoom": True},
@@ -1583,6 +1587,7 @@ def layout():
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px",
                               "padding": "12px", "marginRight": GAP, "marginBottom": GAP}),
                     html.Div([
+                        html.Button("CSV", id="vsfx-csv-q2", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q2",
                                       config={"displayModeBar": True, "scrollZoom": True},
@@ -1594,6 +1599,7 @@ def layout():
                 ], style={"display": "flex", "flexWrap": "wrap", "gap": GAP}),
                 html.Div([
                     html.Div([
+                        html.Button("CSV", id="vsfx-csv-q3", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q3",
                                       config={"displayModeBar": True, "scrollZoom": True},
@@ -1603,6 +1609,7 @@ def layout():
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px",
                               "padding": "12px", "marginRight": GAP, "marginBottom": GAP}),
                     html.Div([
+                        html.Button("CSV", id="vsfx-csv-q4", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q4",
                                       config={"displayModeBar": True, "scrollZoom": True},
@@ -1775,3 +1782,34 @@ def register_callbacks(app):
             overnight = html.Div()
 
         return fig1, fig2, fig3, fig4, stats, overnight
+
+    # ── CSV Export ──────────────────────────────────────────────────────
+    @app.callback(
+        Output("vsfx-csv-download", "data"),
+        [Input("vsfx-csv-q1", "n_clicks"),
+         Input("vsfx-csv-q2", "n_clicks"),
+         Input("vsfx-csv-q3", "n_clicks"),
+         Input("vsfx-csv-q4", "n_clicks")],
+        [State("vsfx-chart-q1", "figure"),
+         State("vsfx-chart-q2", "figure"),
+         State("vsfx-chart-q3", "figure"),
+         State("vsfx-chart-q4", "figure")],
+        prevent_initial_call=True,
+    )
+    def vsfx_csv_export(n1, n2, n3, n4, fig1, fig2, fig3, fig4):
+        ctx = callback_context
+        if not ctx.triggered:
+            return no_update
+        btn = ctx.triggered[0]["prop_id"].split(".")[0]
+        mapping = {
+            "vsfx-csv-q1": (fig1, "VolSurface", "Quad1"),
+            "vsfx-csv-q2": (fig2, "VolSurface", "Quad2"),
+            "vsfx-csv-q3": (fig3, "VolSurface", "Quad3"),
+            "vsfx-csv-q4": (fig4, "VolSurface", "Quad4"),
+        }
+        if btn not in mapping:
+            return no_update
+        fig, panel, chart_type = mapping[btn]
+        if not fig:
+            return no_update
+        return export_csv(fig, panel, chart_type)

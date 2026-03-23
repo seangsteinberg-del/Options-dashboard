@@ -25,8 +25,9 @@ import pandas as pd
 from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     make_stat_style, grid_cell, section_header, chart_layout,
-    GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
+    GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG, CSV_BTN_STYLE,
 )
+from core.csv_export import export_csv
 from core.bloomberg_fx import (
     get_fx_spots, get_fx_vol_surface, get_fx_rates, get_all_pairs,
     get_fx_historical_spot, get_fx_historical_vol, get_fx_term_structure,
@@ -284,6 +285,7 @@ def _chart_slot(i):
                      style={"flex": "0.6", "minWidth": "70px"}),
         ], style=CTRL_WRAP),
         # Chart
+        html.Button("CSV", id={"type": "lab-csv-btn", "index": i}, n_clicks=0, style=CSV_BTN_STYLE),
         dcc.Graph(id={"type": "lab-chart", "index": i}, style={"height": f"{CHART_MD}px"}, config=GRAPH_CONFIG),
         # Stats strip
         html.Div(id={"type": "lab-slot-stats", "index": i}, children=[], style=STAT_STRIP),
@@ -296,6 +298,7 @@ def _chart_slot(i):
 
 def layout():
     return html.Div([
+        dcc.Download(id="lab-csv-download"),
         # ── Title bar + controls ─────────────────────────────────────────
         html.Div([
             html.Div([
@@ -370,6 +373,7 @@ def layout():
                 html.Div([html.Button("RUN STUDY", id="lab-study-run", n_clicks=0, style=BTN_STYLE)],
                          style={"display": "flex", "alignItems": "flex-end"}),
             ], style=CTRL_WRAP),
+            html.Button("CSV", id="lab-csv-study", n_clicks=0, style=CSV_BTN_STYLE),
             dcc.Graph(id="lab-study-chart", style={"height": f"{CHART_LG}px"}, config=GRAPH_CONFIG),
             html.Div(id="lab-study-stats", children=[], style=STAT_STRIP),
         ], style={**CARD_STYLE, "marginTop": SECTION_GAP, "marginBottom": SECTION_GAP}),
@@ -394,6 +398,7 @@ def layout():
                 html.Div([html.Button("REFRESH", id="lab-comp-refresh", n_clicks=0, style=BTN_STYLE)],
                          style={"display": "flex", "alignItems": "flex-end"}),
             ], style=CTRL_WRAP),
+            html.Button("CSV", id="lab-csv-comp", n_clicks=0, style=CSV_BTN_STYLE),
             dcc.Graph(id="lab-comp-chart", style={"height": f"{CHART_LG}px"}, config=GRAPH_CONFIG),
         ], style={**CARD_STYLE, "marginTop": SECTION_GAP, "marginBottom": SECTION_GAP}),
 
@@ -1570,3 +1575,34 @@ def register_callbacks(app):
     def _auto_refresh(n, live):
         if not live: raise PreventUpdate
         return n
+
+    # ── CSV Export ──────────────────────────────────────────────────────
+    @app.callback(
+        Output("lab-csv-download", "data"),
+        [Input({"type": "lab-csv-btn", "index": ALL}, "n_clicks"),
+         Input("lab-csv-study", "n_clicks"),
+         Input("lab-csv-comp", "n_clicks")],
+        [State({"type": "lab-chart", "index": ALL}, "figure"),
+         State("lab-study-chart", "figure"),
+         State("lab-comp-chart", "figure")],
+        prevent_initial_call=True,
+    )
+    def lab_csv_export(slot_clicks, study_n, comp_n, slot_figs, study_fig, comp_fig):
+        ctx = callback_context
+        if not ctx.triggered:
+            return no_update
+        prop_id = ctx.triggered[0]["prop_id"]
+        # Pattern-matching buttons
+        if "lab-csv-btn" in prop_id:
+            import json as _json
+            info = _json.loads(prop_id.split(".")[0])
+            idx = info["index"]
+            if idx < len(slot_figs) and slot_figs[idx]:
+                return export_csv(slot_figs[idx], "ChartLab", f"Slot{idx}")
+            return no_update
+        btn = prop_id.split(".")[0]
+        if btn == "lab-csv-study" and study_fig:
+            return export_csv(study_fig, "ChartLab", "Study")
+        if btn == "lab-csv-comp" and comp_fig:
+            return export_csv(comp_fig, "ChartLab", "Comparison")
+        return no_update

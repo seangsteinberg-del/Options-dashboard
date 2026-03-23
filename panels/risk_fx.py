@@ -12,7 +12,7 @@ Plus 8 KPI stat boxes and a persistent position table at the bottom.
 """
 
 import dash
-from dash import html, dcc, Input, Output, State, no_update, dash_table
+from dash import html, dcc, Input, Output, State, no_update, dash_table, callback_context
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -23,8 +23,9 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE, LABEL_STYLE,
     DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
-    clickable_stat, chart_layout,
+    clickable_stat, chart_layout, CSV_BTN_STYLE,
 )
+from core.csv_export import export_csv
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs
 from core.fx_portfolio import (
     get_all_positions, compute_portfolio_risk, pnl_attribution,
@@ -210,6 +211,8 @@ def layout():
     ]
 
     return html.Div([
+        # CSV download
+        dcc.Download(id="fxrisk-csv-download"),
         # Hidden stores
         dcc.Store(id="fxrisk-init-flag", data=False),
         dcc.Store(id="fxrisk-selected-pair", data=None),
@@ -243,6 +246,7 @@ def layout():
         html.Div(id="fxrisk-greeks-container", style={"display": "none"}, children=[
             html.Div([
                 html.Div("VEGA HEATMAP (PAIR x TENOR BUCKET)", style=CARD_HEADER_STYLE),
+                html.Button("CSV", id="fxrisk-csv-vega", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id="fxrisk-vega-heatmap", config={"displayModeBar": False}),
             ], style={**CARD_STYLE, "marginBottom": SECTION_GAP}),
             html.Div(id="fxrisk-click-detail", style={
@@ -256,10 +260,12 @@ def layout():
                 html.Div([
                     html.Div([
                         html.Div("DELTA BY PAIR (USD)", style=CARD_HEADER_STYLE),
+                        html.Button("CSV", id="fxrisk-csv-delta", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="fxrisk-delta-bar", config={"displayModeBar": False}),
                     ], style={"flex": "1", "minWidth": "400px"}),
                     html.Div([
                         html.Div("GAMMA BY PAIR (USD/%)", style=CARD_HEADER_STYLE),
+                        html.Button("CSV", id="fxrisk-csv-gamma", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="fxrisk-gamma-bar", config={"displayModeBar": False}),
                     ], style={"flex": "1", "minWidth": "400px"}),
                 ], style={"display": "flex", "gap": SECTION_GAP, "flexWrap": "wrap"}),
@@ -272,10 +278,12 @@ def layout():
                 html.Div([
                     html.Div([
                         html.Div("VaR DISTRIBUTION (10K SIMULATIONS)", style=CARD_HEADER_STYLE),
+                        html.Button("CSV", id="fxrisk-csv-var", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="fxrisk-var-dist", config={"displayModeBar": False}),
                     ], style={"flex": "3", "minWidth": "500px"}),
                     html.Div([
                         html.Div("COMPONENT VaR BY PAIR", style=CARD_HEADER_STYLE),
+                        html.Button("CSV", id="fxrisk-csv-cvar", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="fxrisk-component-var", config={"displayModeBar": False}),
                     ], style={"flex": "2", "minWidth": "350px"}),
                 ], style={"display": "flex", "gap": SECTION_GAP, "flexWrap": "wrap"}),
@@ -286,6 +294,7 @@ def layout():
         html.Div(id="fxrisk-stress-container", style={"display": "none"}, children=[
             html.Div([
                 html.Div("SCENARIO COMPARISON (ALL 15 SCENARIOS)", style=CARD_HEADER_STYLE),
+                html.Button("CSV", id="fxrisk-csv-scenario", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id="fxrisk-scenario-bars", config={"displayModeBar": False}),
             ], style={**CARD_STYLE, "marginBottom": SECTION_GAP}),
             html.Div([
@@ -339,10 +348,12 @@ def layout():
                 html.Div([
                     html.Div([
                         html.Div("P&L ATTRIBUTION WATERFALL", style=CARD_HEADER_STYLE),
+                        html.Button("CSV", id="fxrisk-csv-waterfall", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="fxrisk-waterfall", config={"displayModeBar": False}),
                     ], style={"flex": "1", "minWidth": "500px"}),
                     html.Div([
                         html.Div("P&L BY PAIR", style=CARD_HEADER_STYLE),
+                        html.Button("CSV", id="fxrisk-csv-pnl", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="fxrisk-pnl-pair", config={"displayModeBar": False}),
                     ], style={"flex": "1", "minWidth": "400px"}),
                 ], style={"display": "flex", "gap": SECTION_GAP, "flexWrap": "wrap"}),
@@ -490,10 +501,14 @@ def layout():
                     "display": "flex", "gap": GAP, "marginTop": GAP, "flexWrap": "wrap",
                 }),
                 html.Div([
-                    dcc.Graph(id="fxrisk-hsim-pnl", config={"displayModeBar": False},
-                              style={"flex": "1", "minWidth": "350px"}),
-                    dcc.Graph(id="fxrisk-hsim-gamma", config={"displayModeBar": False},
-                              style={"flex": "1", "minWidth": "350px"}),
+                    html.Div([
+                        html.Button("CSV", id="fxrisk-csv-hsim-pnl", n_clicks=0, style=CSV_BTN_STYLE),
+                        dcc.Graph(id="fxrisk-hsim-pnl", config={"displayModeBar": False}),
+                    ], style={"flex": "1", "minWidth": "350px"}),
+                    html.Div([
+                        html.Button("CSV", id="fxrisk-csv-hsim-gamma", n_clicks=0, style=CSV_BTN_STYLE),
+                        dcc.Graph(id="fxrisk-hsim-gamma", config={"displayModeBar": False}),
+                    ], style={"flex": "1", "minWidth": "350px"}),
                 ], style={"display": "flex", "gap": GAP, "marginTop": GAP}),
             ], style={**CARD_STYLE, "marginBottom": SECTION_GAP}),
 
@@ -527,6 +542,7 @@ def layout():
                 html.Div(id="fxrisk-xh-stats", style={
                     "display": "flex", "gap": GAP, "marginTop": GAP, "flexWrap": "wrap",
                 }),
+                html.Button("CSV", id="fxrisk-csv-xh", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id="fxrisk-xh-chart", config={"displayModeBar": False},
                           style={"height": f"{CHART_SM}px", "marginTop": GAP}),
             ], style={**CARD_STYLE, "marginBottom": SECTION_GAP}),
@@ -1859,6 +1875,54 @@ def register_callbacks(app):
         return html.Table([html.Thead(header), html.Tbody(body)],
                           style={"width": "100%", "borderCollapse": "collapse",
                                  "fontFamily": "'JetBrains Mono', monospace", "fontSize": "11px"})
+
+    # ── CSV Export ──────────────────────────────────────────────────────
+    @app.callback(
+        Output("fxrisk-csv-download", "data"),
+        [Input("fxrisk-csv-vega", "n_clicks"),
+         Input("fxrisk-csv-delta", "n_clicks"),
+         Input("fxrisk-csv-gamma", "n_clicks"),
+         Input("fxrisk-csv-var", "n_clicks"),
+         Input("fxrisk-csv-cvar", "n_clicks"),
+         Input("fxrisk-csv-scenario", "n_clicks"),
+         Input("fxrisk-csv-waterfall", "n_clicks"),
+         Input("fxrisk-csv-pnl", "n_clicks"),
+         Input("fxrisk-csv-hsim-pnl", "n_clicks"),
+         Input("fxrisk-csv-hsim-gamma", "n_clicks"),
+         Input("fxrisk-csv-xh", "n_clicks")],
+        [State("fxrisk-vega-heatmap", "figure"),
+         State("fxrisk-delta-bar", "figure"),
+         State("fxrisk-gamma-bar", "figure"),
+         State("fxrisk-var-dist", "figure"),
+         State("fxrisk-component-var", "figure"),
+         State("fxrisk-scenario-bars", "figure"),
+         State("fxrisk-waterfall", "figure"),
+         State("fxrisk-pnl-pair", "figure"),
+         State("fxrisk-hsim-pnl", "figure"),
+         State("fxrisk-hsim-gamma", "figure"),
+         State("fxrisk-xh-chart", "figure")],
+        prevent_initial_call=True,
+    )
+    def fxrisk_csv_export(*args):
+        ctx = callback_context
+        if not ctx.triggered:
+            return no_update
+        btn = ctx.triggered[0]["prop_id"].split(".")[0]
+        btn_names = ["fxrisk-csv-vega", "fxrisk-csv-delta", "fxrisk-csv-gamma",
+                     "fxrisk-csv-var", "fxrisk-csv-cvar", "fxrisk-csv-scenario",
+                     "fxrisk-csv-waterfall", "fxrisk-csv-pnl",
+                     "fxrisk-csv-hsim-pnl", "fxrisk-csv-hsim-gamma", "fxrisk-csv-xh"]
+        labels = ["VegaHeatmap", "DeltaBar", "GammaBar", "VaRDist",
+                  "ComponentVaR", "ScenarioBars", "Waterfall", "PnLPair",
+                  "HSimPnL", "HSimGamma", "CrossHedge"]
+        n = len(btn_names)
+        for i, name in enumerate(btn_names):
+            if btn == name:
+                fig = args[n + i]
+                if fig:
+                    return export_csv(fig, "Risk", labels[i])
+                return no_update
+        return no_update
 
 
 def _make_stat_box(label, value, color):

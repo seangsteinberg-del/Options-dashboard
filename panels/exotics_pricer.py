@@ -11,7 +11,7 @@ and spot/vol sensitivity charts.
 """
 
 import dash
-from dash import html, dcc, Input, Output, State, no_update
+from dash import html, dcc, Input, Output, State, no_update, callback_context
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
@@ -19,8 +19,9 @@ import numpy as np
 from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
-    make_stat_style, CARD_HEADER_STYLE,
+    make_stat_style, CARD_HEADER_STYLE, CSV_BTN_STYLE,
 )
+from core.csv_export import export_csv
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs, get_fx_correlation
 from core.fx_exotics import (
     barrier_price, double_barrier_price, digital_price, digital_greeks,
@@ -148,6 +149,7 @@ def layout():
     default_pair = "EURUSD"
 
     return html.Div([
+        dcc.Download(id="exo-csv-download"),
         # ── Top row: inputs | output ──────────────────────────────────────
         html.Div([
             # LEFT PANEL — product selector + inputs
@@ -296,10 +298,12 @@ def layout():
         # ── Charts 2x2 ───────────────────────────────────────────────────
         html.Div([
             html.Div([
+                html.Button("CSV", id="exo-csv-payoff", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id="exo-payoff-chart", style={"height": "380px"},
                           config={"displayModeBar": True}),
             ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px"}, className="dashboard-card"),
             html.Div([
+                html.Button("CSV", id="exo-csv-mc", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id="exo-mc-chart", style={"height": "380px"},
                           config={"displayModeBar": True}),
             ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px"}, className="dashboard-card"),
@@ -307,10 +311,12 @@ def layout():
 
         html.Div([
             html.Div([
+                html.Button("CSV", id="exo-csv-spot", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id="exo-spot-sens-chart", style={"height": "380px"},
                           config={"displayModeBar": True}),
             ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px"}, className="dashboard-card"),
             html.Div([
+                html.Button("CSV", id="exo-csv-vol", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id="exo-vol-sens-chart", style={"height": "380px"},
                           config={"displayModeBar": True}),
             ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px"}, className="dashboard-card"),
@@ -920,6 +926,37 @@ def register_callbacks(app):
 
         return (price_children, greeks_children, prob_children, vanilla_children,
                 payoff_fig, mc_fig, spot_fig, vol_fig)
+
+    # ── CSV Export ──────────────────────────────────────────────────────
+    @app.callback(
+        Output("exo-csv-download", "data"),
+        [Input("exo-csv-payoff", "n_clicks"),
+         Input("exo-csv-mc", "n_clicks"),
+         Input("exo-csv-spot", "n_clicks"),
+         Input("exo-csv-vol", "n_clicks")],
+        [State("exo-payoff-chart", "figure"),
+         State("exo-mc-chart", "figure"),
+         State("exo-spot-sens-chart", "figure"),
+         State("exo-vol-sens-chart", "figure")],
+        prevent_initial_call=True,
+    )
+    def exo_csv_export(n1, n2, n3, n4, fig1, fig2, fig3, fig4):
+        ctx = callback_context
+        if not ctx.triggered:
+            return no_update
+        btn = ctx.triggered[0]["prop_id"].split(".")[0]
+        mapping = {
+            "exo-csv-payoff": (fig1, "Exotics", "Payoff"),
+            "exo-csv-mc": (fig2, "Exotics", "MonteCarlo"),
+            "exo-csv-spot": (fig3, "Exotics", "SpotSens"),
+            "exo-csv-vol": (fig4, "Exotics", "VolSens"),
+        }
+        if btn not in mapping:
+            return no_update
+        fig, panel, chart_type = mapping[btn]
+        if not fig:
+            return no_update
+        return export_csv(fig, panel, chart_type)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

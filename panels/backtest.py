@@ -10,7 +10,7 @@ spreads with mark-to-market tracking and full trade logging.
 """
 
 import dash
-from dash import html, dcc, Input, Output, State, no_update, dash_table
+from dash import html, dcc, Input, Output, State, no_update, dash_table, callback_context
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
@@ -20,8 +20,9 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
     CARD_HEADER_STYLE, TABLE_HEADER_STYLE, TABLE_CELL_STYLE,
-    make_stat_style, chart_layout,
+    make_stat_style, chart_layout, CSV_BTN_STYLE,
 )
+from core.csv_export import export_csv
 from core.bloomberg_fx import (
     get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs,
     get_fx_historical_spot, get_fx_historical_vol,
@@ -659,6 +660,7 @@ _RESULTS_PANEL_STYLE = {
 
 def layout():
     return html.Div([
+        dcc.Download(id="bt-csv-download"),
         html.Div([
             # ── Left: Input Panel ─────────────────────────────────────
             html.Div([
@@ -772,10 +774,12 @@ def layout():
                 # Charts 2x2 grid
                 html.Div([
                     html.Div([
+                        html.Button("CSV", id="bt-csv-equity", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="bt-equity-curve", style={"height": "300px"}),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px", "padding": "12px"},
                        className="dashboard-card"),
                     html.Div([
+                        html.Button("CSV", id="bt-csv-pnl", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="bt-pnl-dist", style={"height": "300px"}),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px", "padding": "12px"},
                        className="dashboard-card"),
@@ -783,10 +787,12 @@ def layout():
 
                 html.Div([
                     html.Div([
+                        html.Button("CSV", id="bt-csv-monthly", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="bt-monthly-returns", style={"height": "300px"}),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px", "padding": "12px"},
                        className="dashboard-card"),
                     html.Div([
+                        html.Button("CSV", id="bt-csv-regime", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="bt-regime-winrate", style={"height": "300px"}),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px", "padding": "12px"},
                        className="dashboard-card"),
@@ -1218,3 +1224,34 @@ def register_callbacks(app):
         trade_table = _build_trade_log(results)
 
         return stats, eq_fig, dist_fig, monthly_fig, regime_fig, trade_table
+
+    # ── CSV Export ──────────────────────────────────────────────────────
+    @app.callback(
+        Output("bt-csv-download", "data"),
+        [Input("bt-csv-equity", "n_clicks"),
+         Input("bt-csv-pnl", "n_clicks"),
+         Input("bt-csv-monthly", "n_clicks"),
+         Input("bt-csv-regime", "n_clicks")],
+        [State("bt-equity-curve", "figure"),
+         State("bt-pnl-dist", "figure"),
+         State("bt-monthly-returns", "figure"),
+         State("bt-regime-winrate", "figure")],
+        prevent_initial_call=True,
+    )
+    def bt_csv_export(n1, n2, n3, n4, fig1, fig2, fig3, fig4):
+        ctx = callback_context
+        if not ctx.triggered:
+            return no_update
+        btn = ctx.triggered[0]["prop_id"].split(".")[0]
+        mapping = {
+            "bt-csv-equity": (fig1, "Backtest", "EquityCurve"),
+            "bt-csv-pnl": (fig2, "Backtest", "PnLDist"),
+            "bt-csv-monthly": (fig3, "Backtest", "MonthlyReturns"),
+            "bt-csv-regime": (fig4, "Backtest", "RegimeWinrate"),
+        }
+        if btn not in mapping:
+            return no_update
+        fig, panel, chart_type = mapping[btn]
+        if not fig:
+            return no_update
+        return export_csv(fig, panel, chart_type)
