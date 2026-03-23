@@ -20,6 +20,7 @@ def _ensure_packages():
         "numpy": "numpy>=1.24.0",
         "scipy": "scipy>=1.11.0",
         "pandas": "pandas>=2.0.0",
+        "webview": "pywebview>=4.0",
     }
     missing = []
     for mod, pkg in required.items():
@@ -32,12 +33,21 @@ def _ensure_packages():
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-q"] + missing)
         print("  Done.\n")
 
-    # Optional: blpapi (don't fail if unavailable)
+    # Bloomberg API — try to install if missing, but don't fail if it can't
     try:
         __import__("blpapi")
     except ImportError:
-        print("  Note: blpapi not installed -- running with synthetic data.")
-        print("  To connect to Bloomberg: pip install blpapi\n")
+        print("  blpapi not found — attempting install...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "blpapi"],
+                                  stderr=subprocess.DEVNULL)
+            print("  [OK] blpapi installed.")
+        except Exception:
+            print("  [!] blpapi install failed — running with synthetic data.")
+            print("      If Bloomberg Terminal is on this machine, you may need to:")
+            print("      1. Install Bloomberg C++ SDK (WAPI<GO> on terminal)")
+            print("      2. Set BLPAPI_ROOT environment variable")
+            print("      3. Then: pip install blpapi\n")
 
 _ensure_packages()
 
@@ -1286,8 +1296,33 @@ if __name__ == "__main__":
     print(f"  Panels: {panels_total} across {len(WORKSPACES)} workspaces")
     print(f"  Workspaces: {' | '.join(w['label'] for w in WORKSPACES)}")
     print("=" * 64)
-    print(f"\n  ->  Open: http://localhost:8765")
-    print(f"  ->  Ctrl+K for command palette\n")
+    # Try to launch as desktop app via pywebview, fall back to browser
+    try:
+        import webview
+        import threading
 
-    app.run(debug=True, host="0.0.0.0", port=8765,
-            dev_tools_ui=False, dev_tools_props_check=False)
+        def _start_server():
+            app.run(debug=False, host="127.0.0.1", port=8765,
+                    use_reloader=False, dev_tools_ui=False, dev_tools_props_check=False)
+
+        print("\n  Launching as desktop application...")
+        print("  Close the window to stop.\n")
+
+        server_thread = threading.Thread(target=_start_server, daemon=True)
+        server_thread.start()
+
+        webview.create_window(
+            "FX Options Workstation",
+            "http://127.0.0.1:8765",
+            width=1920, height=1080,
+            min_size=(1200, 700),
+        )
+        webview.start()
+
+    except ImportError:
+        print("\n  pywebview not available — opening in browser instead.")
+        print(f"  ->  Open: http://localhost:8765")
+        print(f"  ->  Ctrl+K for command palette\n")
+
+        app.run(debug=True, host="0.0.0.0", port=8765,
+                dev_tools_ui=False, dev_tools_props_check=False)

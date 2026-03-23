@@ -116,6 +116,29 @@ def is_connected() -> bool:
 # Reference Data (BDP / BDH / BDS)
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _extract_value(element):
+    """Safely extract a Python value from a blpapi Element."""
+    try:
+        if element.isNull():
+            return None
+        dtype = element.datatype()
+        # blpapi datatypes: FLOAT64=6, INT32=2, INT64=3, STRING=8, DATE=10, DATETIME=12, BOOL=1
+        if dtype in (6,):       # FLOAT64
+            return element.getValueAsFloat()
+        if dtype in (2, 3):     # INT32, INT64
+            return element.getValueAsInteger()
+        if dtype in (10, 12):   # DATE, DATETIME
+            return element.getValueAsDatetime()
+        if dtype in (1,):       # BOOL
+            return element.getValueAsBool()
+        return element.getValueAsString()
+    except Exception:
+        try:
+            return element.getValueAsString()
+        except Exception:
+            return None
+
+
 def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
     """Bloomberg Data Point — single-point reference data."""
     conn = get_connection()
@@ -135,14 +158,21 @@ def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
             if not msg.hasElement("securityData"):
                 continue
             security_data = msg.getElement("securityData")
-            n = security_data.numValues()
-            for i in range(n):
+
+            # securityData is an array for ReferenceDataRequest
+            for i in range(security_data.numValues()):
                 try:
                     sec = security_data.getValueAsElement(i)
                 except Exception:
-                    # Some responses have securityData as a single element
-                    sec = security_data
-                    n = 0  # don't iterate further
+                    continue
+
+                # Check for errors on this security
+                if sec.hasElement("securityError"):
+                    err = sec.getElement("securityError")
+                    logger.warning("BDP security error for %s: %s",
+                                   sec.getElementAsString("security") if sec.hasElement("security") else "?",
+                                   err.getElementAsString("message") if err.hasElement("message") else "unknown")
+                    continue
 
                 try:
                     ticker = sec.getElementAsString("security")
@@ -155,19 +185,14 @@ def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
 
                 row = {"security": ticker}
                 for fld in fields:
-                    try:
-                        row[fld] = field_data.getElementAsFloat(fld)
-                    except Exception:
-                        try:
-                            row[fld] = field_data.getElementAsString(fld)
-                        except Exception:
-                            row[fld] = None
+                    if field_data.hasElement(fld):
+                        row[fld] = _extract_value(field_data.getElement(fld))
+                    else:
+                        row[fld] = None
                 rows.append(row)
 
-                if n == 0:
-                    break
-
         if not rows:
+            logger.warning("BDP returned no data for %s", securities[:3])
             return _fallback_bdp(securities, fields)
         return pd.DataFrame(rows).set_index("security")
 
@@ -198,31 +223,44 @@ def bdh(security: str, fields: List[str], start_date: str, end_date: str = None,
         responses = conn._send_request(request)
         rows = []
         for msg in responses:
-            # HistoricalDataRequest returns securityData as a single element
-            # (not an array like ReferenceDataRequest)
+            if not msg.hasElement("securityData"):
+                continue
             security_data = msg.getElement("securityData")
+
+            # Check for security-level errors
+            if security_data.hasElement("securityError"):
+                err = security_data.getElement("securityError")
+                logger.warning("BDH security error for %s: %s", security,
+                               err.getElementAsString("message") if err.hasElement("message") else "unknown")
+                continue
+
+            if not security_data.hasElement("fieldData"):
+                continue
             field_data_array = security_data.getElement("fieldData")
+
             for j in range(field_data_array.numValues()):
                 fd = field_data_array.getValueAsElement(j)
                 row = {}
-                # date can come back as datetime or string
-                try:
-                    dt = fd.getElementAsDatetime("date")
-                    # blpapi Datetime → Python datetime
+                # Extract date
+                if fd.hasElement("date"):
+                    dt = _extract_value(fd.getElement("date"))
                     if hasattr(dt, 'year'):
-                        row["date"] = dt
+                        row["date"] = datetime(dt.year, dt.month, dt.day)
                     else:
-                        row["date"] = str(dt)
-                except Exception:
+                        row["date"] = str(dt) if dt else None
+                else:
                     row["date"] = None
+
+                # Extract fields
                 for fld in fields:
-                    try:
-                        row[fld] = fd.getElementAsFloat(fld)
-                    except Exception:
+                    if fd.hasElement(fld):
+                        val = _extract_value(fd.getElement(fld))
                         try:
-                            row[fld] = float(fd.getElementAsString(fld))
-                        except Exception:
+                            row[fld] = float(val) if val is not None else None
+                        except (ValueError, TypeError):
                             row[fld] = None
+                    else:
+                        row[fld] = None
                 rows.append(row)
 
         df = pd.DataFrame(rows)
@@ -258,16 +296,30 @@ def bds(security: str, field: str, **overrides) -> pd.DataFrame:
         responses = conn._send_request(request)
         rows = []
         for msg in responses:
+            if not msg.hasElement("securityData"):
+                continue
             security_data = msg.getElement("securityData")
+
             for i in range(security_data.numValues()):
-                sec = security_data.getValueAsElement(i)
-                bulk = sec.getElement("fieldData").getElement(field)
+                try:
+                    sec = security_data.getValueAsElement(i)
+                except Exception:
+                    continue
+
+                if not sec.hasElement("fieldData"):
+                    continue
+                fd = sec.getElement("fieldData")
+
+                if not fd.hasElement(field):
+                    continue
+                bulk = fd.getElement(field)
+
                 for j in range(bulk.numValues()):
                     row_elem = bulk.getValueAsElement(j)
                     row = {}
                     for k in range(row_elem.numElements()):
                         el = row_elem.getElement(k)
-                        row[el.name()] = el.getValueAsString() if el.isNull() is False else None
+                        row[str(el.name())] = _extract_value(el)
                     rows.append(row)
 
         return pd.DataFrame(rows)

@@ -58,10 +58,10 @@ echo.
 :: Install/verify dependencies
 echo  [1/3] Checking dependencies...
 echo.
-%PYTHON% -c "import dash, plotly, numpy, scipy, pandas, dash_bootstrap_components; print('  All dependencies present.')" 2>nul
+%PYTHON% -c "import dash, plotly, numpy, scipy, pandas, dash_bootstrap_components, webview; print('  All dependencies present.')" 2>nul
 if %errorlevel% neq 0 (
     echo  Installing missing packages...
-    %PYTHON% -m pip install --quiet dash plotly numpy scipy pandas dash-bootstrap-components
+    %PYTHON% -m pip install --quiet dash plotly numpy scipy pandas dash-bootstrap-components pywebview
     if %errorlevel% neq 0 (
         echo.
         echo  [ERROR] Package installation failed.
@@ -83,10 +83,7 @@ echo   Press Ctrl+C in this window to stop the server.
 echo  ================================================================
 echo.
 
-:: Open browser after a short delay (2 seconds for server to start)
-start "" cmd /c "timeout /t 8 /nobreak >nul & start http://localhost:8765"
-
-:: Run the app
+:: Run the app (pywebview opens its own window, no browser needed)
 %PYTHON% app.py
 
 :: If it exits, pause so user can see errors
