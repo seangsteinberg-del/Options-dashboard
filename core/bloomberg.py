@@ -132,11 +132,27 @@ def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
         responses = conn._send_request(request)
         rows = []
         for msg in responses:
+            if not msg.hasElement("securityData"):
+                continue
             security_data = msg.getElement("securityData")
-            for i in range(security_data.numValues()):
-                sec = security_data.getValueAsElement(i)
-                ticker = sec.getElementAsString("security")
+            n = security_data.numValues()
+            for i in range(n):
+                try:
+                    sec = security_data.getValueAsElement(i)
+                except Exception:
+                    # Some responses have securityData as a single element
+                    sec = security_data
+                    n = 0  # don't iterate further
+
+                try:
+                    ticker = sec.getElementAsString("security")
+                except Exception:
+                    continue
+
+                if not sec.hasElement("fieldData"):
+                    continue
                 field_data = sec.getElement("fieldData")
+
                 row = {"security": ticker}
                 for fld in fields:
                     try:
@@ -148,6 +164,11 @@ def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
                             row[fld] = None
                 rows.append(row)
 
+                if n == 0:
+                    break
+
+        if not rows:
+            return _fallback_bdp(securities, fields)
         return pd.DataFrame(rows).set_index("security")
 
     except Exception as e:
@@ -177,20 +198,37 @@ def bdh(security: str, fields: List[str], start_date: str, end_date: str = None,
         responses = conn._send_request(request)
         rows = []
         for msg in responses:
-            field_data_array = msg.getElement("securityData").getElement("fieldData")
+            # HistoricalDataRequest returns securityData as a single element
+            # (not an array like ReferenceDataRequest)
+            security_data = msg.getElement("securityData")
+            field_data_array = security_data.getElement("fieldData")
             for j in range(field_data_array.numValues()):
                 fd = field_data_array.getValueAsElement(j)
-                row = {"date": fd.getElementAsDatetime("date")}
+                row = {}
+                # date can come back as datetime or string
+                try:
+                    dt = fd.getElementAsDatetime("date")
+                    # blpapi Datetime → Python datetime
+                    if hasattr(dt, 'year'):
+                        row["date"] = dt
+                    else:
+                        row["date"] = str(dt)
+                except Exception:
+                    row["date"] = None
                 for fld in fields:
                     try:
                         row[fld] = fd.getElementAsFloat(fld)
                     except Exception:
-                        row[fld] = None
+                        try:
+                            row[fld] = float(fd.getElementAsString(fld))
+                        except Exception:
+                            row[fld] = None
                 rows.append(row)
 
         df = pd.DataFrame(rows)
-        if not df.empty:
-            df["date"] = pd.to_datetime(df["date"])
+        if not df.empty and "date" in df.columns:
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df = df.dropna(subset=["date"])
             df.set_index("date", inplace=True)
         return df
 
