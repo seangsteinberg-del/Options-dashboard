@@ -84,7 +84,7 @@ echo  ================================================================
 echo.
 
 :: Open browser after a short delay (2 seconds for server to start)
-start "" cmd /c "timeout /t 2 /nobreak >nul & start http://localhost:8765"
+start "" cmd /c "timeout /t 8 /nobreak >nul & start http://localhost:8765"
 
 :: Run the app
 %PYTHON% app.py
