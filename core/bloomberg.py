@@ -83,15 +83,30 @@ class BloombergConnection:
             logger.info("Disconnected from Bloomberg")
 
     def _send_request(self, request):
-        """Send request and collect all response events."""
+        """Send request and collect all response events.
+
+        Handles PARTIAL_RESPONSE (keep collecting), RESPONSE (final),
+        and TIMEOUT (bail out). Max 60s total wait to avoid hanging.
+        """
         self.session.sendRequest(request)
         data = []
-        while True:
+        max_attempts = 6  # 6 × 10s = 60s max
+        for _ in range(max_attempts):
             event = self.session.nextEvent(timeout=10000)
+            ev_type = event.eventType()
+            if ev_type == blpapi.Event.TIMEOUT:
+                logger.warning("Bloomberg request timed out waiting for response")
+                break
+            if ev_type in (blpapi.Event.REQUEST_STATUS,):
+                # Request failed at session level
+                for msg in event:
+                    logger.error("Bloomberg request status error: %s", msg)
+                break
             for msg in event:
                 data.append(msg)
-            if event.eventType() == blpapi.Event.RESPONSE:
+            if ev_type == blpapi.Event.RESPONSE:
                 break
+            # PARTIAL_RESPONSE: keep looping to collect more data
         return data
 
 
@@ -166,8 +181,17 @@ def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
             request.append("fields", fld)
 
         responses = conn._send_request(request)
+        if not responses:
+            logger.warning("BDP got no response messages for %s", securities[:3])
+            return _fallback_bdp(securities, fields)
         rows = []
         for msg in responses:
+            # Check for request-level errors
+            if msg.hasElement("responseError"):
+                err = msg.getElement("responseError")
+                logger.error("BDP responseError: %s",
+                             err.getElementAsString("message") if err.hasElement("message") else str(err))
+                continue
             if not msg.hasElement("securityData"):
                 continue
             security_data = msg.getElement("securityData")
@@ -195,6 +219,19 @@ def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
                 if not sec.hasElement("fieldData"):
                     continue
                 field_data = sec.getElement("fieldData")
+
+                # Log field-level exceptions (invalid fields for this security)
+                if sec.hasElement("fieldExceptions"):
+                    fe = sec.getElement("fieldExceptions")
+                    for fi in range(fe.numValues()):
+                        try:
+                            fex = fe.getValueAsElement(fi)
+                            fld_id = fex.getElementAsString("fieldId") if fex.hasElement("fieldId") else "?"
+                            err_info = fex.getElement("errorInfo") if fex.hasElement("errorInfo") else None
+                            sub = err_info.getElementAsString("subcategory") if err_info and err_info.hasElement("subcategory") else "?"
+                            logger.debug("BDP field exception %s/%s: %s", ticker, fld_id, sub)
+                        except Exception:
+                            pass
 
                 row = {"security": ticker}
                 for fld in fields:
@@ -234,8 +271,17 @@ def bdh(security: str, fields: List[str], start_date: str, end_date: str = None,
         request.set("periodicitySelection", overrides.get("periodicity", "DAILY"))
 
         responses = conn._send_request(request)
+        if not responses:
+            logger.warning("BDH got no response messages for %s", security)
+            return _fallback_bdh(security, fields, start_date, end_date)
         rows = []
         for msg in responses:
+            # Check for request-level errors
+            if msg.hasElement("responseError"):
+                err = msg.getElement("responseError")
+                logger.error("BDH responseError: %s",
+                             err.getElementAsString("message") if err.hasElement("message") else str(err))
+                continue
             if not msg.hasElement("securityData"):
                 continue
             security_data = msg.getElement("securityData")

@@ -742,7 +742,7 @@ def get_fx_rates(pair: str) -> dict:
         except Exception as e:
             logger.error(f"FX rates BBG request failed: {e}")
             _log_fetch_failure("get_fx_rates", pair, str(e))
-            return None
+            return {"r_dom": 0.0, "r_for": 0.0, "rate_diff": 0.0}
 
     # SYNTHETIC mode only — Bloomberg not connected
     res = _fallback_rates(pair)
@@ -799,21 +799,26 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
-            # Forward tickers use base currency + tenor, e.g., EUR1M CMPN Curncy for EURUSD
-            # Verified against cuemacro/findatapy fx_forwards_tickers.csv
-            base_ccy = pair[:3].upper()
+            # Forward tickers use registry prefix (handles cross pairs + JPY correctly)
+            # e.g., EURUSD → "EUR", USDJPY → "JPY", EURGBP → "EURGBP"
+            from core.fx_conventions import FX_PAIR_REGISTRY
+            fwd_spec = FX_PAIR_REGISTRY.get(pair.upper())
+            # bb_fwd_prefix stores the base form like "EUR Curncy" or "EURGBP Curncy"
+            # We extract the symbol part before " Curncy" to build tenor tickers
+            if fwd_spec and fwd_spec.bb_fwd_prefix:
+                fwd_sym = fwd_spec.bb_fwd_prefix.replace(" Curncy", "").strip()
+            else:
+                fwd_sym = pair[:3].upper()
             fwd_tenor_map = {"ON": "ON", "1W": "1W", "2W": "2W", "1M": "1M", "2M": "2M",
                              "3M": "3M", "6M": "6M", "9M": "9M", "1Y": "12M", "2Y": "2Y",
                              "3Y": "3Y", "5Y": "5Y"}
-            tickers = [f"{base_ccy}{fwd_tenor_map.get(t, t)} CMPN Curncy" for t in _ALL_TENORS]
+            tickers = [f"{fwd_sym}{fwd_tenor_map.get(t, t)} CMPN Curncy" for t in _ALL_TENORS]
             df = bdp(tickers, ["PX_LAST"])
             spot_data = get_fx_spots([pair])
             if pair not in spot_data:
                 raise ValueError(f"No spot data for {pair}")
             spot = spot_data[pair]["mid"]
             # Forward points divisor: JPY pairs use 100, others use 10000
-            from core.fx_conventions import FX_PAIR_REGISTRY
-            fwd_spec = FX_PAIR_REGISTRY.get(pair.upper())
             pip_size = fwd_spec.pip if fwd_spec else 0.0001
             pts_divisor = 1.0 / pip_size  # e.g., 10000 for 0.0001 pip, 100 for 0.01 pip
             curve = {}
@@ -897,15 +902,16 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
             pair_u = pair.upper()
             spec = FX_PAIR_REGISTRY.get(pair_u)
             tc = tenor.upper()
+            # Map metric names from both conventions: "rr25"/"RR25" and "25D_RR"
             if m in ("ATM", ""):
                 pfx = spec.bb_vol_prefix if spec else f"{pair_u}V"
-            elif m == "25D_RR":
+            elif m in ("25D_RR", "RR25"):
                 pfx = spec.bb_rr25_prefix if spec else f"{pair_u}25R"
-            elif m == "25D_BF":
+            elif m in ("25D_BF", "BF25"):
                 pfx = spec.bb_bf25_prefix if spec else f"{pair_u}25B"
-            elif m == "10D_RR":
+            elif m in ("10D_RR", "RR10"):
                 pfx = spec.bb_rr10_prefix if spec else f"{pair_u}10R"
-            elif m == "10D_BF":
+            elif m in ("10D_BF", "BF10"):
                 pfx = spec.bb_bf10_prefix if spec else f"{pair_u}10B"
             else:
                 pfx = spec.bb_vol_prefix if spec else f"{pair_u}V"
