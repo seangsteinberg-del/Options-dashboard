@@ -59,43 +59,51 @@ _CACHE_TTL = {
 
 _cache: Dict[str, Tuple[float, object]] = {}
 
-# ── Data Source Tracker ──────────────────────────────────────────────────
-# Records whether each data fetch came from Bloomberg or synthetic fallback.
-# Key: category (spots, vol_surface, rates, historical_vol, historical_spot)
-# Value: {"source": "BLOOMBERG"|"SYNTHETIC", "timestamp": float, "count": int}
-_data_sources: Dict[str, dict] = {}
+# ── Data Integrity Tracking ──────────────────────────────────────────────
+# When Bloomberg IS connected, any fetch that falls back to synthetic is a
+# failure — not a feature. Track these so the UI can surface them.
+_fetch_errors: list = []  # List of {"time": float, "function": str, "pair": str, "error": str}
+_MAX_ERRORS = 50
 
 
-def _track_source(category: str, source: str):
-    """Record which data source was used for a fetch category."""
-    _data_sources[category] = {
-        "source": source,
-        "timestamp": time.time(),
-        "count": _data_sources.get(category, {}).get("count", 0) + 1,
-    }
+def _log_fetch_failure(function: str, pair: str, error: str):
+    """Record a Bloomberg fetch failure (only when Bloomberg is connected)."""
+    _fetch_errors.append({
+        "time": time.time(),
+        "function": function,
+        "pair": pair,
+        "error": str(error),
+    })
+    if len(_fetch_errors) > _MAX_ERRORS:
+        _fetch_errors.pop(0)
+    logger.warning("BBG fetch failed [%s] %s: %s — using synthetic fallback", function, pair, error)
 
 
-def get_data_source_report() -> Dict[str, dict]:
-    """Return the current data source status for all categories.
-    Used by the UI to show whether data is live or synthetic."""
-    return dict(_data_sources)
+def get_data_mode() -> str:
+    """Return the current data mode: 'LIVE', 'SYNTHETIC', or 'DEGRADED'.
+    LIVE = Bloomberg connected, no recent failures.
+    DEGRADED = Bloomberg connected, but some fetches failing (mixed data).
+    SYNTHETIC = No Bloomberg connection, all data is synthetic.
+    """
+    if not (_HAS_EQUITY_BBG and is_connected()):
+        return "SYNTHETIC"
+    # Connected — check for recent failures (last 5 minutes)
+    cutoff = time.time() - 300
+    recent = [e for e in _fetch_errors if e["time"] > cutoff]
+    if recent:
+        return "DEGRADED"
+    return "LIVE"
 
 
-def is_all_live() -> bool:
-    """Return True only if ALL data categories are sourced from Bloomberg."""
-    if not _data_sources:
-        return False
-    return all(v["source"] == "BLOOMBERG" for v in _data_sources.values())
+def get_recent_errors() -> list:
+    """Return recent fetch failures for UI display."""
+    cutoff = time.time() - 300
+    return [e for e in _fetch_errors if e["time"] > cutoff]
 
 
-def get_source_summary() -> dict:
-    """Compact summary: counts of live vs synthetic sources."""
-    live = sum(1 for v in _data_sources.values() if v["source"] == "BLOOMBERG")
-    synth = sum(1 for v in _data_sources.values() if v["source"] == "SYNTHETIC")
-    total = live + synth
-    return {"live": live, "synthetic": synth, "total": total,
-            "all_live": live == total and total > 0,
-            "categories": {k: v["source"] for k, v in _data_sources.items()}}
+def clear_errors():
+    """Clear the error log."""
+    _fetch_errors.clear()
 
 
 def _cache_get(key: str, category: str = "spot"):
@@ -585,14 +593,14 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
                 else:
                     result[pair] = _fallback_spot(pair)
             _cache_set("spots_" + ",".join(pairs), result, "spot")
-            _track_source("spots", "BLOOMBERG")
             return result
         except Exception as e:
             logger.error(f"FX spots BBG request failed: {e}")
 
     result = {p: _fallback_spot(p) for p in pairs}
     _cache_set("spots_" + ",".join(pairs), result, "spot")
-    _track_source("spots", "SYNTHETIC")
+    if _HAS_EQUITY_BBG and is_connected():
+        _log_fetch_failure("get_fx_spots", ",".join(pairs[:3]), "fell back to synthetic despite connection")
     return result
 
 
@@ -641,14 +649,14 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
                     }
             if surface:
                 _cache_set(ck, surface, "vol_surface")
-                _track_source("vol_surface", "BLOOMBERG")
                 return surface
         except Exception as e:
             logger.error(f"FX vol surface BBG request failed: {e}")
 
     surface = _fallback_vol_surface(pair)
     _cache_set(ck, surface, "vol_surface")
-    _track_source("vol_surface", "SYNTHETIC")
+    if _HAS_EQUITY_BBG and is_connected():
+        _log_fetch_failure("get_fx_vol_surface", pair, "fell back to synthetic despite connection")
     return surface
 
 
@@ -693,14 +701,14 @@ def get_fx_rates(pair: str) -> dict:
             res = {"r_dom": r_dom, "r_for": r_for,
                    "rate_diff": round(r_dom - r_for, 4)}
             _cache_set(ck, res, "rates")
-            _track_source("rates", "BLOOMBERG")
             return res
         except Exception as e:
             logger.error(f"FX rates BBG request failed: {e}")
 
     res = _fallback_rates(pair)
     _cache_set(ck, res, "rates")
-    _track_source("rates", "SYNTHETIC")
+    if _HAS_EQUITY_BBG and is_connected():
+        _log_fetch_failure("get_fx_rates", pair, "fell back to synthetic despite connection")
     return res
 
 
@@ -795,14 +803,14 @@ def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
                 })
                 df = df.tail(days)
                 _cache_set(ck, df, "historical")
-                _track_source("historical_spot", "BLOOMBERG")
                 return df
         except Exception as e:
             logger.error(f"FX historical spot BBG request failed: {e}")
 
     df = _generate_spot_history(pair, days)
     _cache_set(ck, df, "historical")
-    _track_source("historical_spot", "SYNTHETIC")
+    if _HAS_EQUITY_BBG and is_connected():
+        _log_fetch_failure("get_fx_historical_spot", pair, "fell back to synthetic despite connection")
     return df
 
 
@@ -838,14 +846,14 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
                 series = df["PX_LAST"].tail(days)
                 series.name = f"{pair}_{tenor}_{metric}"
                 _cache_set(ck, series, "historical")
-                _track_source("historical_vol", "BLOOMBERG")
                 return series
         except Exception as e:
             logger.error(f"FX historical vol BBG request failed: {e}")
 
     series = _generate_vol_history(pair, tenor, metric, days)
     _cache_set(ck, series, "historical")
-    _track_source("historical_vol", "SYNTHETIC")
+    if _HAS_EQUITY_BBG and is_connected():
+        _log_fetch_failure("get_fx_historical_vol", f"{pair}/{tenor}/{metric}", "fell back to synthetic despite connection")
     return series
 
 

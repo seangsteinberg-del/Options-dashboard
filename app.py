@@ -363,10 +363,10 @@ def make_header():
                     "display": "flex", "alignItems": "center",
                     "marginRight": "16px",
                 }),
-                # ── Per-category data source breakdown ──
+                # ── Data integrity status (LIVE / DEGRADED / SYNTHETIC) ──
                 html.Div(id="data-source-status", children=[], style={
                     "display": "flex", "alignItems": "center",
-                    "gap": "8px", "marginRight": "16px",
+                    "marginRight": "16px",
                 }),
                 html.Div([
                     html.Span("MODEL ", style={
@@ -1225,39 +1225,33 @@ def _refresh_ticker(_n):
     Input("data-source-interval", "n_intervals"),
 )
 def _update_data_source_status(_n):
-    from core.bloomberg_fx import get_source_summary
-    summary = get_source_summary()
+    from core.bloomberg_fx import get_data_mode, get_recent_errors
 
-    if summary["total"] == 0:
-        return [html.Span("NO DATA", style={
-            "color": "#666666", "fontSize": "9px", "fontWeight": "700",
+    mode = get_data_mode()
+    errors = get_recent_errors()
+
+    if mode == "LIVE":
+        return html.Span("ALL DATA LIVE", style={
+            "color": "#00cc66", "fontSize": "9px", "fontWeight": "700",
             "fontFamily": "'JetBrains Mono', monospace", "letterSpacing": "0.5px",
-        })]
-
-    badges = []
-    labels = {
-        "spots": "SPOT", "vol_surface": "VOL", "rates": "RATES",
-        "historical_spot": "HIST", "historical_vol": "HVOL",
-    }
-    for cat, source in summary.get("categories", {}).items():
-        is_live = source == "BLOOMBERG"
-        color = "#00cc66" if is_live else "#ff3333"
-        label = labels.get(cat, cat.upper()[:4])
-        badges.append(html.Span(
-            f"{label}",
-            title=f"{cat}: {source}",
-            style={
-                "color": color,
-                "fontSize": "8px",
-                "fontWeight": "700",
+        })
+    elif mode == "DEGRADED":
+        error_summary = f"{len(errors)} feed{'s' if len(errors) != 1 else ''} failing"
+        detail = " | ".join(f"{e['function']}({e['pair']})" for e in errors[:3])
+        return html.Span([
+            html.Span("\u26A0 DEGRADED: ", style={
+                "color": "#ff3333", "fontSize": "9px", "fontWeight": "700",
                 "fontFamily": "'JetBrains Mono', monospace",
-                "letterSpacing": "0.5px",
-                "padding": "1px 4px",
-                "border": f"1px solid {color}",
-            },
-        ))
-
-    return badges
+            }),
+            html.Span(f"{error_summary}", title=detail, style={
+                "color": "#ff3333", "fontSize": "9px",
+                "fontFamily": "'JetBrains Mono', monospace",
+                "cursor": "help",
+            }),
+        ])
+    else:
+        # SYNTHETIC — dev mode, no Bloomberg. This is expected.
+        return html.Span("")  # Bloomberg badge already says "SYNTHETIC MODE"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
