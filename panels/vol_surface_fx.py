@@ -24,7 +24,7 @@ from core.theme import (
     make_stat_style, TAB_STYLE, LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE,
     clickable_stat,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
-    CSV_BTN_STYLE,
+    CSV_BTN_STYLE, no_data_fig,
 )
 from core.csv_export import export_csv
 from core.bloomberg_fx import (
@@ -719,8 +719,7 @@ def chart_vol_ts(pair, sd, spot, r_dom, r_for, **kw):
         if hist is None or len(hist) < 20:
             raise ValueError("insufficient data")
     except Exception:
-        hist = np.random.RandomState(abs(hash(pair)) % 2**31).normal(8, 1.5, 252)
-        hist = np.clip(np.cumsum(np.random.RandomState(abs(hash(pair)) % 2**31).normal(0, 0.1, 252)) + 8, 3, 25)
+        return no_data_fig(height=CHART_MD, msg="NO VOL HISTORY")
 
     days = np.arange(len(hist))
     series = pd.Series(hist)
@@ -1021,15 +1020,7 @@ def chart_implied_dist(pair, sd, spot, r_dom, r_for, **kw):
         strikes = pdf_df["strike"].values
         pdf_vals = pdf_df["pdf"].values
     except Exception:
-        # Synthetic fallback: log-normal approximation
-        T = tenor_to_years(sel_tenor)
-        atm_vol = sd["atm"][len(sd["atm"]) // 2] / 100.0 if len(sd["atm"]) > 0 else 0.08
-        F = spot * np.exp((r_dom - r_for) * T)
-        sigma_total = atm_vol * np.sqrt(T)
-        strikes = np.linspace(F * 0.7, F * 1.3, 150)
-        log_FK = np.log(strikes / F)
-        pdf_vals = (1.0 / (strikes * sigma_total * np.sqrt(2 * np.pi))) * \
-                   np.exp(-0.5 * ((log_FK + 0.5 * sigma_total ** 2) / sigma_total) ** 2)
+        return no_data_fig(height=CHART_MD, msg="NO PDF DATA")
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(

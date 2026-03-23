@@ -127,6 +127,24 @@ AXIS_DEFAULTS = {
 TITLE_DEFAULTS = {"font": {"color": "#ffffff", "size": 13}}
 
 
+def no_data_fig(height=300, msg="NO DATA"):
+    """Return an empty Plotly figure with a centered 'NO DATA' annotation."""
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    fig.update_layout(
+        paper_bgcolor="#000000", plot_bgcolor="#000000",
+        xaxis=dict(visible=False), yaxis=dict(visible=False),
+        height=height,
+        margin=dict(l=20, r=20, t=20, b=20),
+        annotations=[dict(
+            text=msg, xref="paper", yref="paper", x=0.5, y=0.5,
+            showarrow=False, font=dict(size=14, color="#808080",
+                                        family="'JetBrains Mono', monospace"),
+        )],
+    )
+    return fig
+
+
 def chart_layout(**overrides):
     """Build a complete chart layout dict from CHART_TEMPLATE + axis defaults + overrides.
 

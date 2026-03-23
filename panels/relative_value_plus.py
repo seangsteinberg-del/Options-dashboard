@@ -23,6 +23,7 @@ from core.theme import (
     LABEL_STYLE, DROPDOWN_STYLE, TAB_STYLE, TAB_SELECTED_STYLE,
     TABLE_HEADER_STYLE, TABLE_CELL_STYLE, clickable_stat, make_stat_style,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG, CSV_BTN_STYLE,
+    no_data_fig,
 )
 from core.csv_export import export_csv
 from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days
@@ -326,21 +327,14 @@ def _safe_corr_matrix(window=60):
     except Exception:
         pass
 
-    # Fallback: synthetic
-    n = len(MONITOR_PAIRS)
-    rng = np.random.RandomState(42 + window)
-    corr = np.eye(n)
-    for i in range(n):
-        for j in range(i + 1, n):
-            c = rng.uniform(-0.5, 0.9)
-            corr[i, j] = c
-            corr[j, i] = c
-    return corr
+    return None
 
 
 def _build_corr_heatmap(window):
     """15×15 correlation heatmap."""
     corr = _safe_corr_matrix(window)
+    if corr is None:
+        return no_data_fig(msg="NO CORRELATION DATA")
     labels = [f"{p[:3]}/{p[3:]}" for p in MONITOR_PAIRS]
     text = [[f"{corr[i][j]:.2f}" for j in range(len(MONITOR_PAIRS))]
             for i in range(len(MONITOR_PAIRS))]
@@ -405,6 +399,9 @@ def _build_breakdown_table(window_short=20, window_long=120):
     """Pairs with divergent 20d vs 120d correlation."""
     corr_s = _safe_corr_matrix(window_short)
     corr_l = _safe_corr_matrix(window_long)
+    if corr_s is None or corr_l is None:
+        return html.Div("NO CORRELATION DATA",
+                        style={"color": "#808080", "fontSize": "10px", "padding": "8px"})
     n = len(MONITOR_PAIRS)
     divergences = []
     for i in range(n):
@@ -460,10 +457,7 @@ def _build_rolling_chart(pair_a, pair_b):
         a = _to_array(spot_a)
         b = _to_array(spot_b)
         if a is None or b is None:
-            rng = np.random.RandomState(hash(pair_a + pair_b) % 2**31)
-            n = 252
-            a = np.cumsum(rng.normal(0, 1, n)) + 100
-            b = np.cumsum(rng.normal(0, 1, n)) + 100
+            return no_data_fig(msg="NO SPOT HISTORY")
 
         min_len = min(len(a), len(b))
         a, b = a[-min_len:], b[-min_len:]
@@ -521,10 +515,6 @@ def _build_rate_table():
             r = {}
         dom = _sf(r.get("r_dom", 0)) * 100  # convert decimal to percent
         fgn = _sf(r.get("r_for", 0)) * 100
-        if dom == 0 and fgn == 0:
-            rng = np.random.RandomState(hash(pair) % 2**31)
-            dom = round(rng.uniform(0.5, 5.5), 2)
-            fgn = round(rng.uniform(0.5, 5.5), 2)
         diff = dom - fgn
         carry = "RECEIVE" if diff > 0.5 else "PAY" if diff < -0.5 else "FLAT"
         carry_color = "#00cc66" if carry == "RECEIVE" else "#ff3333" if carry == "PAY" else "#808080"
@@ -564,9 +554,7 @@ def _build_dxy_chart(lookback):
                 min_len = min(min_len, len(arr))
 
         if len(all_series) < 3:
-            # Not enough data — use synthetic fallback
-            rng = np.random.RandomState(123)
-            index = 100 + np.cumsum(rng.normal(0, 0.15, lookback))
+            return no_data_fig(msg="INSUFFICIENT SPOT DATA")
         else:
             # Compute weighted log returns
             n = min_len

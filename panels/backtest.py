@@ -20,7 +20,7 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
     CARD_HEADER_STYLE, TABLE_HEADER_STYLE, TABLE_CELL_STYLE,
-    make_stat_style, chart_layout, CSV_BTN_STYLE,
+    make_stat_style, chart_layout, CSV_BTN_STYLE, no_data_fig,
 )
 from core.csv_export import export_csv
 from core.bloomberg_fx import (
@@ -147,89 +147,58 @@ def _atm_strike(S, T, r_d, r_f, sigma):
 
 def _generate_backtest_data(pair, lookback_years):
     """
-    Generate correlated spot + vol histories for the backtest period.
+    Build spot + vol histories for the backtest period from Bloomberg data.
     Returns a DataFrame indexed by date with columns:
         spot, atm_vol, rr25, bf25, r_d, r_f
+    Returns None when Bloomberg data is insufficient.
     """
-    import time as _time
     n_days = int(lookback_years * 252)
-    seed = (abs(hash(pair)) + int(_time.time() * 1000)) % (2 ** 31)
-    rng = np.random.RandomState(seed)
 
-    # --- Spot path (GBM with mean-reverting drift) ---
+    # --- Spot path from Bloomberg ---
     spots = get_fx_historical_spot(pair, days=n_days)
-    if spots is not None and len(spots) >= n_days * 0.5:
-        spot_series = spots["close"].values[-n_days:]
-        if len(spot_series) < n_days:
-            # Pad by extending backwards using GBM
-            pad = n_days - len(spot_series)
-            S0 = spot_series[0]
-            noise = rng.normal(0, 0.005, pad)
-            prefix = [S0]
-            for i in range(pad - 1):
-                prefix.append(prefix[-1] * np.exp(noise[i]))
-            spot_series = np.concatenate([prefix[::-1], spot_series])
-    else:
-        # Full synthetic generation
-        base_spots = {
-            "EURUSD": 1.10, "GBPUSD": 1.27, "USDJPY": 145.0, "USDCHF": 0.88,
-            "AUDUSD": 0.65, "NZDUSD": 0.61, "USDCAD": 1.36, "EURGBP": 0.86,
-            "EURJPY": 160.0, "GBPJPY": 183.0, "AUDJPY": 96.0, "EURCHF": 0.96,
-            "EURAUD": 1.67, "EURNZD": 1.78, "NZDJPY": 90.0, "AUDNZD": 1.08,
-            "CADCHF": 0.65, "CADJPY": 107.0, "EURNOK": 11.4, "EURSEK": 11.3,
-            "USDSEK": 10.3, "USDNOK": 10.4, "USDMXN": 17.2, "USDBRL": 4.95,
-            "USDTRY": 27.0, "USDZAR": 18.8, "USDCNH": 7.25, "USDINR": 83.0,
-            "USDSGD": 1.34, "USDKRW": 1310.0,
-        }
-        S0 = base_spots.get(pair, 1.10)
-        daily_vol = 0.08 / np.sqrt(252)
-        returns = rng.normal(0, daily_vol, n_days)
-        spot_series = S0 * np.exp(np.cumsum(returns))
+    if spots is None or len(spots) < n_days * 0.5:
+        return None
+    spot_series = spots["close"].values[-n_days:]
+    # If Bloomberg returned fewer days than requested, just use what we have
+    actual_days = len(spot_series)
 
-    # --- Vol surface path (mean-reverting OU) ---
-    base_vols = {
-        "EURUSD": 7.5, "GBPUSD": 8.5, "USDJPY": 9.5, "USDCHF": 7.0,
-        "AUDUSD": 10.0, "NZDUSD": 10.5, "USDCAD": 7.5, "EURGBP": 6.5,
-        "EURJPY": 10.5, "GBPJPY": 11.5, "USDMXN": 14.0, "USDBRL": 15.0,
-        "USDTRY": 18.0, "USDZAR": 15.5, "USDCNH": 6.0,
-    }
-    base_vol = base_vols.get(pair, 8.5)
-    kappa = 0.03  # mean reversion speed
-    vol_of_vol = 0.6
-    vol_series = np.zeros(n_days)
-    vol_series[0] = base_vol
-    z_vol = rng.normal(0, 1, n_days)
-    for i in range(1, n_days):
-        dv = kappa * (base_vol - vol_series[i - 1]) + vol_of_vol * np.sqrt(max(vol_series[i - 1], 1.0)) * z_vol[i] / np.sqrt(252)
-        vol_series[i] = max(vol_series[i - 1] + dv, 2.0)
+    # --- Vol history from Bloomberg ---
+    vol_raw = get_fx_historical_vol(pair, "1M", "ATM", actual_days)
+    if vol_raw is not None:
+        if isinstance(vol_raw, dict):
+            vol_raw = list(vol_raw.values()) if vol_raw else None
+    if vol_raw is None or len(vol_raw) < actual_days * 0.5:
+        return None
+    vol_series = np.array(vol_raw, dtype=float)[-actual_days:]
 
-    # RR25 (skew) and BF25 (smile)
-    rr25_series = -0.3 + 0.4 * rng.randn(n_days).cumsum() * 0.02
-    rr25_series = np.clip(rr25_series, -2.5, 1.5)
-    bf25_series = 0.25 + 0.05 * np.abs(rng.randn(n_days).cumsum() * 0.01)
-    bf25_series = np.clip(bf25_series, 0.05, 1.0)
+    # Ensure spot and vol are the same length
+    common_len = min(len(spot_series), len(vol_series))
+    spot_series = spot_series[-common_len:]
+    vol_series = vol_series[-common_len:]
+
+    # RR25 and BF25: use zero placeholders (not synthetic noise)
+    rr25_series = np.zeros(common_len)
+    bf25_series = np.full(common_len, 0.25)
 
     # Rates
     rates_data = get_fx_rates(pair) or {}
     r_d = rates_data.get("r_dom", 0.04)
     r_f = rates_data.get("r_for", 0.03)
-    rd_series = r_d + 0.002 * rng.randn(n_days).cumsum() * 0.01
-    rf_series = r_f + 0.002 * rng.randn(n_days).cumsum() * 0.01
+    rd_series = np.full(common_len, r_d)
+    rf_series = np.full(common_len, r_f)
 
     # Build date index
     end_date = pd.Timestamp.today().normalize()
-    dates = pd.bdate_range(end=end_date, periods=n_days)
+    dates = pd.bdate_range(end=end_date, periods=common_len)
 
-    # Trim to common length
-    length = min(n_days, len(spot_series), len(dates))
     df = pd.DataFrame({
-        "spot": spot_series[-length:],
-        "atm_vol": vol_series[-length:],
-        "rr25": rr25_series[-length:],
-        "bf25": bf25_series[-length:],
-        "r_d": rd_series[-length:],
-        "r_f": rf_series[-length:],
-    }, index=dates[-length:])
+        "spot": spot_series,
+        "atm_vol": vol_series,
+        "rr25": rr25_series,
+        "bf25": bf25_series,
+        "r_d": rd_series,
+        "r_f": rf_series,
+    }, index=dates[-common_len:])
 
     return df
 
@@ -393,7 +362,7 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
     hold_days = tenor_to_days(tenor)
 
     data = _generate_backtest_data(pair, lookback_years)
-    if len(data) < hold_days + 20:
+    if data is None or len(data) < hold_days + 20:
         return None
 
     # --- Parse exit rule thresholds ---
@@ -1206,9 +1175,9 @@ def register_callbacks(app):
         )
 
         if results is None:
-            empty = _empty_fig("No trades generated -- try different parameters")
+            empty = no_data_fig(msg="NO DATA — insufficient Bloomberg history or no trades generated")
             return (
-                [html.Div("No trades generated with these parameters.",
+                [html.Div("No data or no trades generated with these parameters.",
                           style={"color": COLORS["accent_orange"], "padding": "20px"})],
                 empty, empty, empty, empty,
                 html.Div("No trades to display.",

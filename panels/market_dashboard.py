@@ -33,6 +33,7 @@ from core.theme import (
     LABEL_STYLE, DROPDOWN_STYLE, TAB_STYLE, TAB_SELECTED_STYLE,
     TABLE_HEADER_STYLE, TABLE_CELL_STYLE, clickable_stat, make_stat_style,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG, CSV_BTN_STYLE,
+    no_data_fig,
 )
 from core.csv_export import export_csv
 from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days
@@ -334,10 +335,7 @@ def _build_vol_index_chart(pairs):
                 continue
 
         if len(hist_vols) < 3:
-            rng = np.random.RandomState(99)
-            base = 8.5
-            noise = np.cumsum(rng.normal(0, 0.05, 60))
-            index = base + noise
+            return no_data_fig(height=_CHART_H, msg="INSUFFICIENT VOL DATA")
         else:
             min_len = min(len(v) for v in hist_vols)
             trimmed = [v[-min_len:] for v in hist_vols]

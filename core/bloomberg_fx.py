@@ -76,7 +76,7 @@ def _log_fetch_failure(function: str, pair: str, error: str):
     })
     if len(_fetch_errors) > _MAX_ERRORS:
         _fetch_errors.pop(0)
-    logger.warning("BBG fetch failed [%s] %s: %s — using synthetic fallback", function, pair, error)
+    logger.warning("BBG fetch failed [%s] %s: %s", function, pair, error)
 
 
 def get_data_mode() -> str:
@@ -587,11 +587,18 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
                 except (ValueError, TypeError):
                     return 0.0
 
+            # Case-insensitive index lookup
+            idx_map = {}
+            if not df.empty:
+                for iv in df.index:
+                    idx_map[iv.upper().strip()] = iv
+
             result = {}
             missing = []
             for pair, ticker in zip(pairs, tickers):
-                if ticker in df.index:
-                    row = df.loc[ticker]
+                actual = ticker if ticker in df.index else idx_map.get(ticker.upper().strip())
+                if actual is not None:
+                    row = df.loc[actual]
                     bid = _sf(row.get("PX_BID"))
                     ask = _sf(row.get("PX_ASK"))
                     result[pair] = {
@@ -667,16 +674,31 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
             # Single batched bdp call
             df = bdp(all_tickers, ["PX_LAST"])
 
+            # Build a case-insensitive lookup from whatever Bloomberg returned
+            idx_map = {}
+            if not df.empty:
+                for idx_val in df.index:
+                    idx_map[idx_val.upper().strip()] = idx_val
+
+            matched = 0
             surface = {}
             for tick, (tenor, metric_name) in ticker_map.items():
-                if tick in df.index:
+                # Try exact match first, then case-insensitive
+                actual = tick if tick in df.index else idx_map.get(tick.upper().strip())
+                if actual is not None:
                     try:
-                        val = float(df.loc[tick, "PX_LAST"])
+                        raw = df.loc[actual, "PX_LAST"]
+                        if raw is None or (isinstance(raw, float) and np.isnan(raw)):
+                            continue
+                        val = float(raw)
+                        if val == 0:
+                            continue  # 0 vol is not real data
                         if tenor not in surface:
                             surface[tenor] = {}
                         surface[tenor][metric_name] = val
-                    except Exception:
-                        pass
+                        matched += 1
+                    except (TypeError, ValueError):
+                        continue
 
             # Only keep tenors that have at least ATM
             surface = {t: v for t, v in surface.items() if "atm" in v}
@@ -686,10 +708,14 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
                     surface[t].setdefault(m, 0.0)
 
             if surface:
+                logger.info("Vol surface %s: %d tenors from %d/%d tickers",
+                            pair, len(surface), matched, len(all_tickers))
                 _cache_set(ck, surface, "vol_surface")
                 return surface
-            # Bloomberg returned data but no valid ATM tenors
-            _log_fetch_failure("get_fx_vol_surface", pair, "BDP returned data but no valid ATM tenors")
+            logger.warning("Vol surface %s: 0 ATM tenors (BDP returned %d rows, "
+                           "matched %d/%d tickers). Sample tickers sent: %s",
+                           pair, len(df), matched, len(all_tickers),
+                           all_tickers[:3])
             return {}
         except Exception as e:
             logger.error(f"FX vol surface BBG request failed: {e}")
@@ -740,10 +766,14 @@ def get_fx_rates(pair: str) -> dict:
             dom_tick = _deposit_bbg(ccy_dom, "3M")
             for_tick = _deposit_bbg(ccy_for, "3M")
             df = bdp([dom_tick, for_tick], ["PX_LAST"])
-            if dom_tick not in df.index or for_tick not in df.index:
-                raise ValueError(f"Missing rate data: dom={dom_tick in df.index}, for={for_tick in df.index}")
-            r_dom = float(df.loc[dom_tick, "PX_LAST"]) / 100.0
-            r_for = float(df.loc[for_tick, "PX_LAST"]) / 100.0
+            # Case-insensitive lookup
+            idx_map = {iv.upper().strip(): iv for iv in df.index} if not df.empty else {}
+            dom_actual = dom_tick if dom_tick in df.index else idx_map.get(dom_tick.upper().strip())
+            for_actual = for_tick if for_tick in df.index else idx_map.get(for_tick.upper().strip())
+            if dom_actual is None or for_actual is None:
+                raise ValueError(f"Missing rate data: dom={dom_actual is not None}, for={for_actual is not None}")
+            r_dom = float(df.loc[dom_actual, "PX_LAST"]) / 100.0
+            r_for = float(df.loc[for_actual, "PX_LAST"]) / 100.0
             res = {"r_dom": r_dom, "r_for": r_for,
                    "rate_diff": round(r_dom - r_for, 4)}
             _cache_set(ck, res, "rates")
@@ -774,10 +804,12 @@ def get_fx_rate_curve(ccy: str) -> Dict[str, float]:
             tenors = ["1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y"]
             tickers = [_deposit_bbg(ccy, t) for t in tenors]
             df = bdp(tickers, ["PX_LAST"])  # Single batched call
+            idx_map = {iv.upper().strip(): iv for iv in df.index} if not df.empty else {}
             curve = {}
             for tenor, tick in zip(tenors, tickers):
-                if tick in df.index:
-                    val = df.loc[tick, "PX_LAST"]
+                actual = tick if tick in df.index else idx_map.get(tick.upper().strip())
+                if actual is not None:
+                    val = df.loc[actual, "PX_LAST"]
                     if val is not None:
                         curve[tenor] = float(val) / 100.0
             if curve:
@@ -823,6 +855,7 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
                              "3Y": "3Y", "5Y": "5Y"}
             tickers = [f"{fwd_sym}{fwd_tenor_map.get(t, t)} Curncy" for t in _ALL_TENORS]
             df = bdp(tickers, ["PX_LAST"])
+            idx_map = {iv.upper().strip(): iv for iv in df.index} if not df.empty else {}
             spot_data = get_fx_spots([pair])
             if pair not in spot_data:
                 raise ValueError(f"No spot data for {pair}")
@@ -832,8 +865,9 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
             pts_divisor = 1.0 / pip_size  # e.g., 10000 for 0.0001 pip, 100 for 0.01 pip
             curve = {}
             for tenor, tick in zip(_ALL_TENORS, tickers):
-                if tick in df.index:
-                    pts = float(df.loc[tick, "PX_LAST"])
+                actual = tick if tick in df.index else idx_map.get(tick.upper().strip())
+                if actual is not None:
+                    pts = float(df.loc[actual, "PX_LAST"])
                     outright = spot + pts / pts_divisor
                     ty = tenor_to_years(tenor)
                     impl_diff = np.log(outright / spot) / ty if ty > 0 else 0.0
