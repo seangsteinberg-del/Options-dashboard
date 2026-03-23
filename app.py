@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-FX Options Workstation v3
-=========================
+FX Options Workstation v5 — Consolidated
+=========================================
 Institutional-grade FX options analytics platform.
-Two-tier workspace with 19 panels, live ticker tape, command palette,
-and global pair linking.
+10 panels across 4 workspaces. Zero duplication.
 
 Run:  python app.py
 Open: http://localhost:8050
@@ -45,35 +44,57 @@ _ensure_packages()
 # ── Imports ───────────────────────────────────────────────────────────────
 import json
 import time
+import logging
 import numpy as np
 
 import dash
 from dash import html, dcc, Input, Output, State, callback_context, ALL, MATCH
 from dash.exceptions import PreventUpdate
+import plotly.graph_objects as go
 
-from core.theme import COLORS, TAB_STYLE, TAB_SELECTED_STYLE, status_color, status_text
+from core.theme import COLORS, TAB_STYLE, TAB_SELECTED_STYLE, status_color, status_text, CHART_TEMPLATE
 from core.bloomberg import is_connected
 
-# ── FX Panels (new) ──────────────────────────────────────────────────────
-from panels import vol_surface_fx, vol_scanner, structure_builder, relative_value
-from panels import risk_fx, blotter_fx, events_calendar, exotics_pricer
-from panels import hedging_tools, backtest
+logger = logging.getLogger(__name__)
 
-# ── Equity Panels (legacy, kept for backwards compatibility) ─────────────
-from panels import vol_surface, pricer, risk, blotter, chain
-from panels import portfolio_panel, pnl_panel, analytics_panel, stress_panel
+# ── 10 Consolidated Panels ───────────────────────────────────────────────
+from panels import market_dashboard          # DESK
+from panels import vol_surface_fx            # VOL
+from panels import vol_scanner_unified       # VOL
+from panels import structure_builder         # TRADE
+from panels import exotics_pricer            # TRADE
+from panels import blotter_fx               # TRADE
+from panels import risk_fx                   # RISK & ANALYTICS
+from panels import relative_value_plus      # RISK & ANALYTICS
+from panels import chart_lab                 # RISK & ANALYTICS
+from panels import backtest                  # RISK & ANALYTICS
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Constants
 # ═══════════════════════════════════════════════════════════════════════════
 
-VERSION = "3.0"
+VERSION = "5.0"
 
 # Major FX pairs for the ticker tape
 FX_PAIRS = [
     "EURUSD", "USDJPY", "GBPUSD", "USDCHF", "AUDUSD", "NZDUSD",
     "USDCAD", "EURGBP", "EURJPY", "GBPJPY", "USDMXN", "USDZAR",
+]
+
+# All 30 pairs for watchlist
+ALL_FX_PAIRS = [
+    "EURUSD", "USDJPY", "GBPUSD", "USDCHF", "AUDUSD", "NZDUSD", "USDCAD",
+    "EURGBP", "EURJPY", "GBPJPY", "AUDJPY", "EURCHF", "EURAUD", "EURNZD",
+    "NZDJPY", "AUDNZD", "CADCHF", "CADJPY",
+    "EURNOK", "EURSEK", "USDSEK", "USDNOK",
+    "USDMXN", "USDBRL", "USDTRY", "USDZAR", "USDCNH", "USDINR", "USDSGD", "USDKRW",
+]
+
+# Default watchlist
+DEFAULT_WATCHLIST = [
+    "EURUSD", "USDJPY", "GBPUSD", "AUDUSD", "USDCAD",
+    "EURGBP", "EURJPY", "USDMXN", "USDZAR", "USDCNH",
 ]
 
 # Synthetic mid-market rates (used when Bloomberg is not connected)
@@ -84,68 +105,44 @@ _FX_SEED_RATES = {
     "GBPJPY": 190.31, "USDMXN": 17.142, "USDZAR": 18.695,
 }
 
-# Two-tier workspace definition
-# Each workspace has a label, an id, an accent color, and its sub-tabs.
+# ── Workspace Definition (4 workspaces, 10 panels) ──────────────────────
 WORKSPACES = [
     {
-        "id": "fx-vol",
-        "label": "FX VOL",
-        "accent": COLORS["accent_blue"],
+        "id": "desk",
+        "label": "DESK",
+        "accent": COLORS["accent_orange"],
         "tabs": [
-            {"id": "vol-surface-fx", "label": "VOL SURFACE FX", "module": vol_surface_fx},
-            {"id": "vol-scanner",    "label": "VOL SCANNER",    "module": vol_scanner},
+            {"id": "market-dashboard", "label": "DASHBOARD", "module": market_dashboard},
         ],
     },
     {
-        "id": "structuring",
-        "label": "STRUCTURING",
-        "accent": COLORS["accent_blue"],
+        "id": "vol",
+        "label": "VOL",
+        "accent": COLORS["accent_orange"],
+        "tabs": [
+            {"id": "vol-surface-fx",    "label": "VOL SURFACE",  "module": vol_surface_fx},
+            {"id": "vol-scanner-unified","label": "VOL SCANNER",  "module": vol_scanner_unified},
+        ],
+    },
+    {
+        "id": "trade",
+        "label": "TRADE",
+        "accent": COLORS["accent_orange"],
         "tabs": [
             {"id": "structure-builder", "label": "STRUCTURE BUILDER", "module": structure_builder},
             {"id": "exotics-pricer",    "label": "EXOTICS PRICER",    "module": exotics_pricer},
+            {"id": "blotter-fx",        "label": "BLOTTER",           "module": blotter_fx},
         ],
     },
     {
-        "id": "risk",
-        "label": "RISK",
-        "accent": COLORS["accent_blue"],
+        "id": "risk-analytics",
+        "label": "RISK & ANALYTICS",
+        "accent": COLORS["accent_red"],
         "tabs": [
-            {"id": "risk-fx",       "label": "RISK FX",       "module": risk_fx},
-            {"id": "hedging-tools", "label": "HEDGING TOOLS", "module": hedging_tools},
-        ],
-    },
-    {
-        "id": "rv-analytics",
-        "label": "RV & ANALYTICS",
-        "accent": COLORS["accent_blue"],
-        "tabs": [
-            {"id": "relative-value",  "label": "RELATIVE VALUE",  "module": relative_value},
-            {"id": "events-calendar", "label": "EVENTS CALENDAR", "module": events_calendar},
-            {"id": "backtest",        "label": "BACKTEST",        "module": backtest},
-        ],
-    },
-    {
-        "id": "trading",
-        "label": "TRADING",
-        "accent": COLORS["accent_amber"],
-        "tabs": [
-            {"id": "blotter-fx", "label": "BLOTTER FX", "module": blotter_fx},
-        ],
-    },
-    {
-        "id": "equity-legacy",
-        "label": "EQUITY (LEGACY)",
-        "accent": COLORS["accent_blue"],
-        "tabs": [
-            {"id": "eq-vol-surface", "label": "VOL SURFACE",   "module": vol_surface},
-            {"id": "eq-pricer",      "label": "PRICER",         "module": pricer},
-            {"id": "eq-risk",        "label": "RISK / GREEKS",  "module": risk},
-            {"id": "eq-chain",       "label": "OPTIONS CHAIN",  "module": chain},
-            {"id": "eq-blotter",     "label": "TRADE BLOTTER",  "module": blotter},
-            {"id": "eq-portfolio",   "label": "PORTFOLIO",       "module": portfolio_panel},
-            {"id": "eq-pnl",         "label": "P&L ATTRIB",     "module": pnl_panel},
-            {"id": "eq-analytics",   "label": "ANALYTICS",       "module": analytics_panel},
-            {"id": "eq-stress",      "label": "STRESS TEST",     "module": stress_panel},
+            {"id": "risk-fx",             "label": "RISK DASHBOARD",   "module": risk_fx},
+            {"id": "relative-value-plus", "label": "RELATIVE VALUE",   "module": relative_value_plus},
+            {"id": "chart-lab",           "label": "CHART LAB",         "module": chart_lab},
+            {"id": "backtest",            "label": "BACKTEST",           "module": backtest},
         ],
     },
 ]
@@ -156,15 +153,15 @@ for ws in WORKSPACES:
     for tab in ws["tabs"]:
         _TAB_MODULE_MAP[tab["id"]] = tab["module"]
 
-# Workspace presets: map preset name -> (workspace_id, first_tab_id)
+# Workspace presets
 WORKSPACE_PRESETS = {
-    "Vol Trader":   ("fx-vol",       "vol-surface-fx"),
-    "Structuring":  ("structuring",  "structure-builder"),
-    "Risk Manager": ("risk",         "risk-fx"),
-    "RV Analyst":   ("rv-analytics", "relative-value"),
+    "Desk":  ("desk",           "market-dashboard"),
+    "Vol":   ("vol",            "vol-surface-fx"),
+    "Trade": ("trade",          "structure-builder"),
+    "Risk":  ("risk-analytics", "risk-fx"),
 }
 
-# Command palette search items: (display_label, target_workspace, target_tab)
+# Command palette search items
 COMMAND_ITEMS = []
 for ws in WORKSPACES:
     for tab in ws["tabs"]:
@@ -173,7 +170,7 @@ for ws in WORKSPACES:
             "workspace": ws["id"],
             "tab": tab["id"],
         })
-for pair in FX_PAIRS:
+for pair in ALL_FX_PAIRS:
     COMMAND_ITEMS.append({
         "label": f"{pair}  [SET PAIR]",
         "workspace": "__pair__",
@@ -210,7 +207,6 @@ def _fx_spot_data():
         jitter = base * rng.uniform(-0.004, 0.004)
         price = base + jitter
         change_pct = (jitter / base) * 100.0
-        # Pip display: 4-decimal for most, 2-decimal for JPY and MXN/ZAR crosses
         is_jpy = "JPY" in pair
         is_em = pair in ("USDMXN", "USDZAR")
         if is_jpy:
@@ -250,7 +246,6 @@ def make_ticker_tape():
             "fontFamily": "'JetBrains Mono', monospace",
         }))
 
-    # Duplicate items for seamless CSS scroll loop
     return html.Div([
         html.Div(items + items,
                  className="ticker-tape-inner",
@@ -269,25 +264,24 @@ def _preset_button(label, idx):
         id={"type": "preset-btn", "index": idx},
         n_clicks=0,
         style={
-            "backgroundColor": COLORS["bg_secondary"],
-            "color": COLORS["text_secondary"],
-            "border": f"1px solid {COLORS['border']}",
-            "borderRadius": "6px",
-            "padding": "5px 14px",
+            "backgroundColor": "#000000",
+            "color": "#666666",
+            "border": "1px solid #1a1a2e",
+            "borderRadius": "0px",
+            "padding": "4px 10px",
             "fontSize": "9px",
             "fontFamily": "'JetBrains Mono', monospace",
             "fontWeight": "600",
             "letterSpacing": "1px",
             "textTransform": "uppercase",
             "cursor": "pointer",
-            "transition": "all 0.2s ease",
-            "marginLeft": "6px",
+            "marginLeft": "4px",
         },
     )
 
 
 def make_header():
-    """Full header: ticker tape, logo, status badges, preset buttons."""
+    """Full header: ticker tape, logo, status badges, preset buttons, watchlist editor."""
     bbg = is_connected()
     dot_color = COLORS["accent_green"] if bbg else COLORS["accent_orange"]
     badge_class = "bbg-badge connected" if bbg else "bbg-badge disconnected"
@@ -305,17 +299,17 @@ def make_header():
             html.Div([
                 html.Div([
                     html.Span("FX OPTIONS", style={
-                        "fontWeight": "800", "fontSize": "22px",
+                        "fontWeight": "800", "fontSize": "18px",
                         "letterSpacing": "3px",
-                        "color": COLORS["accent_blue"],
+                        "color": "#ff8800",
                     }),
                     html.Span(" WORKSTATION", style={
-                        "fontWeight": "300", "color": COLORS["text_muted"],
-                        "fontSize": "22px", "letterSpacing": "3px",
+                        "fontWeight": "300", "color": "#666666",
+                        "fontSize": "18px", "letterSpacing": "3px",
                     }),
                 ]),
                 html.Div("Institutional Derivatives Analytics", style={
-                    "color": COLORS["text_muted"], "fontSize": "9px",
+                    "color": "#666666", "fontSize": "9px",
                     "textTransform": "uppercase", "letterSpacing": "4px",
                     "marginTop": "2px",
                 }),
@@ -324,53 +318,165 @@ def make_header():
             # ── Workspace Presets ──
             html.Div([
                 html.Span("WORKSPACE", style={
-                    "color": COLORS["text_muted"], "fontSize": "9px",
-                    "letterSpacing": "1px", "marginRight": "8px",
+                    "color": "#666666", "fontSize": "9px",
+                    "letterSpacing": "1px", "marginRight": "6px",
                     "fontWeight": "600",
                 }),
                 *preset_buttons,
             ], style={
                 "display": "flex", "alignItems": "center",
-                "marginRight": "28px",
+                "marginRight": "16px",
             }),
+
+            # ── Watchlist Editor Button ──
+            html.Div([
+                html.Button("WATCHLIST", id="watchlist-edit-btn", n_clicks=0, style={
+                    "backgroundColor": "#000000",
+                    "color": "#ff8800",
+                    "border": "1px solid #1a1a2e",
+                    "borderRadius": "0px",
+                    "padding": "4px 10px",
+                    "fontSize": "9px",
+                    "fontFamily": "'JetBrains Mono', monospace",
+                    "fontWeight": "700",
+                    "letterSpacing": "1px",
+                    "cursor": "pointer",
+                }),
+            ], style={"marginRight": "16px"}),
 
             # ── Status Block ──
             html.Div([
-                # Connection badge
                 html.Div([
-                    html.Div(style={
-                        "width": "8px", "height": "8px", "borderRadius": "50%",
+                    html.Div(className="pulse-dot", style={
+                        "width": "6px", "height": "6px", "borderRadius": "50%",
                         "backgroundColor": dot_color, "display": "inline-block",
-                        "marginRight": "8px",
-                        "boxShadow": f"0 0 8px {dot_color}",
-                        "animation": "pulse-dot 2s infinite",
+                        "marginRight": "6px",
                     }),
                     html.Span(badge_text, className=badge_class),
                 ], style={
                     "display": "flex", "alignItems": "center",
-                    "marginRight": "24px",
+                    "marginRight": "16px",
                 }),
-
-                # Model badge
                 html.Div([
                     html.Span("MODEL ", style={
-                        "color": COLORS["text_muted"], "fontSize": "10px",
+                        "color": "#666666", "fontSize": "9px",
                         "letterSpacing": "1px",
                     }),
-                    html.Span("GK / SABR / VV / MC", style={
-                        "color": COLORS["accent_purple"], "fontSize": "10px",
+                    html.Span("GK/SABR/VV/MC", style={
+                        "color": "#ff8800", "fontSize": "9px",
                         "fontWeight": "700",
                     }),
                 ]),
             ], style={"display": "flex", "alignItems": "center"}),
         ], style={
             "display": "flex", "justifyContent": "space-between",
-            "alignItems": "center", "padding": "16px 36px",
-            "backgroundColor": COLORS["bg_header"],
-            "borderBottom": f"1px solid {COLORS['border']}",
+            "alignItems": "center", "padding": "10px 24px",
+            "backgroundColor": "#000000",
+            "borderBottom": "1px solid #1a1a2e",
             "fontFamily": "'JetBrains Mono', monospace",
         }),
     ])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Watchlist Editor Modal
+# ═══════════════════════════════════════════════════════════════════════════
+
+def make_watchlist_modal():
+    """Watchlist editor modal — multi-select pairs."""
+    return html.Div(
+        id="watchlist-modal-overlay",
+        children=[
+            html.Div([
+                html.Div("WATCHLIST EDITOR", style={
+                    "color": "#ffffff", "fontSize": "11px", "fontWeight": "700",
+                    "letterSpacing": "1.5px", "marginBottom": "8px",
+                    "paddingBottom": "4px", "borderBottom": "1px solid #1a1a2e",
+                    "fontFamily": "'JetBrains Mono', monospace",
+                }),
+                dcc.Dropdown(
+                    id="watchlist-editor-dropdown",
+                    options=[{"label": p, "value": p} for p in ALL_FX_PAIRS],
+                    value=DEFAULT_WATCHLIST,
+                    multi=True,
+                    placeholder="Select pairs...",
+                    style={"fontSize": "11px", "fontFamily": "'JetBrains Mono', monospace"},
+                ),
+                html.Div([
+                    html.Button("SAVE", id="watchlist-save-btn", n_clicks=0, style={
+                        "backgroundColor": "#ff8800", "color": "#000000",
+                        "border": "none", "borderRadius": "0px",
+                        "padding": "6px 16px", "fontSize": "10px",
+                        "fontFamily": "'JetBrains Mono', monospace",
+                        "fontWeight": "700", "cursor": "pointer", "marginRight": "8px",
+                    }),
+                    html.Button("CLOSE", id="watchlist-close-btn", n_clicks=0, style={
+                        "backgroundColor": "#000000", "color": "#666666",
+                        "border": "1px solid #1a1a2e", "borderRadius": "0px",
+                        "padding": "6px 16px", "fontSize": "10px",
+                        "fontFamily": "'JetBrains Mono', monospace",
+                        "fontWeight": "700", "cursor": "pointer",
+                    }),
+                ], style={"marginTop": "12px", "display": "flex"}),
+            ], style={
+                "backgroundColor": "#000000",
+                "border": "1px solid #1a1a2e",
+                "padding": "16px",
+                "width": "500px",
+                "maxWidth": "90vw",
+            }),
+        ],
+        style={
+            "display": "none",
+            "position": "fixed",
+            "top": "0", "left": "0", "right": "0", "bottom": "0",
+            "backgroundColor": "rgba(0,0,0,0.85)",
+            "zIndex": "9000",
+            "justifyContent": "center",
+            "alignItems": "center",
+        },
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Universal Metric Popup Modal
+# ═══════════════════════════════════════════════════════════════════════════
+
+def make_metric_popup():
+    """Universal metric popup — click any number across the entire app."""
+    return html.Div(
+        id="metric-popup-overlay",
+        children=[
+            html.Div([
+                # Header
+                html.Div([
+                    html.Span(id="metric-popup-title", style={
+                        "color": "#ffffff", "fontSize": "13px", "fontWeight": "700",
+                        "letterSpacing": "1px", "fontFamily": "'JetBrains Mono', monospace",
+                    }),
+                    html.Button("\u2715", id="metric-popup-close-btn", n_clicks=0,
+                                className="metric-popup-close"),
+                ], className="metric-popup-header"),
+
+                # Stats row
+                html.Div(id="metric-popup-stats", className="metric-popup-stats"),
+
+                # Chart
+                dcc.Graph(id="metric-popup-chart", config={"displayModeBar": False},
+                          style={"height": "280px"}),
+
+                # Action buttons
+                html.Div([
+                    html.Button("SEND TO LAB", id="metric-popup-lab-btn", n_clicks=0,
+                                className="metric-popup-btn primary"),
+                    html.Button("COMPARE", id="metric-popup-compare-btn", n_clicks=0,
+                                className="metric-popup-btn"),
+                ], className="metric-popup-actions"),
+            ], className="metric-popup"),
+        ],
+        className="metric-popup-overlay",
+        style={"display": "none"},
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -390,15 +496,15 @@ def make_command_palette():
             html.Div([
                 html.Div([
                     html.Span("COMMAND PALETTE", style={
-                        "color": COLORS["text_muted"], "fontSize": "9px",
+                        "color": "#666666", "fontSize": "9px",
                         "letterSpacing": "2px", "fontWeight": "700",
                     }),
                     html.Span("Ctrl+K", style={
-                        "color": COLORS["accent_cyan"], "fontSize": "9px",
+                        "color": "#ff8800", "fontSize": "9px",
                         "fontWeight": "600", "marginLeft": "12px",
                         "padding": "2px 8px",
-                        "border": f"1px solid {COLORS['border']}",
-                        "borderRadius": "4px",
+                        "border": "1px solid #1a1a2e",
+                        "borderRadius": "0px",
                     }),
                 ], style={
                     "display": "flex", "justifyContent": "space-between",
@@ -412,30 +518,26 @@ def make_command_palette():
                     searchable=True,
                     clearable=True,
                     style={
-                        "backgroundColor": COLORS["bg_input"],
-                        "color": COLORS["text_primary"],
+                        "backgroundColor": "#000000",
+                        "color": "#d4d4d4",
                         "fontFamily": "'JetBrains Mono', monospace",
-                        "fontSize": "14px",
+                        "fontSize": "13px",
                         "border": "none",
                     },
                 ),
             ], style={
-                "backgroundColor": COLORS["bg_card"],
-                "border": f"1px solid {COLORS['border']}",
-                "borderRadius": "16px",
-                "padding": "20px 24px",
+                "backgroundColor": "#000000",
+                "border": "1px solid #1a1a2e",
+                "padding": "16px 20px",
                 "width": "560px",
                 "maxWidth": "90vw",
-                "boxShadow": "0 24px 80px rgba(0,0,0,0.7), 0 0 40px rgba(59,130,246,0.08)",
-                "animation": "slide-up 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
             }),
         ],
         style={
-            "display": "none",  # hidden by default
+            "display": "none",
             "position": "fixed",
             "top": "0", "left": "0", "right": "0", "bottom": "0",
-            "backgroundColor": "rgba(0,0,0,0.60)",
-            "backdropFilter": "blur(4px)",
+            "backgroundColor": "rgba(0,0,0,0.85)",
             "zIndex": "9999",
             "justifyContent": "center",
             "alignItems": "flex-start",
@@ -449,68 +551,60 @@ def make_command_palette():
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _workspace_tab_style(accent):
-    """Style for a top-level workspace tab (unselected)."""
     return {
         "backgroundColor": "transparent",
-        "border": f"1px solid {COLORS['border']}",
+        "border": "1px solid #1a1a2e",
         "borderBottom": "none",
-        "borderRadius": "8px 8px 0 0",
-        "color": COLORS["text_muted"],
+        "borderRadius": "0px",
+        "color": "#666666",
         "fontFamily": "'JetBrains Mono', monospace",
-        "fontSize": "11px",
+        "fontSize": "10px",
         "fontWeight": "700",
-        "padding": "12px 22px",
+        "padding": "8px 14px",
         "letterSpacing": "1.5px",
         "textTransform": "uppercase",
         "cursor": "pointer",
-        "transition": "all 0.2s ease",
     }
 
 
 def _workspace_tab_selected_style(accent):
-    """Style for a top-level workspace tab (selected)."""
     base = _workspace_tab_style(accent)
     return {
         **base,
-        "backgroundColor": COLORS["bg_card"],
+        "backgroundColor": "#000000",
         "color": accent,
         "borderTop": f"2px solid {accent}",
-        "boxShadow": f"0 -2px 12px {accent}26",
     }
 
 
 def _subtab_style():
-    """Style for second-tier (panel) tabs."""
     return {
         "backgroundColor": "transparent",
-        "border": f"1px solid {COLORS['border_subtle']}",
+        "border": "1px solid #1a1a2e",
         "borderBottom": "none",
-        "borderRadius": "6px 6px 0 0",
-        "color": COLORS["text_muted"],
+        "borderRadius": "0px",
+        "color": "#666666",
         "fontFamily": "'JetBrains Mono', monospace",
-        "fontSize": "10px",
+        "fontSize": "9px",
         "fontWeight": "600",
-        "padding": "10px 18px",
+        "padding": "6px 12px",
         "letterSpacing": "1.2px",
         "textTransform": "uppercase",
         "cursor": "pointer",
-        "transition": "all 0.2s ease",
     }
 
 
 def _subtab_selected_style(accent):
-    """Style for second-tier tab (selected)."""
     base = _subtab_style()
     return {
         **base,
-        "backgroundColor": COLORS["bg_secondary"],
+        "backgroundColor": "#000000",
         "color": accent,
         "borderTop": f"2px solid {accent}",
     }
 
 
 def make_workspace_tabs():
-    """Build the top-level workspace category tabs."""
     children = []
     for ws in WORKSPACES:
         children.append(
@@ -530,8 +624,24 @@ def make_workspace_tabs():
 
 
 def make_sub_tabs_container():
-    """Placeholder div whose children are swapped by the workspace callback."""
-    return html.Div(id="subtab-container", style={"marginTop": "0"})
+    """Pre-render initial sub-tabs so 'sub-tabs' ID exists from page load."""
+    ws = WORKSPACES[0]
+    accent = ws["accent"]
+    initial_tabs = dcc.Tabs(
+        id="sub-tabs",
+        value=ws["tabs"][0]["id"],
+        children=[
+            dcc.Tab(
+                label=tab["label"],
+                value=tab["id"],
+                style=_subtab_style(),
+                selected_style=_subtab_selected_style(accent),
+            )
+            for tab in ws["tabs"]
+        ],
+        style={"marginTop": "2px", "borderBottom": "1px solid #1a1a2e"},
+    )
+    return html.Div(initial_tabs, id="subtab-container", style={"marginTop": "0"})
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -540,36 +650,37 @@ def make_sub_tabs_container():
 
 def make_footer():
     data_label = "BLOOMBERG API" if is_connected() else "SYNTHETIC DATA"
+    total_panels = sum(len(ws["tabs"]) for ws in WORKSPACES)
     return html.Div([
         html.Div([
             html.Span(f"FX OPTIONS WORKSTATION v{VERSION}", style={
-                "color": COLORS["text_muted"], "fontSize": "9px",
+                "color": "#666666", "fontSize": "9px",
                 "letterSpacing": "2px",
             }),
             html.Span(" \u2502 ", style={
-                "color": COLORS["border"], "margin": "0 10px",
+                "color": "#1a1a2e", "margin": "0 8px",
             }),
-            html.Span("GK \u00b7 SABR \u00b7 VANNA-VOLGA \u00b7 MONTE CARLO", style={
-                "color": COLORS["text_muted"], "fontSize": "9px",
+            html.Span(f"{total_panels} PANELS", style={
+                "color": "#666666", "fontSize": "9px",
                 "letterSpacing": "2px",
             }),
             html.Span(" \u2502 ", style={
-                "color": COLORS["border"], "margin": "0 10px",
+                "color": "#1a1a2e", "margin": "0 8px",
             }),
             html.Span(data_label, style={
                 "color": status_color(), "fontSize": "9px",
                 "letterSpacing": "2px", "fontWeight": "700",
             }),
             html.Span(" \u2502 ", style={
-                "color": COLORS["border"], "margin": "0 10px",
+                "color": "#1a1a2e", "margin": "0 8px",
             }),
-            html.Span("PYTHON + DASH + PLOTLY + NUMPY + SCIPY", style={
-                "color": COLORS["text_muted"], "fontSize": "9px",
+            html.Span("GK \u00b7 SABR \u00b7 VV \u00b7 MC", style={
+                "color": "#666666", "fontSize": "9px",
                 "letterSpacing": "2px",
             }),
         ], style={
-            "textAlign": "center", "padding": "18px",
-            "borderTop": f"1px solid {COLORS['border_subtle']}",
+            "textAlign": "center", "padding": "12px",
+            "borderTop": "1px solid #1a1a2e",
             "fontFamily": "'JetBrains Mono', monospace",
         }),
     ])
@@ -580,39 +691,35 @@ def make_footer():
 # ═══════════════════════════════════════════════════════════════════════════
 
 def serve_layout():
-    """Return a fresh layout on every page load so stores reset and
-    the ticker tape uses a new random seed each time."""
     return html.Div([
 
         # ── Global State Stores ──
         dcc.Store(id="global-pair",  data="EURUSD"),
+        dcc.Store(id="preset-result", data=None),
+        dcc.Store(id="cmd-nav-result", data=None),
         dcc.Store(id="global-tenor", data="3M"),
+        dcc.Store(id="watchlist-store", data=DEFAULT_WATCHLIST),
+        dcc.Store(id="metric-popup-data", data=None),
 
         # ── Hidden keyboard listener for Ctrl+K ──
-        # We attach a clientside callback to the document via a hidden div.
         html.Div(id="kb-listener", style={"display": "none"}),
 
-        # ── Command Palette Overlay ──
+        # ── Modals ──
         make_command_palette(),
+        make_watchlist_modal(),
+        make_metric_popup(),
 
         # ── Header (ticker tape + logo + status) ──
         make_header(),
 
         # ── Main Content Area ──
         html.Div([
-            # Top-tier workspace tabs
             make_workspace_tabs(),
-
-            # Second-tier sub-tabs (rendered dynamically)
             make_sub_tabs_container(),
 
-            # Panel content
-            html.Div(id="panel-content", style={
-                "marginTop": "16px",
-                "animation": "slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-            }),
+            html.Div(id="panel-content", style={"marginTop": "4px"}),
         ], style={
-            "padding": "24px 36px",
+            "padding": "8px 16px",
             "maxWidth": "1920px",
             "margin": "0 auto",
         }),
@@ -621,7 +728,7 @@ def serve_layout():
         make_footer(),
 
     ], style={
-        "backgroundColor": COLORS["bg_primary"],
+        "backgroundColor": "#000000",
         "minHeight": "100vh",
         "fontFamily": "'JetBrains Mono', monospace",
     })
@@ -642,7 +749,6 @@ app.layout = serve_layout
     [Input("workspace-tabs", "value")],
 )
 def render_subtabs(workspace_id):
-    """When the top-level workspace changes, render its sub-tab row."""
     ws = next((w for w in WORKSPACES if w["id"] == workspace_id), None)
     if ws is None:
         raise PreventUpdate
@@ -664,8 +770,8 @@ def render_subtabs(workspace_id):
         value=ws["tabs"][0]["id"],
         children=sub_children,
         style={
-            "marginTop": "4px",
-            "borderBottom": f"1px solid {COLORS['border_subtle']}",
+            "marginTop": "2px",
+            "borderBottom": "1px solid #1a1a2e",
         },
     )
 
@@ -675,10 +781,9 @@ def render_subtabs(workspace_id):
 # ---------------------------------------------------------------------------
 @app.callback(
     Output("panel-content", "children"),
-    [Input("sub-tabs", "value")],
+    Input("sub-tabs", "value"),
 )
 def render_panel(tab_id):
-    """Route the selected sub-tab to the correct panel layout."""
     if tab_id is None:
         raise PreventUpdate
 
@@ -686,41 +791,38 @@ def render_panel(tab_id):
     if module is None:
         return html.Div(
             "Panel not found.",
-            style={"color": COLORS["text_muted"], "padding": "40px",
-                   "textAlign": "center", "fontSize": "13px"},
+            style={"color": "#666666", "padding": "40px",
+                   "textAlign": "center", "fontSize": "11px"},
         )
     try:
         return module.layout()
     except Exception as exc:
+        import traceback
         return html.Div([
             html.Div("PANEL LOAD ERROR", style={
-                "color": COLORS["accent_red"], "fontWeight": "700",
-                "fontSize": "14px", "marginBottom": "8px",
+                "color": "#ff3333", "fontWeight": "700",
+                "fontSize": "13px", "marginBottom": "8px",
             }),
-            html.Pre(str(exc), style={
-                "color": COLORS["text_muted"], "fontSize": "11px",
+            html.Pre(traceback.format_exc(), style={
+                "color": "#666666", "fontSize": "10px",
                 "whiteSpace": "pre-wrap",
             }),
         ], style={"padding": "40px"})
 
 
 # ---------------------------------------------------------------------------
-# 3. Workspace Preset Buttons -> switch workspace + sub-tab
+# 3. Workspace Preset Buttons
 # ---------------------------------------------------------------------------
 @app.callback(
-    [Output("workspace-tabs", "value"),
-     Output("sub-tabs", "value", allow_duplicate=True),
-     Output("global-pair", "data", allow_duplicate=True)],
+    Output("preset-result", "data"),
     [Input({"type": "preset-btn", "index": ALL}, "n_clicks")],
     prevent_initial_call=True,
 )
 def apply_preset(n_clicks_list):
-    """When a preset button is clicked, jump to the associated workspace and sub-tab."""
     ctx = callback_context
     if not ctx.triggered or all(n == 0 for n in (n_clicks_list or [])):
         raise PreventUpdate
 
-    # Determine which button was clicked
     prop_id = ctx.triggered[0]["prop_id"]
     try:
         btn_info = json.loads(prop_id.rsplit(".", 1)[0])
@@ -733,18 +835,42 @@ def apply_preset(n_clicks_list):
         raise PreventUpdate
 
     ws_id, tab_id = WORKSPACE_PRESETS[preset_names[idx]]
-    # Navigate to workspace and sub-tab; keep current pair unchanged
-    return ws_id, tab_id, dash.no_update
+    return {"workspace": ws_id, "tab": tab_id}
+
+
+# Preset → workspace + sub-tabs navigation
+app.clientside_callback(
+    """function(data) {
+        if (!data) return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+        return [data.workspace, data.tab];
+    }""",
+    [Output("workspace-tabs", "value", allow_duplicate=True),
+     Output("sub-tabs", "value", allow_duplicate=True)],
+    Input("preset-result", "data"),
+    prevent_initial_call=True,
+)
+
+# Command palette → navigate workspace/tab or set pair
+app.clientside_callback(
+    """function(data) {
+        if (!data) return [window.dash_clientside.no_update, window.dash_clientside.no_update, window.dash_clientside.no_update];
+        if (data.pair) return [window.dash_clientside.no_update, window.dash_clientside.no_update, data.pair];
+        return [data.workspace || window.dash_clientside.no_update, data.tab || window.dash_clientside.no_update, window.dash_clientside.no_update];
+    }""",
+    [Output("workspace-tabs", "value", allow_duplicate=True),
+     Output("sub-tabs", "value", allow_duplicate=True),
+     Output("global-pair", "data", allow_duplicate=True)],
+    Input("cmd-nav-result", "data"),
+    prevent_initial_call=True,
+)
 
 
 # ---------------------------------------------------------------------------
 # 4. Command Palette: toggle visibility (Ctrl+K)
 # ---------------------------------------------------------------------------
-# Clientside JS to listen for Ctrl+K and toggle the overlay display.
 app.clientside_callback(
     """
     function(id) {
-        // Attach keyboard listener once
         if (!window._cmdPaletteListenerAttached) {
             window._cmdPaletteListenerAttached = true;
             document.addEventListener('keydown', function(e) {
@@ -759,9 +885,12 @@ app.clientside_callback(
                 if (e.key === 'Escape') {
                     var overlay = document.getElementById('command-palette-overlay');
                     if (overlay) overlay.style.display = 'none';
+                    var wl = document.getElementById('watchlist-modal-overlay');
+                    if (wl) wl.style.display = 'none';
+                    var mp = document.getElementById('metric-popup-overlay');
+                    if (mp) mp.style.display = 'none';
                 }
             });
-            // Click outside to close
             var overlay = document.getElementById('command-palette-overlay');
             if (overlay) {
                 overlay.addEventListener('click', function(e) {
@@ -778,18 +907,15 @@ app.clientside_callback(
 
 
 # ---------------------------------------------------------------------------
-# 5. Command Palette: selection -> navigate to panel or set pair
+# 5. Command Palette: selection -> navigate
 # ---------------------------------------------------------------------------
 @app.callback(
-    [Output("workspace-tabs", "value", allow_duplicate=True),
-     Output("sub-tabs", "value", allow_duplicate=True),
-     Output("global-pair", "data", allow_duplicate=True),
+    [Output("cmd-nav-result", "data"),
      Output("command-palette-input", "value")],
     [Input("command-palette-input", "value")],
     prevent_initial_call=True,
 )
 def command_palette_navigate(selected_value):
-    """When the user picks an item from the palette, navigate or set pair."""
     if not selected_value:
         raise PreventUpdate
     try:
@@ -801,53 +927,281 @@ def command_palette_navigate(selected_value):
     tab = item.get("tab", "")
 
     if workspace == "__pair__":
-        # Set the global pair; don't change workspace or sub-tab
-        return dash.no_update, dash.no_update, tab, None
-
-    # Navigate to the workspace AND the specific sub-tab
-    return workspace, tab, dash.no_update, None
+        return {"pair": tab}, None
+    return {"workspace": workspace, "tab": tab}, None
 
 
 # ---------------------------------------------------------------------------
-# 6. Global Pair Linking: global-pair store -> vsfx-pair dropdown
+# 6. Global Pair Linking (uses set_props to avoid errors on unmounted panels)
+# ---------------------------------------------------------------------------
+app.clientside_callback(
+    """function(pair) {
+        if (!pair) return window.dash_clientside.no_update;
+        var targets = ['vsfx-pair', 'stb-pair', 'fxb-pair', 'rvp-pair-a',
+                        'bt-pair', 'fxrisk-wi-pair'];
+        targets.forEach(function(id) {
+            dash_clientside.set_props(id, {value: pair});
+        });
+        return window.dash_clientside.no_update;
+    }""",
+    Output("global-pair", "id"),
+    Input("global-pair", "data"),
+)
+# Market Dashboard → global pair
+app.clientside_callback(
+    """function(pair) { return pair || window.dash_clientside.no_update; }""",
+    Output("global-pair", "data", allow_duplicate=True),
+    Input("mdash-selected-pair", "data"),
+    prevent_initial_call=True,
+)
+# Risk FX → global pair
+app.clientside_callback(
+    """function(pair) { return pair || window.dash_clientside.no_update; }""",
+    Output("global-pair", "data", allow_duplicate=True),
+    Input("fxrisk-selected-pair", "data"),
+    prevent_initial_call=True,
+)
+
+
+# ---------------------------------------------------------------------------
+# 7. Watchlist Modal: open/close/save
 # ---------------------------------------------------------------------------
 app.clientside_callback(
     """
-    function(pair) {
-        return pair;
+    function(n_open, n_close, n_save) {
+        var overlay = document.getElementById('watchlist-modal-overlay');
+        if (!overlay) return window.dash_clientside.no_update;
+        var ctx = window.dash_clientside.callback_context;
+        if (!ctx || !ctx.triggered || ctx.triggered.length === 0)
+            return window.dash_clientside.no_update;
+        var trigger = ctx.triggered[0].prop_id;
+        if (trigger === 'watchlist-edit-btn.n_clicks') {
+            overlay.style.display = 'flex';
+        } else {
+            overlay.style.display = 'none';
+        }
+        return window.dash_clientside.no_update;
     }
     """,
-    Output("vsfx-pair", "value"),
-    Input("global-pair", "data"),
+    Output("watchlist-modal-overlay", "id"),
+    [Input("watchlist-edit-btn", "n_clicks"),
+     Input("watchlist-close-btn", "n_clicks"),
+     Input("watchlist-save-btn", "n_clicks")],
+)
+
+@app.callback(
+    Output("watchlist-store", "data"),
+    Input("watchlist-save-btn", "n_clicks"),
+    State("watchlist-editor-dropdown", "value"),
+    prevent_initial_call=True,
+)
+def save_watchlist(n_clicks, pairs):
+    if not pairs:
+        raise PreventUpdate
+    return pairs
+
+
+# ---------------------------------------------------------------------------
+# 8. Universal Metric Popup
+# ---------------------------------------------------------------------------
+@app.callback(
+    [Output("metric-popup-overlay", "style"),
+     Output("metric-popup-title", "children"),
+     Output("metric-popup-stats", "children"),
+     Output("metric-popup-chart", "figure")],
+    [Input({"type": "clickable-metric", "pair": ALL, "metric": ALL, "tenor": ALL}, "n_clicks"),
+     Input("metric-popup-close-btn", "n_clicks")],
+    prevent_initial_call=True,
+)
+def handle_metric_popup(metric_clicks, close_clicks):
+    """Universal metric popup — triggered by any clickable-metric component."""
+    ctx = callback_context
+    if not ctx.triggered:
+        raise PreventUpdate
+
+    trigger = ctx.triggered[0]["prop_id"]
+
+    # Close button
+    if "metric-popup-close-btn" in trigger:
+        return {"display": "none"}, "", [], go.Figure()
+
+    # Parse the clicked metric ID
+    try:
+        id_str = trigger.rsplit(".", 1)[0]
+        id_dict = json.loads(id_str)
+        pair = id_dict["pair"]
+        metric = id_dict["metric"]
+        tenor = id_dict["tenor"]
+    except Exception:
+        raise PreventUpdate
+
+    # Fetch history and compute stats
+    try:
+        from core.fx_analytics import vol_percentile
+        info = vol_percentile(pair, tenor, metric, 252)
+
+        current = info.get("current", 0)
+        mean_val = info.get("mean", 0)
+        std_val = info.get("std", 0)
+        pct = info.get("percentile", 50)
+        min_val = info.get("min", 0)
+        max_val = info.get("max", 0)
+        z_score = (current - mean_val) / max(std_val, 1e-6)
+
+        # Get history for chart
+        from core.bloomberg_fx import get_fx_historical_vol
+        hist = get_fx_historical_vol(pair, tenor, metric, 252)
+        if hist is None or len(hist) < 10:
+            from core.fx_analytics import _synth_vol_history
+            hist = _synth_vol_history(pair, tenor, metric, 252)
+
+        # Build chart
+        fig = go.Figure()
+        x_days = list(range(len(hist)))
+
+        # ±1σ band
+        fig.add_trace(go.Scatter(
+            x=x_days, y=[mean_val + std_val] * len(x_days),
+            mode="lines", line=dict(color="#1a1a2e", width=1, dash="dot"),
+            showlegend=False,
+        ))
+        fig.add_trace(go.Scatter(
+            x=x_days, y=[mean_val - std_val] * len(x_days),
+            mode="lines", line=dict(color="#1a1a2e", width=1, dash="dot"),
+            fill="tonexty", fillcolor="rgba(26,26,46,0.3)",
+            showlegend=False,
+        ))
+
+        # Mean line
+        fig.add_trace(go.Scatter(
+            x=x_days, y=[mean_val] * len(x_days),
+            mode="lines", line=dict(color="#666666", width=1, dash="dash"),
+            showlegend=False,
+        ))
+
+        # History line
+        fig.add_trace(go.Scatter(
+            x=x_days, y=hist.tolist() if hasattr(hist, 'tolist') else list(hist),
+            mode="lines", line=dict(color="#ff8800", width=1.5),
+            name=f"{metric} {tenor}",
+        ))
+
+        # Current dot
+        fig.add_trace(go.Scatter(
+            x=[len(hist) - 1], y=[current],
+            mode="markers", marker=dict(color="#ff8800", size=8),
+            showlegend=False,
+        ))
+
+        fig.update_layout(
+            **CHART_TEMPLATE["layout"],
+            height=280,
+            margin=dict(l=50, r=20, t=10, b=30),
+            showlegend=False,
+        )
+
+        # Stats
+        stats_children = [
+            html.Div([
+                html.Span("Current: ", style={"color": "#666666", "fontSize": "9px"}),
+                html.Span(f"{current:.2f}v", style={"color": "#d4d4d4", "fontSize": "11px", "fontWeight": "700"}),
+            ]),
+            html.Div([
+                html.Span("Pctl: ", style={"color": "#666666", "fontSize": "9px"}),
+                html.Span(f"{pct:.0f}th", style={
+                    "color": "#00cc66" if pct < 30 else "#ff3333" if pct > 70 else "#d4d4d4",
+                    "fontSize": "11px", "fontWeight": "700",
+                }),
+            ]),
+            html.Div([
+                html.Span("Mean: ", style={"color": "#666666", "fontSize": "9px"}),
+                html.Span(f"{mean_val:.2f}v", style={"color": "#d4d4d4", "fontSize": "11px"}),
+            ]),
+            html.Div([
+                html.Span("Std: ", style={"color": "#666666", "fontSize": "9px"}),
+                html.Span(f"{std_val:.2f}v", style={"color": "#d4d4d4", "fontSize": "11px"}),
+            ]),
+            html.Div([
+                html.Span("Z: ", style={"color": "#666666", "fontSize": "9px"}),
+                html.Span(f"{z_score:+.2f}", style={
+                    "color": "#00cc66" if abs(z_score) < 1 else "#ff3333",
+                    "fontSize": "11px", "fontWeight": "700",
+                }),
+            ]),
+            html.Div([
+                html.Span("Min/Max: ", style={"color": "#666666", "fontSize": "9px"}),
+                html.Span(f"{min_val:.2f} / {max_val:.2f}", style={"color": "#d4d4d4", "fontSize": "11px"}),
+            ]),
+        ]
+
+        title = f"{pair} \u2014 {metric} {tenor} \u2014 252D HISTORY"
+
+        return (
+            {"display": "flex", "position": "fixed", "top": "0", "left": "0",
+             "right": "0", "bottom": "0", "backgroundColor": "rgba(0,0,0,0.85)",
+             "zIndex": "9000", "justifyContent": "center", "alignItems": "center"},
+            title,
+            stats_children,
+            fig,
+        )
+
+    except Exception as exc:
+        logger.exception("Metric popup error")
+        return (
+            {"display": "flex", "position": "fixed", "top": "0", "left": "0",
+             "right": "0", "bottom": "0", "backgroundColor": "rgba(0,0,0,0.85)",
+             "zIndex": "9000", "justifyContent": "center", "alignItems": "center"},
+            f"{pair} \u2014 {metric} {tenor}",
+            [html.Div(f"Error: {exc}", style={"color": "#ff3333", "fontSize": "11px"})],
+            go.Figure(),
+        )
+
+
+# ---------------------------------------------------------------------------
+# 9. Send to Lab button (metric popup → chart lab)
+# ---------------------------------------------------------------------------
+@app.callback(
+    [Output("workspace-tabs", "value", allow_duplicate=True),
+     Output("sub-tabs", "value", allow_duplicate=True)],
+    Input("metric-popup-lab-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def send_to_lab(n_clicks):
+    if not n_clicks:
+        raise PreventUpdate
+    return "risk-analytics", "chart-lab"
+
+
+# ---------------------------------------------------------------------------
+# 10. Compare button (metric popup → adds to comparison, for now just closes)
+# ---------------------------------------------------------------------------
+app.clientside_callback(
+    """function(n) {
+        if (!n) return window.dash_clientside.no_update;
+        var el = document.getElementById('metric-popup-overlay');
+        if (el) el.style.display = 'none';
+        return window.dash_clientside.no_update;
+    }""",
+    Output("metric-popup-compare-btn", "id"),
+    Input("metric-popup-compare-btn", "n_clicks"),
+    prevent_initial_call=True,
 )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Register All Panel Callbacks (19 panels)
+# Register All Panel Callbacks (10 panels)
 # ═══════════════════════════════════════════════════════════════════════════
 
-# FX panels
+market_dashboard.register_callbacks(app)
 vol_surface_fx.register_callbacks(app)
-vol_scanner.register_callbacks(app)
+vol_scanner_unified.register_callbacks(app)
 structure_builder.register_callbacks(app)
-relative_value.register_callbacks(app)
-risk_fx.register_callbacks(app)
-blotter_fx.register_callbacks(app)
-events_calendar.register_callbacks(app)
 exotics_pricer.register_callbacks(app)
-hedging_tools.register_callbacks(app)
+blotter_fx.register_callbacks(app)
+risk_fx.register_callbacks(app)
+relative_value_plus.register_callbacks(app)
+chart_lab.register_callbacks(app)
 backtest.register_callbacks(app)
-
-# Legacy equity panels
-vol_surface.register_callbacks(app)
-pricer.register_callbacks(app)
-risk.register_callbacks(app)
-chain.register_callbacks(app)
-blotter.register_callbacks(app)
-portfolio_panel.register_callbacks(app)
-pnl_panel.register_callbacks(app)
-analytics_panel.register_callbacks(app)
-stress_panel.register_callbacks(app)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -856,18 +1210,18 @@ stress_panel.register_callbacks(app)
 
 if __name__ == "__main__":
     bbg_status = "BLOOMBERG LIVE" if is_connected() else "SYNTHETIC MODE"
-    panels_fx = sum(len(ws["tabs"]) for ws in WORKSPACES if ws["id"] != "equity-legacy")
-    panels_eq = sum(len(ws["tabs"]) for ws in WORKSPACES if ws["id"] == "equity-legacy")
+    panels_total = sum(len(ws["tabs"]) for ws in WORKSPACES)
 
     print()
     print("=" * 64)
-    print(f"  FX OPTIONS WORKSTATION v{VERSION}")
-    print(f"  Institutional Derivatives Analytics")
+    print(f"  FX OPTIONS WORKSTATION v{VERSION} — CONSOLIDATED")
     print(f"  Data : {bbg_status}")
     print(f"  Model: Garman-Kohlhagen / SABR / Vanna-Volga / Monte Carlo")
-    print(f"  Panels: {panels_fx} FX + {panels_eq} Equity (legacy) = {panels_fx + panels_eq} total")
+    print(f"  Panels: {panels_total} across {len(WORKSPACES)} workspaces")
+    print(f"  Workspaces: {' | '.join(w['label'] for w in WORKSPACES)}")
     print("=" * 64)
     print(f"\n  ->  Open: http://localhost:8050")
     print(f"  ->  Ctrl+K for command palette\n")
 
-    app.run(debug=True, host="0.0.0.0", port=8050)
+    app.run(debug=True, host="0.0.0.0", port=8050,
+            dev_tools_ui=False, dev_tools_props_check=False)

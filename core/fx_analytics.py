@@ -78,7 +78,7 @@ def vol_percentile(pair: str, tenor: str, metric: str = "ATM",
     if hist is None or len(hist) < 10:
         hist = _synth_vol_history(pair, tenor, metric, lookback_days)
 
-    current = hist[-1]
+    current = hist.iloc[-1] if hasattr(hist, 'iloc') else hist[-1]
     pct = percentileofscore(hist, current)
 
     return {
@@ -108,7 +108,7 @@ def vol_zscore(pair: str, tenor: str, metric: str = "ATM",
     if hist is None or len(hist) < 10:
         hist = _synth_vol_history(pair, tenor, metric, lookback_days)
 
-    current = hist[-1]
+    current = hist.iloc[-1] if hasattr(hist, 'iloc') else hist[-1]
     mu = np.mean(hist)
     sigma = np.std(hist)
     z = (current - mu) / max(sigma, 1e-6)
@@ -189,8 +189,8 @@ def vol_change(pair: str, tenor: str, metric: str = "ATM",
     if hist is None or len(hist) < days_ago + 1:
         hist = _synth_vol_history(pair, tenor, metric, days_ago + 10)
 
-    current = hist[-1]
-    previous = hist[-(days_ago + 1)]
+    current = hist.iloc[-1] if hasattr(hist, 'iloc') else hist[-1]
+    previous = hist.iloc[-(days_ago + 1)] if hasattr(hist, 'iloc') else hist[-(days_ago + 1)]
     abs_change = current - previous
     pct_change = abs_change / max(abs(previous), 1e-6) * 100
 
@@ -236,12 +236,13 @@ def vol_regime_detect(pair: str, short_window: int = 20,
 
     Returns dict with regime, color, description, and supporting metrics.
     """
-    rv_hist = get_fx_realized_vol(pair, window=short_window, lookback=long_window + 50)
+    rv_hist = get_fx_realized_vol(pair, window=short_window, days=long_window + 50)
     if rv_hist is None or len(rv_hist) < long_window:
         rv_hist = _synth_rv_series(pair, long_window + 50)
 
-    rv_short = np.mean(rv_hist[-short_window:])
-    rv_long = np.mean(rv_hist[-long_window:])
+    rv_vals = rv_hist.values if hasattr(rv_hist, 'values') else np.array(rv_hist, dtype=float)
+    rv_short = np.mean(rv_vals[-short_window:])
+    rv_long = np.mean(rv_vals[-long_window:])
     ratio = rv_short / max(rv_long, 1e-6)
 
     # Current ATM IV
@@ -396,13 +397,17 @@ def iv_rv_spread(pair: str, tenor: str = "3M", rv_window: int = 20,
     if iv_hist is None or len(iv_hist) < 20:
         iv_hist = _synth_vol_history(pair, tenor, "ATM", lookback)
 
-    rv_hist = get_fx_realized_vol(pair, window=rv_window, lookback=lookback)
+    rv_hist = get_fx_realized_vol(pair, window=rv_window, days=lookback)
     if rv_hist is None or len(rv_hist) < 20:
         rv_hist = _synth_rv_series(pair, lookback)
 
-    n = min(len(iv_hist), len(rv_hist))
-    iv_arr = iv_hist[-n:]
-    rv_arr = rv_hist[-n:]
+    # Convert to numpy to avoid DatetimeIndex issues
+    iv_vals = iv_hist.values if hasattr(iv_hist, 'values') else np.array(iv_hist, dtype=float)
+    rv_vals = rv_hist.values if hasattr(rv_hist, 'values') else np.array(rv_hist, dtype=float)
+
+    n = min(len(iv_vals), len(rv_vals))
+    iv_arr = iv_vals[-n:].astype(float)
+    rv_arr = rv_vals[-n:].astype(float)
     spread = iv_arr - rv_arr
 
     df = pd.DataFrame({
@@ -790,7 +795,7 @@ def smile_implied_pdf(pair: str, tenor: str,
     pdf = np.maximum(pdf, 0)
 
     # Normalise to integrate to 1
-    total = np.trapz(pdf, strikes)
+    total = np.trapezoid(pdf, strikes) if hasattr(np, 'trapezoid') else np.trapz(pdf, strikes)
     if total > 0:
         pdf = pdf / total
 
@@ -1123,6 +1128,7 @@ def rv_scanner(pairs: List[str] = None,
     for p in pairs:
         for t in tenors:
             info = vol_zscore(p, t, "ATM", lookback)
+            pct_info = vol_percentile(p, t, "ATM", lookback)
             iv_rv = iv_rv_percentile(p, t, lookback=lookback)
 
             records.append({
@@ -1130,7 +1136,7 @@ def rv_scanner(pairs: List[str] = None,
                 "tenor": t,
                 "atm_vol": info["current"],
                 "zscore": info["zscore"],
-                "percentile": info["percentile"],
+                "percentile": pct_info["percentile"],
                 "iv_rv_spread": iv_rv["current_spread"],
                 "iv_rv_pct": iv_rv["percentile"],
                 "signal": info["interpretation"],

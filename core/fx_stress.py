@@ -549,7 +549,16 @@ def stress_single_position(position, spot, r_d, r_f, vol, scenario_name):
     """
     pair = position.get("pair", "EURUSD")
     K = position["strike"]
-    T = position["expiry"]
+    # Expiry can be a date string or float years — normalise to float
+    _exp = position["expiry"]
+    if isinstance(_exp, str):
+        from datetime import datetime
+        try:
+            T = max((datetime.strptime(_exp, "%Y-%m-%d") - datetime.now()).days / 365.0, 1e-6)
+        except ValueError:
+            T = 0.25  # fallback to 3M
+    else:
+        T = float(_exp) if _exp else 0.25
     cp = position.get("option_type", "call")
     notional = position.get("notional", 1_000_000)
 

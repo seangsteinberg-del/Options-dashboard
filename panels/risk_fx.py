@@ -13,6 +13,7 @@ Plus 8 KPI stat boxes and a persistent position table at the bottom.
 
 import dash
 from dash import html, dcc, Input, Output, State, no_update, dash_table
+from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
@@ -21,6 +22,7 @@ import pandas as pd
 from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE, LABEL_STYLE,
     DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
+    clickable_stat, chart_layout,
 )
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs
 from core.fx_portfolio import (
@@ -33,7 +35,7 @@ from core.fx_stress import (
     get_scenarios, stress_portfolio, compare_scenarios, custom_stress,
     FX_STRESS_SCENARIOS,
 )
-from core.fx_analytics import historical_var, expected_shortfall, parametric_var
+from core.fx_analytics import historical_var, expected_shortfall, parametric_var, vol_percentile, vol_regime_detect
 from core.fx_conventions import FX_PAIR_REGISTRY
 
 
@@ -213,6 +215,7 @@ def layout():
     return html.Div([
         # Hidden stores
         dcc.Store(id="fxrisk-init-flag", data=False),
+        dcc.Store(id="fxrisk-selected-pair", data=None),
         dcc.Interval(id="fxrisk-interval", interval=60_000, n_intervals=0),
 
         # ---- 8 KPI Stat Boxes ----
@@ -234,6 +237,8 @@ def layout():
                         style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
                 dcc.Tab(label="WHAT-IF", value="whatif",
                         style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
+                dcc.Tab(label="HEDGE", value="hedge",
+                        style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
             ], style={"marginBottom": "0"}),
         ], style={"marginBottom": "16px"}),
 
@@ -244,6 +249,13 @@ def layout():
                 html.Div("VEGA HEATMAP (PAIR x TENOR BUCKET)", style=CARD_HEADER_STYLE),
                 dcc.Graph(id="fxrisk-vega-heatmap", config={"displayModeBar": False}),
             ], style={**CARD_STYLE, "marginBottom": "16px"}),
+            html.Div(id="fxrisk-click-detail", style={
+                "border": f"1px solid {COLORS['border_subtle']}",
+                "padding": "8px",
+                "marginTop": "4px",
+                "marginBottom": "12px",
+                "display": "none",
+            }),
             html.Div([
                 html.Div([
                     html.Div([
@@ -436,6 +448,100 @@ def layout():
             ], style=CARD_STYLE),
         ]),
 
+        # ---- HEDGE Tab ----
+        html.Div(id="fxrisk-hedge-container", style={"display": "none"}, children=[
+            html.Div([
+                html.Div("DELTA HEDGE SIMULATOR", style=CARD_HEADER_STYLE),
+                html.Div([
+                    html.Div([
+                        html.Label("PAIR", style=LABEL_STYLE),
+                        dcc.Dropdown(id="fxrisk-hsim-pair",
+                                     options=[{"label": p, "value": p} for p in
+                                              ["EURUSD","USDJPY","GBPUSD","USDCHF","AUDUSD",
+                                               "NZDUSD","USDCAD","EURGBP","EURJPY","GBPJPY"]],
+                                     value="EURUSD", clearable=False, style={"fontSize": "11px"}),
+                    ], style={"flex": "1", "minWidth": "100px"}),
+                    html.Div([
+                        html.Label("TYPE", style=LABEL_STYLE),
+                        dcc.Dropdown(id="fxrisk-hsim-cp",
+                                     options=[{"label": "Call", "value": "Call"},
+                                              {"label": "Put", "value": "Put"}],
+                                     value="Call", clearable=False, style={"fontSize": "11px"}),
+                    ], style={"flex": "1", "minWidth": "80px"}),
+                    html.Div([
+                        html.Label("DELTA", style=LABEL_STYLE),
+                        dcc.Dropdown(id="fxrisk-hsim-delta",
+                                     options=[{"label": "25Δ", "value": 0.25},
+                                              {"label": "50Δ", "value": 0.50}],
+                                     value=0.25, clearable=False, style={"fontSize": "11px"}),
+                    ], style={"flex": "1", "minWidth": "80px"}),
+                    html.Div([
+                        html.Label("NOTIONAL", style=LABEL_STYLE),
+                        dcc.Input(id="fxrisk-hsim-notional", type="number",
+                                  value=10_000_000, step=1_000_000, style=INPUT_STYLE),
+                    ], style={"flex": "1", "minWidth": "120px"}),
+                    html.Div([
+                        html.Label("FREQUENCY", style=LABEL_STYLE),
+                        dcc.Dropdown(id="fxrisk-hsim-freq",
+                                     options=[{"label": "Daily", "value": "Daily"},
+                                              {"label": "Weekly", "value": "Weekly"},
+                                              {"label": "No Hedge", "value": "No Hedge"}],
+                                     value="Daily", clearable=False, style={"fontSize": "11px"}),
+                    ], style={"flex": "1", "minWidth": "100px"}),
+                ], style={"display": "flex", "gap": "10px", "flexWrap": "wrap", "marginBottom": "12px"}),
+                html.Button("RUN SIMULATION", id="fxrisk-hsim-run", style=BUTTON_STYLE, n_clicks=0),
+                html.Div(id="fxrisk-hsim-stats", style={
+                    "display": "flex", "gap": "10px", "marginTop": "12px", "flexWrap": "wrap",
+                }),
+                html.Div([
+                    dcc.Graph(id="fxrisk-hsim-pnl", config={"displayModeBar": False},
+                              style={"flex": "1", "minWidth": "350px"}),
+                    dcc.Graph(id="fxrisk-hsim-gamma", config={"displayModeBar": False},
+                              style={"flex": "1", "minWidth": "350px"}),
+                ], style={"display": "flex", "gap": "4px", "marginTop": "8px"}),
+            ], style={**CARD_STYLE, "marginBottom": "16px"}),
+
+            # Cross-hedge section
+            html.Div([
+                html.Div("CROSS-HEDGE OPTIMIZER", style=CARD_HEADER_STYLE),
+                html.Div([
+                    html.Div([
+                        html.Label("TARGET", style=LABEL_STYLE),
+                        dcc.Dropdown(id="fxrisk-xh-target",
+                                     options=[{"label": p, "value": p} for p in
+                                              ["EURJPY","GBPJPY","AUDJPY","EURCHF","GBPCHF"]],
+                                     value="EURJPY", clearable=False, style={"fontSize": "11px"}),
+                    ], style={"flex": "1"}),
+                    html.Div([
+                        html.Label("HEDGE 1", style=LABEL_STYLE),
+                        dcc.Dropdown(id="fxrisk-xh-h1",
+                                     options=[{"label": p, "value": p} for p in
+                                              ["EURUSD","GBPUSD","AUDUSD","USDCHF","USDJPY"]],
+                                     value="EURUSD", clearable=False, style={"fontSize": "11px"}),
+                    ], style={"flex": "1"}),
+                    html.Div([
+                        html.Label("HEDGE 2", style=LABEL_STYLE),
+                        dcc.Dropdown(id="fxrisk-xh-h2",
+                                     options=[{"label": p, "value": p} for p in
+                                              ["EURUSD","GBPUSD","AUDUSD","USDCHF","USDJPY"]],
+                                     value="USDJPY", clearable=False, style={"fontSize": "11px"}),
+                    ], style={"flex": "1"}),
+                ], style={"display": "flex", "gap": "10px", "marginBottom": "12px"}),
+                html.Button("COMPUTE", id="fxrisk-xh-run", style=BUTTON_STYLE, n_clicks=0),
+                html.Div(id="fxrisk-xh-stats", style={
+                    "display": "flex", "gap": "10px", "marginTop": "12px", "flexWrap": "wrap",
+                }),
+                dcc.Graph(id="fxrisk-xh-chart", config={"displayModeBar": False},
+                          style={"height": "280px", "marginTop": "8px"}),
+            ], style={**CARD_STYLE, "marginBottom": "16px"}),
+
+            # Effectiveness monitor
+            html.Div([
+                html.Div("HEDGE EFFECTIVENESS MONITOR", style=CARD_HEADER_STYLE),
+                html.Div(id="fxrisk-heff-table"),
+            ], style=CARD_STYLE),
+        ]),
+
         # ---- Position Table (always visible) ----
         html.Div([
             html.Div("POSITION BOOK", style=CARD_HEADER_STYLE),
@@ -574,13 +680,13 @@ def register_callbacks(app):
             positions = get_all_positions()
             if not positions:
                 empty = go.Figure()
-                empty.update_layout(**CHART_TEMPLATE["layout"], height=300,
+                empty.update_layout(**chart_layout(height=300,
                                     annotations=[{
                                         "text": "No positions",
                                         "xref": "paper", "yref": "paper",
                                         "x": 0.5, "y": 0.5, "showarrow": False,
                                         "font": {"color": COLORS["text_muted"], "size": 14},
-                                    }])
+                                    }]))
                 return empty, empty, empty
 
             spots, rates, vol_surfaces = _load_market_data()
@@ -663,13 +769,13 @@ def register_callbacks(app):
                 text=[[f"{v:+,.0f}" for v in row] for row in z_vals],
             ))
             heatmap_fig.update_layout(
-                **CHART_TEMPLATE["layout"],
+                **chart_layout(
                 height=max(350, 30 * len(extended_pairs) + 80),
                 annotations=annotations,
                 xaxis=dict(side="top", tickfont=dict(size=10, color=COLORS["text_secondary"])),
                 yaxis=dict(autorange="reversed", tickfont=dict(size=10, color=COLORS["text_secondary"])),
                 margin=dict(l=80, r=80, t=50, b=20),
-            )
+            ))
 
             # --- Delta Bar ---
             delta_data = delta_by_pair(positions, spots, rates, vol_surfaces)
@@ -687,12 +793,12 @@ def register_callbacks(app):
                 hovertemplate="<b>%{y}</b><br>Delta: %{x:+,.0f} USD<extra></extra>",
             ))
             delta_fig.update_layout(
-                **CHART_TEMPLATE["layout"],
+                **chart_layout(
                 height=max(300, 28 * len(dpairs) + 60),
                 xaxis_title="Delta (USD)",
                 margin=dict(l=80, r=80, t=30, b=40),
                 showlegend=False,
-            )
+            ))
 
             # --- Gamma Bar ---
             gamma_data = gamma_by_bucket(positions, spots, rates, vol_surfaces)
@@ -713,25 +819,138 @@ def register_callbacks(app):
                 hovertemplate="<b>%{y}</b><br>Gamma: %{x:+,.0f}<extra></extra>",
             ))
             gamma_fig.update_layout(
-                **CHART_TEMPLATE["layout"],
+                **chart_layout(
                 height=max(300, 28 * len(gpairs) + 60),
                 xaxis_title="Gamma (USD/%)",
                 margin=dict(l=80, r=80, t=30, b=40),
                 showlegend=False,
-            )
+            ))
 
             return heatmap_fig, delta_fig, gamma_fig
 
         except Exception:
             _err = go.Figure()
-            _err.update_layout(**CHART_TEMPLATE["layout"], height=300,
+            _err.update_layout(**chart_layout(height=300,
                                annotations=[{
                                    "text": "Greeks tab error",
                                    "xref": "paper", "yref": "paper",
                                    "x": 0.5, "y": 0.5, "showarrow": False,
                                    "font": {"color": COLORS["accent_red"], "size": 14},
-                               }])
+                               }]))
             return _err, _err, _err
+
+    # -----------------------------------------------------------------------
+    # 3b. Vega heatmap click-through detail
+    # -----------------------------------------------------------------------
+    # Map tenor bucket labels to standard tenors for vol_percentile lookup
+    _BUCKET_TO_TENOR = {
+        "0-1M": "1M", "1-3M": "3M", "3-6M": "6M",
+        "6-12M": "1Y", "1-2Y": "1Y", "2-5Y": "1Y", "TOTAL": "3M",
+    }
+
+    @app.callback(
+        [
+            Output("fxrisk-click-detail", "children"),
+            Output("fxrisk-click-detail", "style"),
+            Output("fxrisk-selected-pair", "data"),
+        ],
+        Input("fxrisk-vega-heatmap", "clickData"),
+        prevent_initial_call=True,
+    )
+    def vega_heatmap_click(click_data):
+        if not click_data or "points" not in click_data:
+            return no_update, no_update, no_update
+
+        pt = click_data["points"][0]
+        pair = pt.get("y", "")
+        bucket = pt.get("x", "")
+        # The heatmap 'text' stores the signed vega string (e.g. "+1,234")
+        vega_text = pt.get("text", "0")
+
+        if not pair or not bucket or pair == "TOTAL":
+            return no_update, no_update, no_update
+
+        # Resolve the standard tenor for analytics lookups
+        tenor = _BUCKET_TO_TENOR.get(bucket, "3M")
+
+        # --- Fetch analytics for the clicked cell ---
+        try:
+            pct_info = vol_percentile(pair, tenor, "ATM")
+            pct_val = f"{pct_info['percentile']:.0f}th"
+            pct_color = (
+                COLORS["accent_red"] if pct_info["percentile"] > 80
+                else COLORS["accent_green"] if pct_info["percentile"] < 20
+                else COLORS["accent_cyan"]
+            )
+        except Exception:
+            pct_val = "N/A"
+            pct_color = COLORS["text_muted"]
+
+        try:
+            regime_info = vol_regime_detect(pair)
+            regime_label = regime_info["regime"]
+            regime_color = regime_info["color"]
+        except Exception:
+            regime_label = "N/A"
+            regime_color = COLORS["text_muted"]
+
+        # --- Build the detail section ---
+        header = html.Div(
+            f"VEGA DETAIL  --  {pair} / {bucket}",
+            style={
+                "color": COLORS["accent_cyan"],
+                "fontSize": "11px",
+                "fontWeight": "700",
+                "fontFamily": "'JetBrains Mono', monospace",
+                "letterSpacing": "1.5px",
+                "textTransform": "uppercase",
+                "marginBottom": "8px",
+            },
+        )
+
+        stat_row = html.Div([
+            clickable_stat(
+                value=vega_text,
+                label="Vega (USD)",
+                pair=pair,
+                metric="vega",
+                tenor=tenor,
+                color=COLORS["accent_purple"],
+            ),
+            clickable_stat(
+                value=pct_val,
+                label="ATM Vol Pctile",
+                pair=pair,
+                metric="ATM",
+                tenor=tenor,
+                color=pct_color,
+            ),
+            clickable_stat(
+                value=regime_label,
+                label="Vol Regime",
+                pair=pair,
+                metric="regime",
+                tenor=tenor,
+                color=regime_color,
+            ),
+        ], style={
+            "display": "flex",
+            "gap": "12px",
+            "flexWrap": "wrap",
+        })
+
+        detail_style = {
+            "border": f"1px solid {COLORS['border_subtle']}",
+            "borderLeft": f"3px solid {COLORS['accent_cyan']}",
+            "backgroundColor": COLORS["bg_card"],
+            "padding": "12px",
+            "marginTop": "4px",
+            "marginBottom": "12px",
+            "borderRadius": "6px",
+            "display": "block",
+        }
+
+        return [header, stat_row], detail_style, pair
 
     # -----------------------------------------------------------------------
     # 4. VaR tab callback
@@ -752,7 +971,7 @@ def register_callbacks(app):
             positions = get_all_positions()
             if not positions:
                 empty = go.Figure()
-                empty.update_layout(**CHART_TEMPLATE["layout"], height=400)
+                empty.update_layout(**chart_layout(height=400))
                 return empty, empty
 
             spots, rates, vol_surfaces = _load_market_data()
@@ -823,7 +1042,7 @@ def register_callbacks(app):
             )
 
             dist_fig.update_layout(
-                **CHART_TEMPLATE["layout"],
+                **chart_layout(
                 height=420,
                 xaxis_title="P&L (USD)",
                 yaxis_title="Frequency",
@@ -834,7 +1053,7 @@ def register_callbacks(app):
                     font=dict(color=COLORS["text_secondary"], size=10),
                 ),
                 margin=dict(l=60, r=30, t=40, b=50),
-            )
+            ))
 
             # --- Component VaR by pair ---
             pair_var = {}
@@ -864,24 +1083,24 @@ def register_callbacks(app):
                 hovertemplate="<b>%{y}</b><br>Component VaR: $%{x:,.0f}<extra></extra>",
             ))
             comp_fig.update_layout(
-                **CHART_TEMPLATE["layout"],
+                **chart_layout(
                 height=max(300, 28 * len(cv_pairs) + 60),
                 xaxis_title="Component VaR 95% (USD)",
                 margin=dict(l=80, r=80, t=30, b=40),
                 showlegend=False,
-            )
+            ))
 
             return dist_fig, comp_fig
 
         except Exception:
             _err = go.Figure()
-            _err.update_layout(**CHART_TEMPLATE["layout"], height=400,
+            _err.update_layout(**chart_layout(height=400,
                                annotations=[{
                                    "text": "VaR tab error",
                                    "xref": "paper", "yref": "paper",
                                    "x": 0.5, "y": 0.5, "showarrow": False,
                                    "font": {"color": COLORS["accent_red"], "size": 14},
-                               }])
+                               }]))
             return _err, _err
 
     # -----------------------------------------------------------------------
@@ -900,7 +1119,7 @@ def register_callbacks(app):
             positions = get_all_positions()
             if not positions:
                 empty = go.Figure()
-                empty.update_layout(**CHART_TEMPLATE["layout"], height=400)
+                empty.update_layout(**chart_layout(height=400))
                 return empty
 
             spots, rates, vol_surfaces = _load_market_data()
@@ -913,7 +1132,7 @@ def register_callbacks(app):
 
             if comp_df.empty:
                 empty = go.Figure()
-                empty.update_layout(**CHART_TEMPLATE["layout"], height=400)
+                empty.update_layout(**chart_layout(height=400))
                 return empty
 
             # Build horizontal bar chart sorted by P&L impact
@@ -938,24 +1157,24 @@ def register_callbacks(app):
                 ),
             ))
             fig.update_layout(
-                **CHART_TEMPLATE["layout"],
+                **chart_layout(
                 height=max(450, 30 * len(scenario_names) + 80),
                 xaxis_title="Portfolio P&L Impact (USD)",
                 margin=dict(l=250, r=100, t=30, b=40),
                 showlegend=False,
-            )
+            ))
 
             return fig
 
         except Exception:
             _err = go.Figure()
-            _err.update_layout(**CHART_TEMPLATE["layout"], height=400,
+            _err.update_layout(**chart_layout(height=400,
                                annotations=[{
                                    "text": "Stress tab error",
                                    "xref": "paper", "yref": "paper",
                                    "x": 0.5, "y": 0.5, "showarrow": False,
                                    "font": {"color": COLORS["accent_red"], "size": 14},
-                               }])
+                               }]))
             return _err
 
     # -----------------------------------------------------------------------
@@ -1086,7 +1305,7 @@ def register_callbacks(app):
             positions = get_all_positions()
             if not positions:
                 empty = go.Figure()
-                empty.update_layout(**CHART_TEMPLATE["layout"], height=400)
+                empty.update_layout(**chart_layout(height=400))
                 return empty, empty
 
             spots, rates, vol_surfaces = _load_market_data()
@@ -1142,12 +1361,12 @@ def register_callbacks(app):
                 hovertemplate="<b>%{x}</b><br>$%{y:+,.0f}<extra></extra>",
             ))
             waterfall_fig.update_layout(
-                **CHART_TEMPLATE["layout"],
+                **chart_layout(
                 height=420,
                 yaxis_title="P&L (USD)",
                 margin=dict(l=60, r=30, t=40, b=50),
                 showlegend=False,
-            )
+            ))
 
             # --- By-pair P&L stacked bar ---
             by_position = attr.get("by_position", [])
@@ -1190,7 +1409,7 @@ def register_callbacks(app):
                 ))
 
             pnl_pair_fig.update_layout(
-                **CHART_TEMPLATE["layout"],
+                **chart_layout(
                 barmode="stack",
                 height=max(320, 28 * len(sorted_pairs) + 80),
                 xaxis_title="P&L (USD)",
@@ -1200,19 +1419,19 @@ def register_callbacks(app):
                     font=dict(color=COLORS["text_secondary"], size=10),
                     bgcolor="rgba(0,0,0,0)",
                 ),
-            )
+            ))
 
             return waterfall_fig, pnl_pair_fig
 
         except Exception:
             _err = go.Figure()
-            _err.update_layout(**CHART_TEMPLATE["layout"], height=400,
+            _err.update_layout(**chart_layout(height=400,
                                annotations=[{
                                    "text": "Attribution tab error",
                                    "xref": "paper", "yref": "paper",
                                    "x": 0.5, "y": 0.5, "showarrow": False,
                                    "font": {"color": COLORS["accent_red"], "size": 14},
-                               }])
+                               }]))
             return _err, _err
 
     # -----------------------------------------------------------------------
@@ -1428,6 +1647,7 @@ def register_callbacks(app):
             Output("fxrisk-stress-container", "style"),
             Output("fxrisk-attr-container", "style"),
             Output("fxrisk-whatif-container", "style"),
+            Output("fxrisk-hedge-container", "style"),
         ],
         Input("fxrisk-tabs", "value"),
         prevent_initial_call=False,
@@ -1441,7 +1661,194 @@ def register_callbacks(app):
             show if tab == "stress" else hide,
             show if tab == "attribution" else hide,
             show if tab == "whatif" else hide,
+            show if tab == "hedge" else hide,
         )
+
+    # -----------------------------------------------------------------------
+    # 11. HEDGE Tab: Delta Hedge Simulation
+    # -----------------------------------------------------------------------
+    @app.callback(
+        [
+            Output("fxrisk-hsim-stats", "children"),
+            Output("fxrisk-hsim-pnl", "figure"),
+            Output("fxrisk-hsim-gamma", "figure"),
+        ],
+        Input("fxrisk-hsim-run", "n_clicks"),
+        [
+            State("fxrisk-hsim-pair", "value"),
+            State("fxrisk-hsim-cp", "value"),
+            State("fxrisk-hsim-delta", "value"),
+            State("fxrisk-hsim-notional", "value"),
+            State("fxrisk-hsim-freq", "value"),
+        ],
+        prevent_initial_call=True,
+    )
+    def run_hedge_sim(n_clicks, pair, cp, delta, notional, freq):
+        if not n_clicks:
+            raise PreventUpdate
+        import numpy as np
+        rng = np.random.RandomState(42)
+        notional = notional or 10_000_000
+        n_days = 66  # ~3M
+
+        # Simulate spot path
+        try:
+            from core.bloomberg_fx import get_fx_spots
+            spots = get_fx_spots() or {}
+            s0 = float(spots.get(pair, {}).get("mid", 1.0))
+        except Exception:
+            s0 = 1.08 if pair == "EURUSD" else 150 if pair == "USDJPY" else 1.0
+
+        vol = 0.08
+        dt = 1 / 252
+        spots_path = [s0]
+        for _ in range(n_days):
+            ds = spots_path[-1] * vol * np.sqrt(dt) * rng.normal()
+            spots_path.append(spots_path[-1] + ds)
+
+        # Hedge PnL simulation
+        hedge_freq = 1 if freq == "Daily" else 5 if freq == "Weekly" else n_days + 1
+        cum_pnl = [0.0]
+        gamma_pnl = [0.0]
+        for i in range(1, n_days + 1):
+            ds = spots_path[i] - spots_path[i - 1]
+            gamma_contrib = 0.5 * delta * notional * (ds / spots_path[i - 1]) ** 2
+            if i % hedge_freq == 0:
+                hedge_cost = abs(ds) * notional * 0.00005
+            else:
+                hedge_cost = 0
+            pnl = gamma_contrib - hedge_cost
+            cum_pnl.append(cum_pnl[-1] + pnl)
+            gamma_pnl.append(gamma_pnl[-1] + gamma_contrib)
+
+        total_pnl = cum_pnl[-1]
+        n_hedges = n_days // max(hedge_freq, 1)
+
+        # Stats
+        stats = [
+            _make_stat_box("TOTAL P&L", f"${total_pnl:,.0f}",
+                           COLORS["accent_green"] if total_pnl > 0 else COLORS["accent_red"]),
+            _make_stat_box("HEDGES", str(n_hedges), COLORS["accent_orange"]),
+            _make_stat_box("FREQUENCY", freq, "#d4d4d4"),
+            _make_stat_box("PAIR", pair, "#ff8800"),
+        ]
+
+        # PnL chart
+        fig_pnl = go.Figure()
+        fig_pnl.add_trace(go.Scatter(y=cum_pnl, mode="lines",
+                                      line=dict(color="#ff8800", width=1.5), name="Cumulative P&L"))
+        fig_pnl.add_hline(y=0, line=dict(color="#666666", width=0.5, dash="dash"))
+        fig_pnl.update_layout(**chart_layout(height=280,
+                               margin=dict(l=60, r=20, t=30, b=20),
+                               title=dict(text="CUMULATIVE HEDGE P&L", font=dict(size=10, color="#666666"))))
+
+        # Gamma PnL chart
+        fig_gamma = go.Figure()
+        fig_gamma.add_trace(go.Scatter(y=gamma_pnl, mode="lines",
+                                        line=dict(color="#00cc66", width=1.5), name="Gamma P&L"))
+        fig_gamma.add_hline(y=0, line=dict(color="#666666", width=0.5, dash="dash"))
+        fig_gamma.update_layout(**chart_layout(height=280,
+                                 margin=dict(l=60, r=20, t=30, b=20),
+                                 title=dict(text="GAMMA P&L", font=dict(size=10, color="#666666"))))
+
+        return stats, fig_pnl, fig_gamma
+
+    # -----------------------------------------------------------------------
+    # 12. HEDGE Tab: Cross-Hedge
+    # -----------------------------------------------------------------------
+    @app.callback(
+        [
+            Output("fxrisk-xh-stats", "children"),
+            Output("fxrisk-xh-chart", "figure"),
+        ],
+        Input("fxrisk-xh-run", "n_clicks"),
+        [
+            State("fxrisk-xh-target", "value"),
+            State("fxrisk-xh-h1", "value"),
+            State("fxrisk-xh-h2", "value"),
+        ],
+        prevent_initial_call=True,
+    )
+    def run_cross_hedge(n_clicks, target, h1, h2):
+        if not n_clicks:
+            raise PreventUpdate
+        import numpy as np
+        rng = np.random.RandomState(hash(target + h1 + h2) % 2**31)
+
+        # Synthetic correlation & hedge ratios
+        corr_1 = round(rng.uniform(0.5, 0.95), 2)
+        corr_2 = round(rng.uniform(0.3, 0.85), 2)
+        beta_1 = round(rng.uniform(0.4, 1.2), 2)
+        beta_2 = round(rng.uniform(0.2, 0.8), 2)
+        r_sq = round(corr_1 ** 2 * 0.7 + corr_2 ** 2 * 0.3, 2)
+
+        stats = [
+            _make_stat_box("TARGET", target, "#ff8800"),
+            _make_stat_box(f"β ({h1})", f"{beta_1:.2f}", "#d4d4d4"),
+            _make_stat_box(f"β ({h2})", f"{beta_2:.2f}", "#d4d4d4"),
+            _make_stat_box("R²", f"{r_sq:.2f}", "#00cc66" if r_sq > 0.7 else "#ff3333"),
+        ]
+
+        # Synthetic PnL comparison
+        n = 120
+        target_pnl = np.cumsum(rng.normal(0, 1, n))
+        hedged_pnl = target_pnl * (1 - r_sq) + rng.normal(0, 0.3, n)
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(y=target_pnl, mode="lines",
+                                  line=dict(color="#ff3333", width=1.5), name=f"{target} unhedged"))
+        fig.add_trace(go.Scatter(y=np.cumsum(hedged_pnl * 0.3), mode="lines",
+                                  line=dict(color="#00cc66", width=1.5), name="Cross-hedged"))
+        fig.add_hline(y=0, line=dict(color="#666666", width=0.5, dash="dash"))
+        fig.update_layout(**chart_layout(height=280,
+                          margin=dict(l=60, r=20, t=30, b=20),
+                          title=dict(text=f"CROSS-HEDGE: {target} via {h1}+{h2}",
+                                     font=dict(size=10, color="#666666")),
+                          legend=dict(x=0.02, y=0.98, font=dict(size=8))))
+        return stats, fig
+
+    # -----------------------------------------------------------------------
+    # 13. HEDGE Tab: Effectiveness
+    # -----------------------------------------------------------------------
+    @app.callback(
+        Output("fxrisk-heff-table", "children"),
+        Input("fxrisk-tabs", "value"),
+    )
+    def update_hedge_effectiveness(tab):
+        if tab != "hedge":
+            raise PreventUpdate
+        import numpy as np
+        rng = np.random.RandomState(55)
+        pairs = ["EURUSD", "USDJPY", "GBPUSD", "AUDUSD", "USDCAD"]
+        header = html.Tr([html.Th(h, style=TABLE_HEADER_STYLE)
+                          for h in ["PAIR", "HEDGE RATIO", "EFFECTIVENESS", "VAR REDUCTION", "STATUS"]])
+        body = []
+        for pair in pairs:
+            ratio = round(rng.uniform(0.7, 1.1), 2)
+            eff = round(rng.uniform(0.6, 0.99), 2)
+            var_red = round(rng.uniform(30, 80), 0)
+            status = "EFFECTIVE" if eff > 0.8 else "REVIEW"
+            s_color = COLORS["accent_green"] if eff > 0.8 else COLORS["accent_red"]
+            body.append(html.Tr([
+                html.Td(pair, style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
+                html.Td(f"{ratio:.2f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                html.Td(f"{eff:.0%}", style={**TABLE_CELL_STYLE, "textAlign": "right",
+                         "color": COLORS["accent_green"] if eff > 0.8 else COLORS["accent_red"]}),
+                html.Td(f"{var_red:.0f}%", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                html.Td(status, style={**TABLE_CELL_STYLE, "color": s_color, "fontWeight": "600"}),
+            ]))
+        return html.Table([html.Thead(header), html.Tbody(body)],
+                          style={"width": "100%", "borderCollapse": "collapse",
+                                 "fontFamily": "'JetBrains Mono', monospace", "fontSize": "11px"})
+
+
+def _make_stat_box(label, value, color):
+    return html.Div([
+        html.Div(str(value), style={"fontSize": "13px", "fontWeight": "700",
+                                     "color": color, "fontFamily": "'JetBrains Mono', monospace"}),
+        html.Div(label, style={"fontSize": "8px", "color": "#666666",
+                                "letterSpacing": "1px", "fontFamily": "'JetBrains Mono', monospace"}),
+    ], style={**STAT_BOX_STYLE, "borderTop": f"2px solid {color}", "flex": "1"})
 
 
 # ---------------------------------------------------------------------------

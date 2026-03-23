@@ -18,8 +18,9 @@ import numpy as np
 from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
-    make_stat_style,
+    make_stat_style, clickable_stat,
 )
+from core.fx_analytics import vol_percentile
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs
 from core.fx_conventions import (
     tenor_to_years, years_to_nearest_tenor, delta_to_strike, atm_dns_strike, bf_rr_to_smile,
@@ -436,11 +437,11 @@ def _compute_aggregates(processed_legs, S, T, r_d, r_f, notional, pip_size):
     mu_T = (r_d - r_f - 0.5 * atm_vol ** 2) * T
     log_spots = np.log(spot_range / S)
     pdf_vals = np.exp(-0.5 * ((log_spots - mu_T) / sigma_T) ** 2) / (sigma_T * np.sqrt(2 * np.pi) * spot_range)
-    total_area = np.trapz(pdf_vals, spot_range)
+    total_area = np.trapezoid(pdf_vals, spot_range)
     if total_area > 0:
         pdf_vals /= total_area
     profitable_mask = expiry_pnl > 0
-    pop = float(np.trapz(pdf_vals * profitable_mask, spot_range) * 100.0)
+    pop = float(np.trapezoid(pdf_vals * profitable_mask, spot_range) * 100.0)
     pop = max(0.0, min(100.0, pop))
 
     return {
@@ -1127,6 +1128,13 @@ def layout():
                               "padding": "12px"}, className="dashboard-card"),
                 ], style={"display": "flex", "gap": "12px", "flexWrap": "wrap"}),
 
+                # Historical cost context
+                html.Div(id="stb-historical-cost", style={
+                    "border": f"1px solid {COLORS['border_subtle']}",
+                    "padding": "8px",
+                    "marginTop": "4px",
+                }),
+
             ], style={"flex": "1", "minWidth": "0"}),
 
         ], style={"display": "flex", "gap": "16px", "alignItems": "flex-start"}),
@@ -1338,3 +1346,89 @@ def register_callbacks(app):
         return ([stats, payoff_fig, greeks_fig, heatmap_fig, surface_fig,
                  premium_table, scenario_fig]
                 + strike_disps + vol_disps + prem_disps)
+
+    # -- Historical cost context callback --
+    @app.callback(
+        Output("stb-historical-cost", "children"),
+        [Input("stb-pair", "value"),
+         Input("stb-tenor", "value"),
+         Input("stb-stats-row", "children")],
+    )
+    def update_historical_cost(pair, tenor, _stats_trigger):
+        """
+        Show where the current structure premium sits vs its 252-day range.
+        Uses ATM vol percentile of the primary pair/tenor as a proxy for
+        structure cost percentile.
+        """
+        pair = pair or "EURUSD"
+        tenor = tenor or "1M"
+
+        try:
+            vp = vol_percentile(pair, tenor, "ATM", 252)
+        except Exception:
+            return html.Div(
+                "Historical cost data unavailable",
+                style={"color": COLORS["text_muted"], "fontSize": "11px",
+                       "fontStyle": "italic", "padding": "6px"},
+            )
+
+        pct = vp["percentile"]
+        current = vp["current"]
+        vol_min = vp["min"]
+        vol_max = vp["max"]
+        vol_mean = vp["mean"]
+
+        # Determine colour based on percentile (cheap = green, expensive = red)
+        if pct <= 25:
+            pct_color = COLORS["accent_green"]
+            pct_label = "CHEAP"
+        elif pct <= 50:
+            pct_color = COLORS["accent_cyan"]
+            pct_label = "BELOW AVG"
+        elif pct <= 75:
+            pct_color = COLORS["accent_orange"]
+            pct_label = "ABOVE AVG"
+        else:
+            pct_color = COLORS["accent_red"]
+            pct_label = "EXPENSIVE"
+
+        header = html.Div("HISTORICAL COST CONTEXT", style={
+            "color": COLORS["text_primary"],
+            "fontSize": "11px",
+            "fontWeight": "700",
+            "fontFamily": "'JetBrains Mono', monospace",
+            "marginBottom": "8px",
+            "letterSpacing": "1.5px",
+            "textTransform": "uppercase",
+        })
+
+        subtitle = html.Div(
+            f"Current premium sits at the {pct:.0f}th percentile of its "
+            f"252-day range  ({pct_label})",
+            style={
+                "color": pct_color,
+                "fontSize": "11px",
+                "fontWeight": "600",
+                "fontFamily": "'JetBrains Mono', monospace",
+                "marginBottom": "10px",
+            },
+        )
+
+        stat_row = html.Div([
+            clickable_stat(f"{current:.2f}", "CURRENT ATM VOL",
+                           pair, "ATM", tenor, color=COLORS["accent_cyan"]),
+            clickable_stat(f"{pct:.0f}th", "PERCENTILE",
+                           pair, "ATM", tenor, color=pct_color),
+            clickable_stat(f"{vol_min:.2f}", "252D MIN",
+                           pair, "ATM", tenor, color=COLORS["accent_green"]),
+            clickable_stat(f"{vol_max:.2f}", "252D MAX",
+                           pair, "ATM", tenor, color=COLORS["accent_red"]),
+            clickable_stat(f"{vol_mean:.2f}", "252D MEAN",
+                           pair, "ATM", tenor, color=COLORS["accent_blue"]),
+        ], style={
+            "display": "flex",
+            "gap": "8px",
+            "flexWrap": "wrap",
+        })
+
+        return html.Div([header, subtitle, stat_row])

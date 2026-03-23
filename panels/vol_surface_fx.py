@@ -20,8 +20,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from core.theme import (
-    COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
+    COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE, AXIS_DEFAULTS,
     make_stat_style, TAB_STYLE, LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE,
+    clickable_stat,
 )
 from core.bloomberg_fx import (
     get_fx_vol_surface, get_fx_spots, get_fx_rates,
@@ -243,8 +244,8 @@ def _apply_chart_template(fig, title=""):
         hoverlabel=tpl["hoverlabel"],
         legend=dict(font=dict(color=COLORS["text_secondary"], size=10),
                     bgcolor="rgba(0,0,0,0)"),
-        xaxis=tpl.get("xaxis", {}),
-        yaxis=tpl.get("yaxis", {}),
+        xaxis=AXIS_DEFAULTS,
+        yaxis=AXIS_DEFAULTS,
     )
     return fig
 
@@ -431,7 +432,7 @@ def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
                     title="Forward Vol (%)", overlaying="y", side="right",
                     gridcolor="rgba(30,42,69,0.3)",
                     tickfont=dict(size=10, color=COLORS["accent_orange"]),
-                    titlefont=dict(color=COLORS["accent_orange"], size=11),
+                    title_font=dict(color=COLORS["accent_orange"], size=11),
                 ),
             )
     except Exception:
@@ -824,7 +825,7 @@ def chart_iv_rv(pair, sd, spot, r_dom, r_for, **kw):
             title="Spread (vol pts)", overlaying="y", side="right",
             gridcolor="rgba(30,42,69,0.15)",
             tickfont=dict(size=9, color=COLORS["text_muted"]),
-            titlefont=dict(color=COLORS["text_muted"], size=10),
+            title_font=dict(color=COLORS["text_muted"], size=10),
         ),
     )
 
@@ -1160,6 +1161,7 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
 
     # -- Build boxes with proper formatting --
     def _box(label, value_str, color):
+        """Plain stat box for values without a vol-history context."""
         return html.Div([
             html.Div(value_str, style={
                 "fontFamily": "'JetBrains Mono', monospace",
@@ -1174,6 +1176,12 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
             }),
         ], style={**make_stat_style(color), "flex": "1", "minWidth": "110px"})
 
+    def _cbox(label, value_str, pair, metric, tenor, color):
+        """Clickable stat box -- wraps clickable_stat() so each KPI opens
+        its 252-day history via the universal metric popup."""
+        inner = clickable_stat(value_str, label, pair, metric, tenor, color)
+        return html.Div(inner, style={"flex": "1", "minWidth": "110px"})
+
     # Vol change direction coloring: green = vol cheaper (down), red = vol richer (up)
     delta_color = COLORS["accent_green"] if atm_1m_delta < 0 else COLORS["accent_red"]
     delta_arrow = "\u25bc" if atm_1m_delta < 0 else ("\u25b2" if atm_1m_delta > 0 else "\u25ac")
@@ -1182,13 +1190,13 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
     boxes = [
         _box("SPOT", _fmt_spot(spot, pair), COLORS["text_primary"]),
         _box("FWD 1M", _fmt_spot(fwd_1m, pair), COLORS["accent_blue"]),
-        _box("ATM 1M", f"{_fmt_vol(atm_1m)} ({delta_str})", COLORS["accent_cyan"]),
-        _box("ATM 1Y", _fmt_vol(atm_1y), COLORS["accent_purple"]),
-        _box("25D RR 3M", f"{rr_3m:+.2f}v ({_fmt_pctile(rr_pctile)})", COLORS["accent_orange"]),
-        _box("25D BF 3M", _fmt_vol(bf_3m), COLORS["accent_pink"]),
-        _box("IV-RV SPREAD", f"{iv_rv_spr:+.2f}v", delta_color),
+        _cbox("ATM 1M", f"{_fmt_vol(atm_1m)} ({delta_str})", pair, "ATM", "1M", COLORS["accent_cyan"]),
+        _cbox("ATM 1Y", _fmt_vol(atm_1y), pair, "ATM", "1Y", COLORS["accent_purple"]),
+        _cbox("25D RR 3M", f"{rr_3m:+.2f}v ({_fmt_pctile(rr_pctile)})", pair, "25D_RR", "3M", COLORS["accent_orange"]),
+        _cbox("25D BF 3M", _fmt_vol(bf_3m), pair, "25D_BF", "3M", COLORS["accent_pink"]),
+        _cbox("IV-RV SPREAD", f"{iv_rv_spr:+.2f}v", pair, "IV_RV", "3M", delta_color),
         _box("TERM 1Y-1M", f"{term_spr:+.2f}v", COLORS["accent_teal"]),
-        _box("SKEW %ILE", _fmt_pctile(skew_pctile), COLORS["accent_indigo"]),
+        _cbox("SKEW %ILE", _fmt_pctile(skew_pctile), pair, "25D_RR", "3M", COLORS["accent_indigo"]),
         # Regime badge with colored background indicator
         html.Div([
             html.Div(regime_text, style={

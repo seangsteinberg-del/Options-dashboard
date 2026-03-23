@@ -20,7 +20,7 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
     CARD_HEADER_STYLE, TABLE_HEADER_STYLE, TABLE_CELL_STYLE,
-    make_stat_style,
+    make_stat_style, chart_layout,
 )
 from core.bloomberg_fx import (
     get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs,
@@ -849,13 +849,13 @@ def _build_equity_curve(results):
     )
 
     fig.update_layout(
-        **CHART_TEMPLATE["layout"],
+        **chart_layout(
         title=dict(text="EQUITY CURVE", font=dict(size=13, color=COLORS["text_primary"])),
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
                     font=dict(size=9, color=COLORS["text_secondary"])),
         margin=dict(l=50, r=20, t=45, b=30),
-    )
+    ))
     fig.update_yaxes(title_text="Cumulative P&L", secondary_y=False,
                      gridcolor="rgba(30,42,69,0.5)", tickfont=dict(size=9))
     fig.update_yaxes(title_text="Drawdown", secondary_y=True,
@@ -902,7 +902,7 @@ def _build_pnl_distribution(results):
                   annotation_font=dict(size=9, color=COLORS["accent_orange"]))
 
     fig.update_layout(
-        **CHART_TEMPLATE["layout"],
+        **chart_layout(
         title=dict(text="TRADE P&L DISTRIBUTION", font=dict(size=13, color=COLORS["text_primary"])),
         barmode="overlay",
         showlegend=True,
@@ -911,7 +911,7 @@ def _build_pnl_distribution(results):
         margin=dict(l=50, r=20, t=45, b=30),
         xaxis_title="P&L per Trade",
         yaxis_title="Count",
-    )
+    ))
 
     return fig
 
@@ -933,14 +933,14 @@ def _build_monthly_returns(results):
     ))
 
     fig.update_layout(
-        **CHART_TEMPLATE["layout"],
+        **chart_layout(
         title=dict(text="MONTHLY RETURNS", font=dict(size=13, color=COLORS["text_primary"])),
         showlegend=False,
         margin=dict(l=50, r=20, t=45, b=60),
         xaxis_title="Month",
         yaxis_title="P&L",
         xaxis=dict(tickangle=-45, tickfont=dict(size=8)),
-    )
+    ))
 
     return fig
 
@@ -973,13 +973,13 @@ def _build_regime_winrate(results):
                   annotation_font=dict(size=9, color=COLORS["text_muted"]))
 
     fig.update_layout(
-        **CHART_TEMPLATE["layout"],
+        **chart_layout(
         title=dict(text="WIN RATE BY VOL REGIME", font=dict(size=13, color=COLORS["text_primary"])),
         showlegend=False,
         margin=dict(l=50, r=20, t=45, b=30),
         yaxis_title="Win Rate (%)",
         yaxis=dict(range=[0, 110]),
-    )
+    ))
 
     return fig
 
@@ -1139,9 +1139,9 @@ def _empty_fig(message="Run backtest to see results"):
         font=dict(size=13, color=COLORS["text_muted"]),
     )
     fig.update_layout(
-        **CHART_TEMPLATE["layout"],
+        **chart_layout(
         margin=dict(l=20, r=20, t=30, b=20),
-    )
+    ))
     return fig
 
 
