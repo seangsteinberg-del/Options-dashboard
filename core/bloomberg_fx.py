@@ -580,22 +580,29 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
             fields = ["PX_BID", "PX_ASK", "PX_LAST", "CHG_NET_1D",
                        "CHG_PCT_1D", "PX_HIGH", "PX_LOW", "PX_OPEN", "VOLUME"]
             df = bdp(tickers, fields)
+            def _sf(v):
+                """Safe float — handles None from Bloomberg null fields."""
+                try:
+                    return float(v) if v is not None else 0.0
+                except (ValueError, TypeError):
+                    return 0.0
+
             result = {}
             missing = []
             for pair, ticker in zip(pairs, tickers):
                 if ticker in df.index:
                     row = df.loc[ticker]
-                    bid = float(row.get("PX_BID", 0))
-                    ask = float(row.get("PX_ASK", 0))
+                    bid = _sf(row.get("PX_BID"))
+                    ask = _sf(row.get("PX_ASK"))
                     result[pair] = {
                         "bid": bid, "ask": ask,
-                        "mid": round((bid + ask) / 2, 6),
-                        "change": float(row.get("CHG_NET_1D", 0)),
-                        "change_pct": float(row.get("CHG_PCT_1D", 0)),
-                        "high": float(row.get("PX_HIGH", 0)),
-                        "low": float(row.get("PX_LOW", 0)),
-                        "open": float(row.get("PX_OPEN", 0)),
-                        "volume_ind": float(row.get("VOLUME", 0)),
+                        "mid": round((bid + ask) / 2, 6) if (bid and ask) else _sf(row.get("PX_LAST")),
+                        "change": _sf(row.get("CHG_NET_1D")),
+                        "change_pct": _sf(row.get("CHG_PCT_1D")),
+                        "high": _sf(row.get("PX_HIGH")),
+                        "low": _sf(row.get("PX_LOW")),
+                        "open": _sf(row.get("PX_OPEN")),
+                        "volume_ind": _sf(row.get("VOLUME")),
                     }
                 else:
                     missing.append(pair)
@@ -742,7 +749,8 @@ def get_fx_rates(pair: str) -> dict:
         except Exception as e:
             logger.error(f"FX rates BBG request failed: {e}")
             _log_fetch_failure("get_fx_rates", pair, str(e))
-            return {"r_dom": 0.0, "r_for": 0.0, "rate_diff": 0.0}
+            # Return fallback rates so downstream calculations don't break
+            return _fallback_rates(pair)
 
     # SYNTHETIC mode only — Bloomberg not connected
     res = _fallback_rates(pair)
@@ -1159,13 +1167,15 @@ def _fallback_rates(pair: str) -> dict:
 def _fallback_rate_curve(ccy: str) -> Dict[str, float]:
     """Synthetic deposit rate curve for a currency."""
     # Find a pair that uses this currency to get a base rate
+    # FX convention: pair[:3] = base/foreign ccy → rate is r_for
+    #                pair[3:] = quote/domestic ccy → rate is r_dom
     base_rate = 0.05
     for pair, fb in _FX_FALLBACK.items():
         if pair[:3] == ccy.upper():
-            base_rate = fb["r_dom"]
+            base_rate = fb["r_for"]
             break
         elif pair[3:] == ccy.upper():
-            base_rate = fb["r_for"]
+            base_rate = fb["r_dom"]
             break
 
     rng = np.random.RandomState(_pair_seed(ccy, extra=42))
@@ -1192,7 +1202,10 @@ def _fallback_forward_curve(pair: str) -> Dict[str, dict]:
         ty = tenor_to_years(tenor)
         # Interest rate parity: F = S * exp((r_dom - r_for) * T)
         outright = spot * np.exp((r_d - r_f) * ty)
-        fwd_pts = (outright - spot) * 10000.0
+        from core.fx_conventions import FX_PAIR_REGISTRY
+        fwd_spec = FX_PAIR_REGISTRY.get(pair.upper())
+        pip_size = fwd_spec.pip if fwd_spec else 0.0001
+        fwd_pts = (outright - spot) / pip_size
         implied_diff = np.log(outright / spot) / ty if ty > 0 else 0.0
         curve[tenor] = {
             "fwd_points": round(fwd_pts, 2),
@@ -1470,13 +1483,15 @@ def _generate_rate_history(ccy: str, days: int = 252,
     rng = np.random.RandomState(seed)
 
     # Find base rate for this currency
+    # FX convention: pair[:3] = base/foreign ccy → rate is r_for
+    #                pair[3:] = quote/domestic ccy → rate is r_dom
     base_rate = 0.05
     for pair, fb in _FX_FALLBACK.items():
         if pair[:3] == ccy.upper():
-            base_rate = fb["r_dom"]
+            base_rate = fb["r_for"]
             break
         elif pair[3:] == ccy.upper():
-            base_rate = fb["r_for"]
+            base_rate = fb["r_dom"]
             break
 
     tenors = ["1M", "3M", "6M", "1Y", "2Y", "5Y"]

@@ -151,7 +151,7 @@ def _extract_value(element):
             return None
         dtype = element.datatype()
         # blpapi datatypes: FLOAT64=6, INT32=2, INT64=3, STRING=8, DATE=10, DATETIME=12, BOOL=1
-        if dtype in (6,):       # FLOAT64
+        if dtype in (5, 6):     # FLOAT32, FLOAT64
             return element.getValueAsFloat()
         if dtype in (2, 3):     # INT32, INT64
             return element.getValueAsInteger()

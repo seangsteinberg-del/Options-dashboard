@@ -508,19 +508,18 @@ def _build_rolling_chart(pair_a, pair_b):
 
 def _build_rate_table():
     """Rate differentials table."""
-    try:
-        from core.bloomberg_fx import get_fx_rates
-        rates = get_fx_rates() or {}
-    except Exception:
-        rates = {}
+    from core.bloomberg_fx import get_fx_rates
 
     header = html.Tr([html.Th(h, style={**TABLE_HEADER_STYLE, "fontSize": "8px"})
                        for h in ["PAIR", "DOM", "FOR", "DIFF", "CARRY"]])
     body = []
     for pair in ALL_PAIRS[:20]:
-        r = rates.get(pair, {})
-        dom = _sf(r.get("rate_dom", r.get("domestic", 0)))
-        fgn = _sf(r.get("rate_for", r.get("foreign", 0)))
+        try:
+            r = get_fx_rates(pair) or {}
+        except Exception:
+            r = {}
+        dom = _sf(r.get("r_dom", 0)) * 100  # convert decimal to percent
+        fgn = _sf(r.get("r_for", 0)) * 100
         if dom == 0 and fgn == 0:
             rng = np.random.RandomState(hash(pair) % 2**31)
             dom = round(rng.uniform(0.5, 5.5), 2)
