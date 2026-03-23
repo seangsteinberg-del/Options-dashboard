@@ -632,27 +632,43 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
             rr10_pfx = spec.bb_rr10_prefix if spec else f"{pair_u}10R"
             bf10_pfx = spec.bb_bf10_prefix if spec else f"{pair_u}10B"
 
-            surface = {}
+            # Build ALL tickers for ALL tenors in one batch (not per-tenor)
+            all_tickers = []
+            ticker_map = {}  # ticker -> (tenor, metric_name)
             for tenor in _ALL_TENORS:
-                tenor_code = tenor.upper()
-                atm_tick = f"{vol_pfx}{tenor_code} CMPN Curncy"
-                rr25_tick = f"{rr25_pfx}{tenor_code} CMPN Curncy"
-                bf25_tick = f"{bf25_pfx}{tenor_code} CMPN Curncy"
-                rr10_tick = f"{rr10_pfx}{tenor_code} CMPN Curncy"
-                bf10_tick = f"{bf10_pfx}{tenor_code} CMPN Curncy"
-                tickers = [atm_tick, rr25_tick, bf25_tick, rr10_tick, bf10_tick]
-                df = bdp(tickers, ["PX_LAST"])
-                vals = []
-                for t in tickers:
+                tc = tenor.upper()
+                mapping = [
+                    (f"{vol_pfx}{tc} CMPN Curncy", tenor, "atm"),
+                    (f"{rr25_pfx}{tc} CMPN Curncy", tenor, "rr25"),
+                    (f"{bf25_pfx}{tc} CMPN Curncy", tenor, "bf25"),
+                    (f"{rr10_pfx}{tc} CMPN Curncy", tenor, "rr10"),
+                    (f"{bf10_pfx}{tc} CMPN Curncy", tenor, "bf10"),
+                ]
+                for tick, t, m in mapping:
+                    all_tickers.append(tick)
+                    ticker_map[tick] = (t, m)
+
+            # Single batched bdp call
+            df = bdp(all_tickers, ["PX_LAST"])
+
+            surface = {}
+            for tick, (tenor, metric_name) in ticker_map.items():
+                if tick in df.index:
                     try:
-                        vals.append(float(df.loc[t, "PX_LAST"]))
+                        val = float(df.loc[tick, "PX_LAST"])
+                        if tenor not in surface:
+                            surface[tenor] = {}
+                        surface[tenor][metric_name] = val
                     except Exception:
-                        vals.append(None)
-                if all(v is not None for v in vals):
-                    surface[tenor] = {
-                        "atm": vals[0], "rr25": vals[1], "bf25": vals[2],
-                        "rr10": vals[3], "bf10": vals[4],
-                    }
+                        pass
+
+            # Only keep tenors that have at least ATM
+            surface = {t: v for t, v in surface.items() if "atm" in v}
+            # Fill missing metrics with 0
+            for t in surface:
+                for m in ("atm", "rr25", "bf25", "rr10", "bf10"):
+                    surface[t].setdefault(m, 0.0)
+
             if surface:
                 _cache_set(ck, surface, "vol_surface")
                 return surface
@@ -702,6 +718,8 @@ def get_fx_rates(pair: str) -> dict:
             dom_tick = _deposit_bbg(ccy_dom, "3M")
             for_tick = _deposit_bbg(ccy_for, "3M")
             df = bdp([dom_tick, for_tick], ["PX_LAST"])
+            if dom_tick not in df.index or for_tick not in df.index:
+                raise ValueError(f"Missing rate data: dom={dom_tick in df.index}, for={for_tick in df.index}")
             r_dom = float(df.loc[dom_tick, "PX_LAST"]) / 100.0
             r_for = float(df.loc[for_tick, "PX_LAST"]) / 100.0
             res = {"r_dom": r_dom, "r_for": r_for,
@@ -769,11 +787,16 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
             df = bdp(tickers, ["PX_LAST"])
             spot_data = get_fx_spots([pair])
             spot = spot_data[pair]["mid"]
+            # Forward points divisor: JPY pairs use 100, others use 10000
+            from core.fx_conventions import FX_PAIR_REGISTRY
+            fwd_spec = FX_PAIR_REGISTRY.get(pair.upper())
+            pip_size = fwd_spec.pip if fwd_spec else 0.0001
+            pts_divisor = 1.0 / pip_size  # e.g., 10000 for 0.0001 pip, 100 for 0.01 pip
             curve = {}
             for tenor, tick in zip(_ALL_TENORS, tickers):
                 if tick in df.index:
                     pts = float(df.loc[tick, "PX_LAST"])
-                    outright = spot + pts / 10000.0
+                    outright = spot + pts / pts_divisor
                     ty = tenor_to_years(tenor)
                     impl_diff = np.log(outright / spot) / ty if ty > 0 else 0.0
                     curve[tenor] = {
@@ -836,21 +859,25 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
-            # Build the correct ticker based on metric
+            # Build the correct ticker using registry prefixes
+            from core.fx_conventions import FX_PAIR_REGISTRY
             m = metric.upper() if isinstance(metric, str) else "ATM"
             pair_u = pair.upper()
+            spec = FX_PAIR_REGISTRY.get(pair_u)
+            tc = tenor.upper()
             if m in ("ATM", ""):
-                ticker = f"{pair_u}V{tenor.upper()} CMPN Curncy"
+                pfx = spec.bb_vol_prefix if spec else f"{pair_u}V"
             elif m == "25D_RR":
-                ticker = f"{pair_u}25R{tenor.upper()} CMPN Curncy"
+                pfx = spec.bb_rr25_prefix if spec else f"{pair_u}25R"
             elif m == "25D_BF":
-                ticker = f"{pair_u}25B{tenor.upper()} CMPN Curncy"
+                pfx = spec.bb_bf25_prefix if spec else f"{pair_u}25B"
             elif m == "10D_RR":
-                ticker = f"{pair_u}10R{tenor.upper()} CMPN Curncy"
+                pfx = spec.bb_rr10_prefix if spec else f"{pair_u}10R"
             elif m == "10D_BF":
-                ticker = f"{pair_u}10B{tenor.upper()} CMPN Curncy"
+                pfx = spec.bb_bf10_prefix if spec else f"{pair_u}10B"
             else:
-                ticker = f"{pair_u}V{tenor.upper()} CMPN Curncy"
+                pfx = spec.bb_vol_prefix if spec else f"{pair_u}V"
+            ticker = f"{pfx}{tc} CMPN Curncy"
 
             start = (datetime.now() - timedelta(days=int(days * 1.5))).strftime("%Y%m%d")
             df = bdh(ticker, ["PX_LAST"], start)
@@ -952,13 +979,15 @@ def get_fx_correlation(pair_a: str, pair_b: str, window: int = 60,
     hb = get_fx_historical_spot(pair_b, days + window)
     if ha.empty or hb.empty:
         return pd.Series(dtype=float)
-    ra = np.log(ha["close"] / ha["close"].shift(1)).dropna()
-    rb = np.log(hb["close"] / hb["close"].shift(1)).dropna()
-    # Align on common dates
-    common = ra.index.intersection(rb.index)
-    if len(common) < window + 1:
+    # Use positional alignment (not index) to avoid DatetimeIndex mismatch
+    ca = ha["close"].values
+    cb = hb["close"].values
+    n = min(len(ca), len(cb))
+    ra = pd.Series(np.diff(np.log(ca[-n:])))
+    rb = pd.Series(np.diff(np.log(cb[-n:])))
+    if len(ra) < window + 1:
         return pd.Series(dtype=float)
-    corr = ra.loc[common].rolling(window).corr(rb.loc[common])
+    corr = ra.rolling(window).corr(rb)
     corr.name = f"corr_{pair_a}_{pair_b}"
     return corr.dropna()
 
