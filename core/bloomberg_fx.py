@@ -538,17 +538,23 @@ def _fx_vol_bbg(pair: str) -> str:
 
 
 def _deposit_bbg(ccy: str, tenor: str) -> str:
-    """Deposit rate ticker, e.g., US0003M Index for 3M USD LIBOR."""
+    """Deposit rate ticker, e.g., USDRC CMPN Index for 3M USD deposit.
+    Uses Bloomberg composite deposit rate tickers (post-LIBOR).
+    Format: {CCY_PREFIX}DR{TENOR_LETTER} CMPN Index
+    Verified against cuemacro/findatapy base_depos_tickers_list.csv.
+    """
     ccy_map = {
-        "USD": "US", "EUR": "EU", "GBP": "BP", "JPY": "JY", "CHF": "SF",
-        "AUD": "AD", "NZD": "ND", "CAD": "CD", "SEK": "SK", "NOK": "NK",
-        "MXN": "MP", "BRL": "BC", "TRY": "TK", "ZAR": "SA", "CNH": "CN",
-        "INR": "IN", "SGD": "SD", "KRW": "KW",
+        "USD": "USD", "EUR": "EUD", "GBP": "BPD", "JPY": "JYD", "CHF": "SFD",
+        "AUD": "ADD", "NZD": "NDD", "CAD": "CDD", "SEK": "SKD", "NOK": "NKD",
+        "MXN": "MPD", "BRL": "BCD", "TRY": "TKD", "ZAR": "SAD", "CNH": "CND",
+        "INR": "IND", "SGD": "SDD", "KRW": "KWD",
     }
-    prefix = ccy_map.get(ccy.upper(), ccy[:2].upper())
-    tenor_map = {"1M": "0001M", "3M": "0003M", "6M": "0006M", "1Y": "0012M"}
-    t = tenor_map.get(tenor, "0003M")
-    return f"{prefix}{t} Index"
+    prefix = ccy_map.get(ccy.upper(), ccy.upper()[:2] + "D")
+    # Tenor letter: A=1M, B=2M, C=3M, F=6M, I=9M, 1=1Y, 2=2Y, 3=3Y, 5=5Y
+    tenor_letter = {"1M": "RA", "2M": "RB", "3M": "RC", "6M": "RF",
+                    "9M": "RI", "1Y": "R1", "2Y": "R2", "3Y": "R3", "5Y": "R5"}
+    suffix = tenor_letter.get(tenor.upper(), "RC")
+    return f"{prefix}{suffix} CMPN Index"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -753,7 +759,13 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
-            tickers = [f"{pair.upper()}{t} Curncy" for t in _ALL_TENORS]
+            # Forward tickers use base currency + tenor, e.g., EUR1M CMPN Curncy for EURUSD
+            # Verified against cuemacro/findatapy fx_forwards_tickers.csv
+            base_ccy = pair[:3].upper()
+            fwd_tenor_map = {"ON": "ON", "1W": "1W", "2W": "2W", "1M": "1M", "2M": "2M",
+                             "3M": "3M", "6M": "6M", "9M": "9M", "1Y": "12M", "2Y": "2Y",
+                             "3Y": "3Y", "5Y": "5Y"}
+            tickers = [f"{base_ccy}{fwd_tenor_map.get(t, t)} CMPN Curncy" for t in _ALL_TENORS]
             df = bdp(tickers, ["PX_LAST"])
             spot_data = get_fx_spots([pair])
             spot = spot_data[pair]["mid"]
