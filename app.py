@@ -1263,8 +1263,15 @@ def _update_data_source_status(_n):
             "fontFamily": "'JetBrains Mono', monospace", "letterSpacing": "0.5px",
         }), timestamp
     elif mode == "DEGRADED":
-        error_summary = f"{len(errors)} feed{'s' if len(errors) != 1 else ''} failing"
-        detail = " | ".join(f"{e['function']}({e['pair']})" for e in errors[:3])
+        # Group by function for a cleaner summary
+        funcs = {}
+        for e in errors:
+            fn = e["function"].replace("get_fx_", "")
+            funcs[fn] = funcs.get(fn, 0) + 1
+        summary_parts = [f"{fn}({n})" for fn, n in sorted(funcs.items(), key=lambda x: -x[1])]
+        error_summary = f"{len(errors)} failures: {', '.join(summary_parts[:4])}"
+        # Full detail on hover
+        detail = "\n".join(f"{e['function']}({e['pair']}): {e['error']}" for e in errors[-10:])
         return html.Span([
             html.Span("\u26A0 DEGRADED: ", style={
                 "color": "#ff3333", "fontSize": "9px", "fontWeight": "700",

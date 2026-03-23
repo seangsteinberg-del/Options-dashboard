@@ -81,8 +81,8 @@ def _log_fetch_failure(function: str, pair: str, error: str):
 
 def get_data_mode() -> str:
     """Return the current data mode: 'LIVE', 'SYNTHETIC', or 'DEGRADED'.
-    LIVE = Bloomberg connected, no recent failures.
-    DEGRADED = Bloomberg connected, but some fetches failing (mixed data).
+    LIVE = Bloomberg connected, fewer than 5 recent failures.
+    DEGRADED = Bloomberg connected, but 5+ fetches failing (mixed data).
     SYNTHETIC = No Bloomberg connection, all data is synthetic.
     """
     if not (_HAS_EQUITY_BBG and is_connected()):
@@ -90,7 +90,7 @@ def get_data_mode() -> str:
     # Connected — check for recent failures (last 5 minutes)
     cutoff = time.time() - 300
     recent = [e for e in _fetch_errors if e["time"] > cutoff]
-    if recent:
+    if len(recent) >= 5:
         return "DEGRADED"
     return "LIVE"
 
@@ -581,6 +581,7 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
                        "CHG_PCT_1D", "PX_HIGH", "PX_LOW", "PX_OPEN", "VOLUME"]
             df = bdp(tickers, fields)
             result = {}
+            missing = []
             for pair, ticker in zip(pairs, tickers):
                 if ticker in df.index:
                     row = df.loc[ticker]
@@ -597,16 +598,24 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
                         "volume_ind": float(row.get("VOLUME", 0)),
                     }
                 else:
-                    result[pair] = _fallback_spot(pair)
-            _cache_set("spots_" + ",".join(pairs), result, "spot")
-            return result
+                    missing.append(pair)
+            if missing:
+                _log_fetch_failure("get_fx_spots", ",".join(missing[:5]),
+                                  f"{len(missing)} pairs missing from BDP response")
+            if result:
+                _cache_set("spots_" + ",".join(pairs), result, "spot")
+                return result
+            # All pairs missing — log and return empty
+            _log_fetch_failure("get_fx_spots", ",".join(pairs[:3]), "BDP returned no data for any pair")
+            return {}
         except Exception as e:
             logger.error(f"FX spots BBG request failed: {e}")
+            _log_fetch_failure("get_fx_spots", ",".join(pairs[:3]), str(e))
+            return {}
 
+    # SYNTHETIC mode only — Bloomberg not connected
     result = {p: _fallback_spot(p) for p in pairs}
     _cache_set("spots_" + ",".join(pairs), result, "spot")
-    if _HAS_EQUITY_BBG and is_connected():
-        _log_fetch_failure("get_fx_spots", ",".join(pairs[:3]), "fell back to synthetic despite connection")
     return result
 
 
@@ -672,13 +681,17 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
             if surface:
                 _cache_set(ck, surface, "vol_surface")
                 return surface
+            # Bloomberg returned data but no valid ATM tenors
+            _log_fetch_failure("get_fx_vol_surface", pair, "BDP returned data but no valid ATM tenors")
+            return {}
         except Exception as e:
             logger.error(f"FX vol surface BBG request failed: {e}")
+            _log_fetch_failure("get_fx_vol_surface", pair, str(e))
+            return {}
 
+    # SYNTHETIC mode only — Bloomberg not connected
     surface = _fallback_vol_surface(pair)
     _cache_set(ck, surface, "vol_surface")
-    if _HAS_EQUITY_BBG and is_connected():
-        _log_fetch_failure("get_fx_vol_surface", pair, "fell back to synthetic despite connection")
     return surface
 
 
@@ -728,11 +741,12 @@ def get_fx_rates(pair: str) -> dict:
             return res
         except Exception as e:
             logger.error(f"FX rates BBG request failed: {e}")
+            _log_fetch_failure("get_fx_rates", pair, str(e))
+            return None
 
+    # SYNTHETIC mode only — Bloomberg not connected
     res = _fallback_rates(pair)
     _cache_set(ck, res, "rates")
-    if _HAS_EQUITY_BBG and is_connected():
-        _log_fetch_failure("get_fx_rates", pair, "fell back to synthetic despite connection")
     return res
 
 
@@ -748,18 +762,26 @@ def get_fx_rate_curve(ccy: str) -> Dict[str, float]:
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
+            tenors = ["1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y"]
+            tickers = [_deposit_bbg(ccy, t) for t in tenors]
+            df = bdp(tickers, ["PX_LAST"])  # Single batched call
             curve = {}
-            for tenor in ["1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y"]:
-                tick = _deposit_bbg(ccy, tenor)
-                df = bdp([tick], ["PX_LAST"])
-                if not df.empty:
-                    curve[tenor] = float(df.iloc[0, 0]) / 100.0
+            for tenor, tick in zip(tenors, tickers):
+                if tick in df.index:
+                    val = df.loc[tick, "PX_LAST"]
+                    if val is not None:
+                        curve[tenor] = float(val) / 100.0
             if curve:
                 _cache_set(ck, curve, "rates")
                 return curve
+            _log_fetch_failure("get_fx_rate_curve", ccy, "BDP returned no rate data")
+            return {}
         except Exception as e:
             logger.error(f"FX rate curve BBG request failed: {e}")
+            _log_fetch_failure("get_fx_rate_curve", ccy, str(e))
+            return {}
 
+    # SYNTHETIC mode only — Bloomberg not connected
     curve = _fallback_rate_curve(ccy)
     _cache_set(ck, curve, "rates")
     return curve
@@ -786,6 +808,8 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
             tickers = [f"{base_ccy}{fwd_tenor_map.get(t, t)} CMPN Curncy" for t in _ALL_TENORS]
             df = bdp(tickers, ["PX_LAST"])
             spot_data = get_fx_spots([pair])
+            if pair not in spot_data:
+                raise ValueError(f"No spot data for {pair}")
             spot = spot_data[pair]["mid"]
             # Forward points divisor: JPY pairs use 100, others use 10000
             from core.fx_conventions import FX_PAIR_REGISTRY
@@ -807,9 +831,14 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
             if curve:
                 _cache_set(ck, curve, "forwards")
                 return curve
+            _log_fetch_failure("get_fx_forward_curve", pair, "BDP returned no forward data")
+            return {}
         except Exception as e:
             logger.error(f"FX forward curve BBG request failed: {e}")
+            _log_fetch_failure("get_fx_forward_curve", pair, str(e))
+            return {}
 
+    # SYNTHETIC mode only — Bloomberg not connected
     curve = _fallback_forward_curve(pair)
     _cache_set(ck, curve, "forwards")
     return curve
@@ -839,13 +868,16 @@ def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
                 df = df.tail(days)
                 _cache_set(ck, df, "historical")
                 return df
+            _log_fetch_failure("get_fx_historical_spot", pair, "BDH returned empty dataframe")
+            return pd.DataFrame()
         except Exception as e:
             logger.error(f"FX historical spot BBG request failed: {e}")
+            _log_fetch_failure("get_fx_historical_spot", pair, str(e))
+            return pd.DataFrame()
 
+    # SYNTHETIC mode only — Bloomberg not connected
     df = _generate_spot_history(pair, days)
     _cache_set(ck, df, "historical")
-    if _HAS_EQUITY_BBG and is_connected():
-        _log_fetch_failure("get_fx_historical_spot", pair, "fell back to synthetic despite connection")
     return df
 
 
@@ -886,13 +918,16 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
                 series.name = f"{pair}_{tenor}_{metric}"
                 _cache_set(ck, series, "historical")
                 return series
+            _log_fetch_failure("get_fx_historical_vol", f"{pair}/{tenor}/{metric}", "BDH returned empty")
+            return pd.Series(dtype=float)
         except Exception as e:
             logger.error(f"FX historical vol BBG request failed: {e}")
+            _log_fetch_failure("get_fx_historical_vol", f"{pair}/{tenor}/{metric}", str(e))
+            return pd.Series(dtype=float)
 
+    # SYNTHETIC mode only — Bloomberg not connected
     series = _generate_vol_history(pair, tenor, metric, days)
     _cache_set(ck, series, "historical")
-    if _HAS_EQUITY_BBG and is_connected():
-        _log_fetch_failure("get_fx_historical_vol", f"{pair}/{tenor}/{metric}", "fell back to synthetic despite connection")
     return series
 
 

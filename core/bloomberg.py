@@ -108,8 +108,21 @@ def get_connection() -> BloombergConnection:
 
 
 def is_connected() -> bool:
+    """Check if Bloomberg session is alive. Re-verifies periodically."""
     conn = get_connection()
-    return conn.connected
+    if not conn.connected:
+        return False
+    # Lightweight health check: try to access the service
+    if conn.session and conn.ref_data_service:
+        try:
+            # If session died, this will raise
+            _ = conn.ref_data_service.name()
+            return True
+        except Exception:
+            logger.warning("Bloomberg session health check failed — marking disconnected")
+            conn.connected = False
+            return False
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
