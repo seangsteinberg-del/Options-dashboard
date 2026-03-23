@@ -533,8 +533,8 @@ def _fx_bbg_ticker(pair: str) -> str:
 
 
 def _fx_vol_bbg(pair: str) -> str:
-    """OVDV vol ticker, e.g., EURUSDV1M Curncy."""
-    return f"{pair.upper()}V Curncy"
+    """OVDV vol ticker, e.g., EURUSDV1M CMPN Curncy."""
+    return f"{pair.upper()}V CMPN Curncy"
 
 
 def _deposit_bbg(ccy: str, tenor: str) -> str:
@@ -629,11 +629,11 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
             surface = {}
             for tenor in _ALL_TENORS:
                 tenor_code = tenor.upper()
-                atm_tick = f"{vol_pfx}{tenor_code} BGN Curncy"
-                rr25_tick = f"{rr25_pfx}{tenor_code} BGN Curncy"
-                bf25_tick = f"{bf25_pfx}{tenor_code} BGN Curncy"
-                rr10_tick = f"{rr10_pfx}{tenor_code} BGN Curncy"
-                bf10_tick = f"{bf10_pfx}{tenor_code} BGN Curncy"
+                atm_tick = f"{vol_pfx}{tenor_code} CMPN Curncy"
+                rr25_tick = f"{rr25_pfx}{tenor_code} CMPN Curncy"
+                bf25_tick = f"{bf25_pfx}{tenor_code} CMPN Curncy"
+                rr10_tick = f"{rr10_pfx}{tenor_code} CMPN Curncy"
+                bf10_tick = f"{bf10_pfx}{tenor_code} CMPN Curncy"
                 tickers = [atm_tick, rr25_tick, bf25_tick, rr10_tick, bf10_tick]
                 df = bdp(tickers, ["PX_LAST"])
                 vals = []
@@ -828,17 +828,17 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
             m = metric.upper() if isinstance(metric, str) else "ATM"
             pair_u = pair.upper()
             if m in ("ATM", ""):
-                ticker = f"{pair_u}V{tenor.upper()} BGN Curncy"
+                ticker = f"{pair_u}V{tenor.upper()} CMPN Curncy"
             elif m == "25D_RR":
-                ticker = f"{pair_u}25R{tenor.upper()} BGN Curncy"
+                ticker = f"{pair_u}25R{tenor.upper()} CMPN Curncy"
             elif m == "25D_BF":
-                ticker = f"{pair_u}25B{tenor.upper()} BGN Curncy"
+                ticker = f"{pair_u}25B{tenor.upper()} CMPN Curncy"
             elif m == "10D_RR":
-                ticker = f"{pair_u}10R{tenor.upper()} BGN Curncy"
+                ticker = f"{pair_u}10R{tenor.upper()} CMPN Curncy"
             elif m == "10D_BF":
-                ticker = f"{pair_u}10B{tenor.upper()} BGN Curncy"
+                ticker = f"{pair_u}10B{tenor.upper()} CMPN Curncy"
             else:
-                ticker = f"{pair_u}V{tenor.upper()} BGN Curncy"
+                ticker = f"{pair_u}V{tenor.upper()} CMPN Curncy"
 
             start = (datetime.now() - timedelta(days=int(days * 1.5))).strftime("%Y%m%d")
             df = bdh(ticker, ["PX_LAST"], start)
