@@ -766,7 +766,7 @@ def register_callbacks(app):
                 # Look up realized correlation from bloomberg_fx data
                 try:
                     corr_series = get_fx_correlation(pair, pair2, window=120, days=252)
-                    rho = float(corr_series.iloc[-1]) if len(corr_series) > 0 else 0.5
+                    rho = float(corr_series.iloc[-1]) if corr_series is not None and hasattr(corr_series, '__len__') and len(corr_series) > 0 else 0.5
                 except Exception:
                     rho = 0.5
                 K_perf = _safe_float(strike, 0.0)
@@ -1137,7 +1137,7 @@ def _price_at_spot(product, s, T, rd, rf, sigma, cp, K, B,
             sigma2 = sigma2_raw / 100.0 if sigma2_raw > 1.0 else sigma2_raw
             try:
                 corr_series = get_fx_correlation(pair, pair2, window=120, days=252)
-                rho = float(corr_series.iloc[-1]) if len(corr_series) > 0 else 0.5
+                rho = float(corr_series.iloc[-1]) if corr_series is not None and hasattr(corr_series, '__len__') and len(corr_series) > 0 else 0.5
             except Exception:
                 rho = 0.5
             bo_type = bestof_type or "best-of"
@@ -1214,7 +1214,7 @@ def _price_at_vol(product, S, T, rd, rf, v, cp, K, B,
             sigma2 = sigma2_raw / 100.0 if sigma2_raw > 1.0 else sigma2_raw
             try:
                 corr_series = get_fx_correlation(pair, pair2, window=120, days=252)
-                rho = float(corr_series.iloc[-1]) if len(corr_series) > 0 else 0.5
+                rho = float(corr_series.iloc[-1]) if corr_series is not None and hasattr(corr_series, '__len__') and len(corr_series) > 0 else 0.5
             except Exception:
                 rho = 0.5
             bo_type = bestof_type or "best-of"

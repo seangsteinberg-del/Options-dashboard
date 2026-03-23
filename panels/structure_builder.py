@@ -268,6 +268,8 @@ def _interp_vol_for_delta(vol_surface_data, tenor, delta_abs, cp_sign):
     cp_sign: +1 call, -1 put
     Returns vol as a fraction (e.g. 0.07 for 7%).
     """
+    if not vol_surface_data:
+        return 0.08
     if tenor not in vol_surface_data:
         available = sorted(vol_surface_data.keys(),
                            key=lambda t: abs(tenor_to_years(t) - tenor_to_years(tenor)))
@@ -309,6 +311,8 @@ def _interp_vol_for_delta(vol_surface_data, tenor, delta_abs, cp_sign):
 
 def _get_atm_vol(vol_surface_data, tenor):
     """Get ATM vol for a tenor in decimal form."""
+    if not vol_surface_data:
+        return 0.08
     if tenor not in vol_surface_data:
         available = sorted(vol_surface_data.keys(),
                            key=lambda t: abs(tenor_to_years(t) - tenor_to_years(tenor)))

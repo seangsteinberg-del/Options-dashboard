@@ -712,6 +712,8 @@ def chart_vol_ts(pair, sd, spot, r_dom, r_for, **kw):
     sel_tenor = kw.get("ts_tenor", "3M")
     try:
         hist = get_fx_historical_vol(pair, sel_tenor, "ATM", 252)
+        if isinstance(hist, dict):
+            hist = list(hist.values()) if hist else None
         if hist is None or len(hist) < 20:
             raise ValueError("insufficient data")
     except Exception:
@@ -1117,7 +1119,7 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
     rr_pctile = 50.0
     try:
         idx = sd["tenors"].index("3M") if "3M" in sd["tenors"] else min(2, len(sd["tenors"]) - 1)
-        rr_3m = sd["rr25"][idx]
+        rr_3m = sd["rr25"][idx] if 0 <= idx < len(sd.get("rr25", [])) else 0.0
         p = vol_percentile(pair, "3M", "25D_RR")
         rr_pctile = p["percentile"]
     except Exception:
@@ -1127,7 +1129,7 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
     bf_3m = 0.0
     try:
         idx = sd["tenors"].index("3M") if "3M" in sd["tenors"] else min(2, len(sd["tenors"]) - 1)
-        bf_3m = sd["bf25"][idx]
+        bf_3m = sd["bf25"][idx] if 0 <= idx < len(sd.get("bf25", [])) else 0.0
     except Exception:
         pass
 

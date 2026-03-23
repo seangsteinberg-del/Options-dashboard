@@ -209,7 +209,7 @@ def _generate_backtest_data(pair, lookback_years):
     bf25_series = np.clip(bf25_series, 0.05, 1.0)
 
     # Rates
-    rates_data = get_fx_rates(pair)
+    rates_data = get_fx_rates(pair) or {}
     r_d = rates_data.get("r_dom", 0.04)
     r_f = rates_data.get("r_for", 0.03)
     rd_series = r_d + 0.002 * rng.randn(n_days).cumsum() * 0.01
