@@ -168,7 +168,12 @@ def _extract_value(element):
 
 
 def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
-    """Bloomberg Data Point — single-point reference data."""
+    """Bloomberg Data Point — single-point reference data.
+
+    When connected: returns real data or EMPTY DataFrame on failure.
+    Never mixes fake equity data into a live Bloomberg session.
+    When disconnected: returns synthetic fallback data.
+    """
     conn = get_connection()
     if not conn.connected:
         return _fallback_bdp(securities, fields)
@@ -183,7 +188,7 @@ def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
         responses = conn._send_request(request)
         if not responses:
             logger.warning("BDP got no response messages for %s", securities[:3])
-            return _fallback_bdp(securities, fields)
+            return pd.DataFrame()  # Empty — do NOT inject fake data
         rows = []
         for msg in responses:
             # Check for request-level errors
@@ -243,17 +248,21 @@ def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
 
         if not rows:
             logger.warning("BDP returned no data for %s", securities[:3])
-            return _fallback_bdp(securities, fields)
+            return pd.DataFrame()  # Empty — do NOT inject fake data
         return pd.DataFrame(rows).set_index("security")
 
     except Exception as e:
         logger.error(f"BDP request failed: {e}")
-        return _fallback_bdp(securities, fields)
+        return pd.DataFrame()  # Empty — do NOT inject fake data
 
 
 def bdh(security: str, fields: List[str], start_date: str, end_date: str = None,
         **overrides) -> pd.DataFrame:
-    """Bloomberg Data History — historical time series."""
+    """Bloomberg Data History — historical time series.
+
+    When connected: returns real data or EMPTY DataFrame on failure.
+    When disconnected: returns synthetic fallback data.
+    """
     conn = get_connection()
     if not conn.connected:
         return _fallback_bdh(security, fields, start_date, end_date)
@@ -273,7 +282,7 @@ def bdh(security: str, fields: List[str], start_date: str, end_date: str = None,
         responses = conn._send_request(request)
         if not responses:
             logger.warning("BDH got no response messages for %s", security)
-            return _fallback_bdh(security, fields, start_date, end_date)
+            return pd.DataFrame()  # Empty — do NOT inject fake data
         rows = []
         for msg in responses:
             # Check for request-level errors
@@ -331,7 +340,7 @@ def bdh(security: str, fields: List[str], start_date: str, end_date: str = None,
 
     except Exception as e:
         logger.error(f"BDH request failed: {e}")
-        return _fallback_bdh(security, fields, start_date, end_date)
+        return pd.DataFrame()  # Empty — do NOT inject fake data
 
 
 def bds(security: str, field: str, **overrides) -> pd.DataFrame:
