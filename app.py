@@ -281,8 +281,8 @@ def _preset_button(label, idx):
         n_clicks=0,
         style={
             "backgroundColor": "#000000",
-            "color": "#666666",
-            "border": "1px solid #1a1a2e",
+            "color": "#808080",
+            "border": "1px solid #222240",
             "borderRadius": "0px",
             "padding": "4px 10px",
             "fontSize": "9px",
@@ -320,12 +320,12 @@ def make_header():
                         "color": "#ff8800",
                     }),
                     html.Span(" WORKSTATION", style={
-                        "fontWeight": "300", "color": "#666666",
+                        "fontWeight": "300", "color": "#808080",
                         "fontSize": "18px", "letterSpacing": "3px",
                     }),
                 ]),
                 html.Div("Institutional Derivatives Analytics", style={
-                    "color": "#666666", "fontSize": "9px",
+                    "color": "#808080", "fontSize": "9px",
                     "textTransform": "uppercase", "letterSpacing": "4px",
                     "marginTop": "2px",
                 }),
@@ -334,7 +334,7 @@ def make_header():
             # ── Workspace Presets ──
             html.Div([
                 html.Span("WORKSPACE", style={
-                    "color": "#666666", "fontSize": "9px",
+                    "color": "#808080", "fontSize": "9px",
                     "letterSpacing": "1px", "marginRight": "6px",
                     "fontWeight": "600",
                 }),
@@ -349,7 +349,7 @@ def make_header():
                 html.Button("WATCHLIST", id="watchlist-edit-btn", n_clicks=0, style={
                     "backgroundColor": "#000000",
                     "color": "#ff8800",
-                    "border": "1px solid #1a1a2e",
+                    "border": "1px solid #222240",
                     "borderRadius": "0px",
                     "padding": "4px 10px",
                     "fontSize": "9px",
@@ -380,7 +380,7 @@ def make_header():
                 }),
                 html.Div([
                     html.Span("MODEL ", style={
-                        "color": "#666666", "fontSize": "9px",
+                        "color": "#808080", "fontSize": "9px",
                         "letterSpacing": "1px",
                     }),
                     html.Span("GK/SABR/VV/MC", style={
@@ -388,12 +388,23 @@ def make_header():
                         "fontWeight": "700",
                     }),
                 ]),
+                # ── Last Updated Timestamp ──
+                html.Div([
+                    html.Span("UPDATED ", style={
+                        "color": "#808080", "fontSize": "9px",
+                        "letterSpacing": "1px",
+                    }),
+                    html.Span(id="header-last-updated", children="—", style={
+                        "color": "#d4d4d4", "fontSize": "9px",
+                        "fontWeight": "600",
+                    }),
+                ], style={"marginLeft": "16px"}),
             ], style={"display": "flex", "alignItems": "center"}),
         ], style={
             "display": "flex", "justifyContent": "space-between",
             "alignItems": "center", "padding": "10px 24px",
             "backgroundColor": "#000000",
-            "borderBottom": "1px solid #1a1a2e",
+            "borderBottom": "1px solid #222240",
             "fontFamily": "'JetBrains Mono', monospace",
         }),
     ])
@@ -412,7 +423,7 @@ def make_watchlist_modal():
                 html.Div("WATCHLIST EDITOR", style={
                     "color": "#ffffff", "fontSize": "11px", "fontWeight": "700",
                     "letterSpacing": "1.5px", "marginBottom": "8px",
-                    "paddingBottom": "4px", "borderBottom": "1px solid #1a1a2e",
+                    "paddingBottom": "4px", "borderBottom": "1px solid #222240",
                     "fontFamily": "'JetBrains Mono', monospace",
                 }),
                 dcc.Dropdown(
@@ -432,8 +443,8 @@ def make_watchlist_modal():
                         "fontWeight": "700", "cursor": "pointer", "marginRight": "8px",
                     }),
                     html.Button("CLOSE", id="watchlist-close-btn", n_clicks=0, style={
-                        "backgroundColor": "#000000", "color": "#666666",
-                        "border": "1px solid #1a1a2e", "borderRadius": "0px",
+                        "backgroundColor": "#000000", "color": "#808080",
+                        "border": "1px solid #222240", "borderRadius": "0px",
                         "padding": "6px 16px", "fontSize": "10px",
                         "fontFamily": "'JetBrains Mono', monospace",
                         "fontWeight": "700", "cursor": "pointer",
@@ -441,7 +452,7 @@ def make_watchlist_modal():
                 ], style={"marginTop": "12px", "display": "flex"}),
             ], style={
                 "backgroundColor": "#000000",
-                "border": "1px solid #1a1a2e",
+                "border": "1px solid #222240",
                 "padding": "16px",
                 "width": "500px",
                 "maxWidth": "90vw",
@@ -517,14 +528,14 @@ def make_command_palette():
             html.Div([
                 html.Div([
                     html.Span("COMMAND PALETTE", style={
-                        "color": "#666666", "fontSize": "9px",
+                        "color": "#808080", "fontSize": "9px",
                         "letterSpacing": "2px", "fontWeight": "700",
                     }),
                     html.Span("Ctrl+K", style={
                         "color": "#ff8800", "fontSize": "9px",
                         "fontWeight": "600", "marginLeft": "12px",
                         "padding": "2px 8px",
-                        "border": "1px solid #1a1a2e",
+                        "border": "1px solid #222240",
                         "borderRadius": "0px",
                     }),
                 ], style={
@@ -548,7 +559,7 @@ def make_command_palette():
                 ),
             ], style={
                 "backgroundColor": "#000000",
-                "border": "1px solid #1a1a2e",
+                "border": "1px solid #222240",
                 "padding": "16px 20px",
                 "width": "560px",
                 "maxWidth": "90vw",
@@ -574,10 +585,10 @@ def make_command_palette():
 def _workspace_tab_style(accent):
     return {
         "backgroundColor": "transparent",
-        "border": "1px solid #1a1a2e",
+        "border": "1px solid #222240",
         "borderBottom": "none",
         "borderRadius": "0px",
-        "color": "#666666",
+        "color": "#808080",
         "fontFamily": "'JetBrains Mono', monospace",
         "fontSize": "10px",
         "fontWeight": "700",
@@ -601,10 +612,10 @@ def _workspace_tab_selected_style(accent):
 def _subtab_style():
     return {
         "backgroundColor": "transparent",
-        "border": "1px solid #1a1a2e",
+        "border": "1px solid #222240",
         "borderBottom": "none",
         "borderRadius": "0px",
-        "color": "#666666",
+        "color": "#808080",
         "fontFamily": "'JetBrains Mono', monospace",
         "fontSize": "9px",
         "fontWeight": "600",
@@ -660,7 +671,7 @@ def make_sub_tabs_container():
             )
             for tab in ws["tabs"]
         ],
-        style={"marginTop": "2px", "borderBottom": "1px solid #1a1a2e"},
+        style={"marginTop": "2px", "borderBottom": "1px solid #222240"},
     )
     return html.Div(initial_tabs, id="subtab-container", style={"marginTop": "0"})
 
@@ -675,33 +686,33 @@ def make_footer():
     return html.Div([
         html.Div([
             html.Span(f"FX OPTIONS WORKSTATION v{VERSION}", style={
-                "color": "#666666", "fontSize": "9px",
+                "color": "#808080", "fontSize": "9px",
                 "letterSpacing": "2px",
             }),
             html.Span(" \u2502 ", style={
-                "color": "#1a1a2e", "margin": "0 8px",
+                "color": "#222240", "margin": "0 8px",
             }),
             html.Span(f"{total_panels} PANELS", style={
-                "color": "#666666", "fontSize": "9px",
+                "color": "#808080", "fontSize": "9px",
                 "letterSpacing": "2px",
             }),
             html.Span(" \u2502 ", style={
-                "color": "#1a1a2e", "margin": "0 8px",
+                "color": "#222240", "margin": "0 8px",
             }),
             html.Span(data_label, style={
                 "color": status_color(), "fontSize": "9px",
                 "letterSpacing": "2px", "fontWeight": "700",
             }),
             html.Span(" \u2502 ", style={
-                "color": "#1a1a2e", "margin": "0 8px",
+                "color": "#222240", "margin": "0 8px",
             }),
             html.Span("GK \u00b7 SABR \u00b7 VV \u00b7 MC", style={
-                "color": "#666666", "fontSize": "9px",
+                "color": "#808080", "fontSize": "9px",
                 "letterSpacing": "2px",
             }),
         ], style={
             "textAlign": "center", "padding": "12px",
-            "borderTop": "1px solid #1a1a2e",
+            "borderTop": "1px solid #222240",
             "fontFamily": "'JetBrains Mono', monospace",
         }),
     ])
@@ -795,7 +806,7 @@ def render_subtabs(workspace_id):
         children=sub_children,
         style={
             "marginTop": "2px",
-            "borderBottom": "1px solid #1a1a2e",
+            "borderBottom": "1px solid #222240",
         },
     )
 
@@ -815,7 +826,7 @@ def render_panel(tab_id):
     if module is None:
         return html.Div(
             "Panel not found.",
-            style={"color": "#666666", "padding": "40px",
+            style={"color": "#808080", "padding": "40px",
                    "textAlign": "center", "fontSize": "11px"},
         )
     try:
@@ -828,7 +839,7 @@ def render_panel(tab_id):
                 "fontSize": "13px", "marginBottom": "8px",
             }),
             html.Pre(traceback.format_exc(), style={
-                "color": "#666666", "fontSize": "10px",
+                "color": "#808080", "fontSize": "10px",
                 "whiteSpace": "pre-wrap",
             }),
         ], style={"padding": "40px"})
@@ -1038,7 +1049,10 @@ def save_watchlist(n_clicks, pairs):
     prevent_initial_call=True,
 )
 def handle_metric_popup(metric_clicks, close_clicks):
-    """Universal metric popup — triggered by any clickable-metric component."""
+    """Universal metric popup — disabled (always hidden)."""
+    return {"display": "none"}, "", [], go.Figure()
+
+    # -- Original popup logic below (kept for reference) --
     ctx = callback_context
     if not ctx.triggered:
         raise PreventUpdate
@@ -1086,12 +1100,12 @@ def handle_metric_popup(metric_clicks, close_clicks):
         # ±1σ band
         fig.add_trace(go.Scatter(
             x=x_days, y=[mean_val + std_val] * len(x_days),
-            mode="lines", line=dict(color="#1a1a2e", width=1, dash="dot"),
+            mode="lines", line=dict(color="#222240", width=1, dash="dot"),
             showlegend=False,
         ))
         fig.add_trace(go.Scatter(
             x=x_days, y=[mean_val - std_val] * len(x_days),
-            mode="lines", line=dict(color="#1a1a2e", width=1, dash="dot"),
+            mode="lines", line=dict(color="#222240", width=1, dash="dot"),
             fill="tonexty", fillcolor="rgba(26,26,46,0.3)",
             showlegend=False,
         ))
@@ -1099,7 +1113,7 @@ def handle_metric_popup(metric_clicks, close_clicks):
         # Mean line
         fig.add_trace(go.Scatter(
             x=x_days, y=[mean_val] * len(x_days),
-            mode="lines", line=dict(color="#666666", width=1, dash="dash"),
+            mode="lines", line=dict(color="#808080", width=1, dash="dash"),
             showlegend=False,
         ))
 
@@ -1127,33 +1141,33 @@ def handle_metric_popup(metric_clicks, close_clicks):
         # Stats
         stats_children = [
             html.Div([
-                html.Span("Current: ", style={"color": "#666666", "fontSize": "9px"}),
+                html.Span("Current: ", style={"color": "#808080", "fontSize": "9px"}),
                 html.Span(f"{current:.2f}v", style={"color": "#d4d4d4", "fontSize": "11px", "fontWeight": "700"}),
             ]),
             html.Div([
-                html.Span("Pctl: ", style={"color": "#666666", "fontSize": "9px"}),
+                html.Span("Pctl: ", style={"color": "#808080", "fontSize": "9px"}),
                 html.Span(f"{pct:.0f}th", style={
                     "color": "#00cc66" if pct < 30 else "#ff3333" if pct > 70 else "#d4d4d4",
                     "fontSize": "11px", "fontWeight": "700",
                 }),
             ]),
             html.Div([
-                html.Span("Mean: ", style={"color": "#666666", "fontSize": "9px"}),
+                html.Span("Mean: ", style={"color": "#808080", "fontSize": "9px"}),
                 html.Span(f"{mean_val:.2f}v", style={"color": "#d4d4d4", "fontSize": "11px"}),
             ]),
             html.Div([
-                html.Span("Std: ", style={"color": "#666666", "fontSize": "9px"}),
+                html.Span("Std: ", style={"color": "#808080", "fontSize": "9px"}),
                 html.Span(f"{std_val:.2f}v", style={"color": "#d4d4d4", "fontSize": "11px"}),
             ]),
             html.Div([
-                html.Span("Z: ", style={"color": "#666666", "fontSize": "9px"}),
+                html.Span("Z: ", style={"color": "#808080", "fontSize": "9px"}),
                 html.Span(f"{z_score:+.2f}", style={
                     "color": "#00cc66" if abs(z_score) < 1 else "#ff3333",
                     "fontSize": "11px", "fontWeight": "700",
                 }),
             ]),
             html.Div([
-                html.Span("Min/Max: ", style={"color": "#666666", "fontSize": "9px"}),
+                html.Span("Min/Max: ", style={"color": "#808080", "fontSize": "9px"}),
                 html.Span(f"{min_val:.2f} / {max_val:.2f}", style={"color": "#d4d4d4", "fontSize": "11px"}),
             ]),
         ]
@@ -1231,20 +1245,23 @@ def _refresh_ticker(_n):
 # ═══════════════════════════════════════════════════════════════════════════
 
 @app.callback(
-    Output("data-source-status", "children"),
+    [Output("data-source-status", "children"),
+     Output("header-last-updated", "children")],
     Input("data-source-interval", "n_intervals"),
 )
 def _update_data_source_status(_n):
     from core.bloomberg_fx import get_data_mode, get_recent_errors
+    from datetime import datetime
 
     mode = get_data_mode()
     errors = get_recent_errors()
+    timestamp = datetime.now().strftime("%H:%M:%S")
 
     if mode == "LIVE":
         return html.Span("ALL DATA LIVE", style={
             "color": "#00cc66", "fontSize": "9px", "fontWeight": "700",
             "fontFamily": "'JetBrains Mono', monospace", "letterSpacing": "0.5px",
-        })
+        }), timestamp
     elif mode == "DEGRADED":
         error_summary = f"{len(errors)} feed{'s' if len(errors) != 1 else ''} failing"
         detail = " | ".join(f"{e['function']}({e['pair']})" for e in errors[:3])
@@ -1258,10 +1275,10 @@ def _update_data_source_status(_n):
                 "fontFamily": "'JetBrains Mono', monospace",
                 "cursor": "help",
             }),
-        ])
+        ]), timestamp
     else:
         # SYNTHETIC — dev mode, no Bloomberg. This is expected.
-        return html.Span("")  # Bloomberg badge already says "SYNTHETIC MODE"
+        return html.Span(""), timestamp  # Bloomberg badge already says "SYNTHETIC MODE"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

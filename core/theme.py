@@ -17,17 +17,18 @@ COLORS = {
     "bg_input":         "#000000",
     "bg_header":        "#000000",
     "bg_glass":         "#000000",
+    "bg_stat":          "#06060f",
 
-    # Borders — dark blue-gray, thin, structural
-    "border":           "#1a1a2e",
+    # Borders — visible blue-gray, thin, structural
+    "border":           "#222240",
     "border_focus":     "#ff8800",
-    "border_subtle":    "#1a1a2e",
+    "border_subtle":    "#222240",
     "border_glow":      "rgba(255, 136, 0, 0.25)",
 
     # Text — clear hierarchy, monospace only
     "text_primary":     "#d4d4d4",   # crisp silver — all data
-    "text_secondary":   "#666666",   # muted — labels, column headers
-    "text_muted":       "#666666",   # dimmed labels
+    "text_secondary":   "#808080",   # muted — labels, column headers
+    "text_muted":       "#808080",   # dimmed labels
     "text_bright":      "#ffffff",   # pure white — section headers
 
     # Bloomberg orange — selections, highlights, active items
@@ -52,7 +53,7 @@ COLORS = {
     # P&L
     "pnl_profit":       "#00cc66",
     "pnl_loss":         "#ff3333",
-    "pnl_neutral":      "#666666",
+    "pnl_neutral":      "#808080",
 
     # Gradients — not used in terminal theme but kept for compat
     "grad_start":       "#ff8800",
@@ -93,21 +94,31 @@ CHART_TEMPLATE = {
             "#00cc66",   # green
             "#ff3333",   # red
             "#d4d4d4",   # silver
-            "#666666",   # gray
+            "#808080",   # gray
             "#ffaa33",   # light orange
             "#88ff88",   # light green
         ],
         "hoverlabel": {
-            "bgcolor": "#000000",
-            "bordercolor": "#1a1a2e",
+            "bgcolor": "#0a0a14",
+            "bordercolor": "#222240",
             "font": {"color": "#d4d4d4", "family": "'JetBrains Mono', monospace", "size": 11},
         },
     }
 }
 
+# ── Layout Constants ───────────────────────────────────────────────────────
+# Spacing: 8px base grid. Use GAP for within-group, SECTION_GAP between groups.
+GAP = "8px"
+SECTION_GAP = "16px"
+
+# Chart heights: use these instead of ad-hoc pixel values.
+CHART_SM = 240    # sparklines, secondary charts
+CHART_MD = 320    # standard charts (main content)
+CHART_LG = 400    # hero charts, heatmaps, 3D surfaces
+
 # Default axis styling — apply separately via xaxis=AXIS_DEFAULTS etc.
 AXIS_DEFAULTS = {
-    "gridcolor": "#1a1a2e",
+    "gridcolor": "#1a1a30",
     "zerolinecolor": "#333355",
     "tickfont": {"size": 9, "color": "#888888"},
     "linecolor": "#333355",
@@ -149,27 +160,27 @@ def chart_layout(**overrides):
 # Grid cell — no card, no rounded corners, no shadows, no blur
 CARD_STYLE = {
     "backgroundColor": "#000000",
-    "border": "1px solid #1a1a2e",
+    "border": "1px solid #222240",
     "borderRadius": "0px",
-    "padding": "8px",
+    "padding": "14px",
     "marginBottom": "0px",
 }
 
 CARD_HEADER_STYLE = {
     "color": "#ffffff",
-    "fontSize": "16px",
+    "fontSize": "12px",
     "fontWeight": "700",
     "fontFamily": "'JetBrains Mono', monospace",
     "marginBottom": "8px",
     "paddingBottom": "4px",
-    "borderBottom": "1px solid #1a1a2e",
+    "borderBottom": "1px solid #222240",
     "letterSpacing": "1.5px",
     "textTransform": "uppercase",
 }
 
 INPUT_STYLE = {
     "backgroundColor": "#000000",
-    "border": "1px solid #1a1a2e",
+    "border": "1px solid #222240",
     "borderRadius": "0px",
     "color": "#d4d4d4",
     "fontFamily": "'JetBrains Mono', monospace",
@@ -179,7 +190,7 @@ INPUT_STYLE = {
 }
 
 LABEL_STYLE = {
-    "color": "#666666",
+    "color": "#808080",
     "fontSize": "9px",
     "fontWeight": "600",
     "fontFamily": "'JetBrains Mono', monospace",
@@ -192,17 +203,17 @@ LABEL_STYLE = {
 DROPDOWN_STYLE = {
     "backgroundColor": "#000000",
     "color": "#d4d4d4",
-    "border": "1px solid #1a1a2e",
+    "border": "1px solid #222240",
     "borderRadius": "0px",
     "fontFamily": "'JetBrains Mono', monospace",
     "fontSize": "11px",
 }
 
 STAT_BOX_STYLE = {
-    "backgroundColor": "#000000",
-    "border": "1px solid #1a1a2e",
+    "backgroundColor": "#06060f",
+    "border": "1px solid #222240",
     "borderRadius": "0px",
-    "padding": "8px 12px",
+    "padding": "14px",
     "textAlign": "center",
     "minWidth": "100px",
 }
@@ -212,7 +223,7 @@ BUTTON_STYLE = {
     "color": "#000000",
     "border": "none",
     "borderRadius": "0px",
-    "padding": "6px 16px",
+    "padding": "5px 14px",
     "fontFamily": "'JetBrains Mono', monospace",
     "fontSize": "10px",
     "fontWeight": "700",
@@ -226,10 +237,10 @@ BUTTON_SUCCESS_STYLE = {**BUTTON_STYLE, "backgroundColor": "#00cc66", "color": "
 
 TAB_STYLE = {
     "backgroundColor": "transparent",
-    "border": "1px solid #1a1a2e",
+    "border": "1px solid #222240",
     "borderBottom": "none",
     "borderRadius": "0px",
-    "color": "#666666",
+    "color": "#808080",
     "fontFamily": "'JetBrains Mono', monospace",
     "fontSize": "10px",
     "fontWeight": "600",
@@ -247,14 +258,14 @@ TAB_SELECTED_STYLE = {
 }
 
 TABLE_HEADER_STYLE = {
-    "backgroundColor": "#000000",
-    "color": "#666666",
+    "backgroundColor": "#0a0a14",
+    "color": "#ffffff",
     "fontWeight": "700",
-    "fontSize": "9px",
+    "fontSize": "10px",
     "textTransform": "uppercase",
     "letterSpacing": "1.2px",
-    "border": "1px solid #1a1a2e",
-    "padding": "6px 8px",
+    "border": "1px solid #222240",
+    "padding": "8px 10px",
 }
 
 TABLE_CELL_STYLE = {
@@ -262,8 +273,8 @@ TABLE_CELL_STYLE = {
     "color": "#d4d4d4",
     "fontSize": "11px",
     "fontFamily": "'JetBrains Mono', monospace",
-    "border": "1px solid #1a1a2e",
-    "padding": "4px 8px",
+    "border": "1px solid #222240",
+    "padding": "6px 10px",
 }
 
 
@@ -271,22 +282,23 @@ TABLE_CELL_STYLE = {
 def make_stat_style(color=None):
     style = {**STAT_BOX_STYLE}
     if color:
-        style["borderTop"] = f"2px solid {color}"
+        style["borderLeft"] = f"3px solid {color}"
     return style
 
 
 # ── Clickable metric helper ────────────────────────────────────────────────
 def clickable_stat(value, label, pair, metric, tenor, color=None):
-    """Renders a stat value that opens a time series popup when clicked."""
+    """Renders a stat value with color accent."""
     from dash import html
     return html.Div([
         html.Div(str(value), className="stat-value", style={
-            "fontSize": "13px", "fontWeight": "700", "color": color or "#d4d4d4",
-            "fontFamily": "'JetBrains Mono', monospace", "cursor": "pointer",
+            "fontSize": "16px", "fontWeight": "700", "color": color or "#d4d4d4",
+            "fontFamily": "'JetBrains Mono', monospace",
         }, id={"type": "clickable-metric", "pair": pair, "metric": metric, "tenor": tenor}),
         html.Div(label, className="stat-label", style={
-            "fontSize": "9px", "color": "#666666", "textTransform": "uppercase",
+            "fontSize": "10px", "color": "#808080", "textTransform": "uppercase",
             "letterSpacing": "1px", "fontFamily": "'JetBrains Mono', monospace",
+            "marginTop": "4px",
         }),
     ], className="stat-box", style=make_stat_style(color))
 
@@ -297,8 +309,8 @@ def grid_cell(children, **kwargs):
     from dash import html
     style = {
         "backgroundColor": "#000000",
-        "border": "1px solid #1a1a2e",
-        "padding": "8px",
+        "border": "1px solid #222240",
+        "padding": "14px",
         **kwargs.pop("style", {}),
     }
     return html.Div(children, style=style, **kwargs)
@@ -310,12 +322,12 @@ def section_header(text):
     from dash import html
     return html.Div(text, style={
         "color": "#ffffff",
-        "fontSize": "16px",
+        "fontSize": "12px",
         "fontWeight": "700",
         "fontFamily": "'JetBrains Mono', monospace",
         "letterSpacing": "1.5px",
         "textTransform": "uppercase",
-        "marginBottom": "4px",
-        "paddingBottom": "4px",
-        "borderBottom": "1px solid #1a1a2e",
+        "marginBottom": "8px",
+        "paddingBottom": "6px",
+        "borderBottom": "1px solid #333355",
     })

@@ -11,14 +11,16 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 :root {
     --bg: #000000;
-    --border: #1a1a2e;
+    --bg-stat: #06060f;
+    --border: #222240;
+    --border-accent: #333355;
     --text: #d4d4d4;
     --text-bright: #ffffff;
-    --text-muted: #666666;
+    --text-muted: #808080;
     --green: #00cc66;
     --red: #ff3333;
     --orange: #ff8800;
-    --grid: #1a1a2e;
+    --grid: #222240;
     --font: 'JetBrains Mono', monospace;
 
     /* Legacy aliases */
@@ -28,17 +30,17 @@
     --fx-loss: #ff3333;
     --fx-purple: #ff8800;
     --fx-text: #d4d4d4;
-    --fx-muted: #666666;
+    --fx-muted: #808080;
     --fx-navy: #000000;
     --fx-card: #000000;
     --fx-glass: #000000;
-    --fx-border: #1a1a2e;
+    --fx-border: #222240;
     --fx-grid: #111111;
     --fx-cyan: #ff8800;
     --fx-rose: #ff3333;
     --fx-emerald: #00cc66;
     --fx-crimson: #ff3333;
-    --fx-silver: #666666;
+    --fx-silver: #808080;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -65,25 +67,25 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Scrollbar — thin, dark, invisible until needed
+   Scrollbar — visible, grabbable
    ═══════════════════════════════════════════════════════════════════════════ */
 ::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
+    width: 6px;
+    height: 6px;
 }
 ::-webkit-scrollbar-track {
     background: #000000;
 }
 ::-webkit-scrollbar-thumb {
-    background: #1a1a2e;
+    background: #333355;
     border-radius: 0;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #333;
+    background: #444466;
 }
 * {
     scrollbar-width: thin;
-    scrollbar-color: #1a1a2e #000000;
+    scrollbar-color: #333355 #000000;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -91,16 +93,16 @@ body {
    ═══════════════════════════════════════════════════════════════════════════ */
 .Select-control {
     background-color: #000000 !important;
-    border-color: #1a1a2e !important;
+    border-color: #222240 !important;
     border-radius: 0 !important;
     color: #d4d4d4 !important;
-    min-height: 28px !important;
+    min-height: 32px !important;
     font-family: var(--font) !important;
     font-size: 11px !important;
 }
 .Select-menu-outer {
     background-color: #000000 !important;
-    border-color: #1a1a2e !important;
+    border-color: #222240 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
 }
@@ -109,15 +111,15 @@ body {
     color: #d4d4d4 !important;
     font-family: var(--font) !important;
     font-size: 11px !important;
-    padding: 6px 8px !important;
+    padding: 6px 10px !important;
 }
 .Select-option:hover,
 .Select-option.is-focused {
-    background-color: #1a1a2e !important;
+    background-color: #0a0a14 !important;
     color: #ff8800 !important;
 }
 .Select-option.is-selected {
-    background-color: #1a1a2e !important;
+    background-color: #0a0a14 !important;
     color: #ff8800 !important;
     font-weight: 700 !important;
 }
@@ -127,7 +129,7 @@ body {
     font-size: 11px !important;
 }
 .Select-placeholder {
-    color: #666666 !important;
+    color: #808080 !important;
     font-family: var(--font) !important;
     font-size: 11px !important;
 }
@@ -137,17 +139,17 @@ body {
     font-size: 11px !important;
 }
 .Select-arrow-zone .Select-arrow {
-    border-color: #666666 transparent transparent !important;
+    border-color: #808080 transparent transparent !important;
 }
 .Select-clear-zone {
-    color: #666666 !important;
+    color: #808080 !important;
 }
 .Select.is-open > .Select-control {
     border-color: #ff8800 !important;
 }
 .Select-multi-value-wrapper .Select-value {
-    background-color: #1a1a2e !important;
-    border-color: #1a1a2e !important;
+    background-color: #0a0a14 !important;
+    border-color: #222240 !important;
     color: #ff8800 !important;
     border-radius: 0 !important;
     font-size: 10px !important;
@@ -166,7 +168,7 @@ body {
     font-size: 11px !important;
 }
 .VirtualizedSelectFocusedOption {
-    background-color: #1a1a2e !important;
+    background-color: #0a0a14 !important;
     color: #ff8800 !important;
 }
 
@@ -174,32 +176,37 @@ body {
    DataTable — Terminal Grid
    ═══════════════════════════════════════════════════════════════════════════ */
 .dash-spreadsheet-container .dash-spreadsheet-inner {
-    border: 1px solid #1a1a2e !important;
+    border: 1px solid #222240 !important;
     border-radius: 0 !important;
 }
 .dash-spreadsheet-container .dash-spreadsheet-inner td,
 .dash-spreadsheet-container .dash-spreadsheet-inner th {
     background-color: #000000 !important;
     color: #d4d4d4 !important;
-    border: 1px solid #1a1a2e !important;
+    border: 1px solid #222240 !important;
     font-family: var(--font) !important;
     font-size: 11px !important;
-    padding: 4px 8px !important;
+    padding: 6px 10px !important;
     border-radius: 0 !important;
 }
+/* Alternating row colors for readability */
+.dash-spreadsheet-container .dash-spreadsheet-inner tr:nth-child(even) td {
+    background-color: #080812 !important;
+}
 .dash-spreadsheet-container .dash-spreadsheet-inner th {
-    color: #666666 !important;
+    color: #ffffff !important;
     font-weight: 700 !important;
-    font-size: 9px !important;
+    font-size: 10px !important;
     text-transform: uppercase !important;
     letter-spacing: 1px !important;
+    background-color: #0a0a14 !important;
 }
 .dash-spreadsheet-container .dash-spreadsheet-inner td.focused {
     outline: 1px solid #ff8800 !important;
-    background-color: #0a0a0a !important;
+    background-color: #0a0a14 !important;
 }
 .dash-spreadsheet-container .dash-spreadsheet-inner tr:hover td {
-    background-color: #0a0a0a !important;
+    background-color: #0c0c18 !important;
 }
 .dash-spreadsheet-container .dash-spreadsheet-inner .dash-select-cell {
     background-color: #000000 !important;
@@ -212,7 +219,7 @@ body {
     border: none !important;
 }
 .dash-spreadsheet-container .dash-spreadsheet-inner .dash-header {
-    background-color: #000000 !important;
+    background-color: #0a0a14 !important;
 }
 /* DataTable sort arrows */
 .dash-spreadsheet-container .column-header--sort {
@@ -221,7 +228,7 @@ body {
 /* DataTable filter */
 .dash-spreadsheet-container .dash-filter input {
     background-color: #000000 !important;
-    border: 1px solid #1a1a2e !important;
+    border: 1px solid #222240 !important;
     color: #d4d4d4 !important;
     font-family: var(--font) !important;
     font-size: 10px !important;
@@ -230,11 +237,11 @@ body {
 /* DataTable pagination */
 .dash-spreadsheet-container .previous-next-container {
     font-family: var(--font) !important;
-    color: #666666 !important;
+    color: #808080 !important;
 }
 .dash-spreadsheet-container .previous-next-container button {
     background-color: #000000 !important;
-    border: 1px solid #1a1a2e !important;
+    border: 1px solid #222240 !important;
     color: #d4d4d4 !important;
     border-radius: 0 !important;
     font-family: var(--font) !important;
@@ -256,7 +263,7 @@ body {
     border-radius: 0 !important;
 }
 .tab-container {
-    border-bottom: 1px solid #1a1a2e !important;
+    border-bottom: 1px solid #222240 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -267,7 +274,7 @@ input[type="number"],
 input[type="search"],
 textarea {
     background-color: #000000 !important;
-    border: 1px solid #1a1a2e !important;
+    border: 1px solid #222240 !important;
     border-radius: 0 !important;
     color: #d4d4d4 !important;
     font-family: var(--font) !important;
@@ -278,7 +285,7 @@ input:focus,
 textarea:focus {
     border-color: #ff8800 !important;
     outline: none !important;
-    box-shadow: none !important;
+    box-shadow: inset 0 0 0 1px rgba(255, 136, 0, 0.3) !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -290,7 +297,10 @@ button, .btn {
     transition: none !important;
 }
 button:hover {
-    opacity: 0.9;
+    filter: brightness(1.15);
+}
+button:active {
+    filter: brightness(0.9);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -302,7 +312,7 @@ button:hover {
    ═══════════════════════════════════════════════════════════════════════════ */
 .ticker-tape {
     background: #000000;
-    border-bottom: 1px solid #1a1a2e;
+    border-bottom: 1px solid #222240;
     padding: 6px 0;
     overflow: hidden;
     white-space: nowrap;
@@ -325,33 +335,42 @@ button:hover {
 }
 #command-palette-overlay > div {
     background-color: #000000 !important;
-    border: 1px solid #1a1a2e !important;
+    border: 1px solid #222240 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Stat Row — CSS Grid layout for KPI boxes
+   ═══════════════════════════════════════════════════════════════════════════ */
+.stat-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Stat Boxes
    ═══════════════════════════════════════════════════════════════════════════ */
 .stat-box {
-    cursor: pointer;
+    background-color: var(--bg-stat);
 }
 .stat-box:hover {
-    background-color: #0a0a0a !important;
+    background-color: #0c0c18 !important;
 }
 .stat-value {
     font-family: var(--font);
-    font-size: 13px;
+    font-size: 16px;
     font-weight: 700;
     color: #d4d4d4;
 }
 .stat-label {
     font-family: var(--font);
-    font-size: 9px;
-    color: #666666;
+    font-size: 10px;
+    color: #808080;
     text-transform: uppercase;
     letter-spacing: 1px;
-    margin-top: 2px;
+    margin-top: 4px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -359,12 +378,12 @@ button:hover {
    ═══════════════════════════════════════════════════════════════════════════ */
 .grid-row {
     display: flex;
-    gap: 4px;
+    gap: 8px;
 }
 .grid-cell {
     background: #000000;
-    border: 1px solid #1a1a2e;
-    padding: 8px;
+    border: 1px solid #222240;
+    padding: 14px;
     flex: 1;
 }
 
@@ -378,9 +397,9 @@ button:hover {
     font-family: var(--font);
     letter-spacing: 1.5px;
     text-transform: uppercase;
-    margin-bottom: 4px;
-    padding-bottom: 4px;
-    border-bottom: 1px solid #1a1a2e;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #333355;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -409,7 +428,7 @@ button:hover {
     border: 1px solid;
 }
 .regime-badge.low { color: #00cc66; border-color: #00cc66; }
-.regime-badge.normal { color: #d4d4d4; border-color: #666666; }
+.regime-badge.normal { color: #d4d4d4; border-color: #808080; }
 .regime-badge.elevated { color: #ff8800; border-color: #ff8800; }
 .regime-badge.high { color: #ff3333; border-color: #ff3333; }
 .regime-badge.crisis { color: #ff0000; border-color: #ff0000; background: rgba(255,0,0,0.1); }
@@ -424,7 +443,7 @@ button:hover {
 }
 .signal-badge.buy { color: #00cc66; }
 .signal-badge.sell { color: #ff3333; }
-.signal-badge.neutral { color: #666666; }
+.signal-badge.neutral { color: #808080; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Modal — Metric Popup
@@ -440,7 +459,7 @@ button:hover {
 }
 .metric-popup {
     background: #000000;
-    border: 1px solid #1a1a2e;
+    border: 1px solid #222240;
     padding: 16px;
     width: 700px;
     max-width: 90vw;
@@ -453,7 +472,7 @@ button:hover {
     align-items: center;
     margin-bottom: 12px;
     padding-bottom: 8px;
-    border-bottom: 1px solid #1a1a2e;
+    border-bottom: 1px solid #222240;
 }
 .metric-popup-title {
     color: #ffffff;
@@ -463,11 +482,11 @@ button:hover {
     letter-spacing: 1px;
 }
 .metric-popup-close {
-    color: #666666;
+    color: #808080;
     cursor: pointer;
     font-size: 16px;
     background: none;
-    border: 1px solid #1a1a2e;
+    border: 1px solid #222240;
     padding: 2px 8px;
     font-family: var(--font);
 }
@@ -487,7 +506,7 @@ button:hover {
     color: #d4d4d4;
 }
 .metric-popup-stat span {
-    color: #666666;
+    color: #808080;
     font-size: 9px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -497,11 +516,11 @@ button:hover {
     gap: 8px;
     margin-top: 12px;
     padding-top: 8px;
-    border-top: 1px solid #1a1a2e;
+    border-top: 1px solid #222240;
 }
 .metric-popup-btn {
     background: #000000;
-    border: 1px solid #1a1a2e;
+    border: 1px solid #222240;
     color: #d4d4d4;
     padding: 4px 12px;
     font-family: var(--font);
@@ -529,10 +548,10 @@ button:hover {
     gap: 4px;
     font-family: var(--font);
     font-size: 9px;
-    color: #666666;
+    color: #808080;
     cursor: pointer;
     padding: 2px 8px;
-    border: 1px solid #1a1a2e;
+    border: 1px solid #222240;
 }
 .watchlist-toggle.active {
     color: #ff8800;
@@ -557,7 +576,7 @@ button:hover {
     background-color: #000000 !important;
 }
 .dash-spinner {
-    border-color: #1a1a2e !important;
+    border-color: #333355 !important;
     border-top-color: #ff8800 !important;
 }
 
@@ -566,7 +585,7 @@ button:hover {
    ═══════════════════════════════════════════════════════════════════════════ */
 .dash-tooltip {
     background-color: #000000 !important;
-    border: 1px solid #1a1a2e !important;
+    border: 1px solid #222240 !important;
     border-radius: 0 !important;
     color: #d4d4d4 !important;
     font-family: var(--font) !important;
@@ -578,7 +597,7 @@ button:hover {
    Slider
    ═══════════════════════════════════════════════════════════════════════════ */
 .rc-slider-rail {
-    background-color: #1a1a2e !important;
+    background-color: #222240 !important;
 }
 .rc-slider-track {
     background-color: #ff8800 !important;
@@ -590,12 +609,12 @@ button:hover {
     box-shadow: none !important;
 }
 .rc-slider-dot {
-    border-color: #1a1a2e !important;
+    border-color: #222240 !important;
     background-color: #000000 !important;
     border-radius: 0 !important;
 }
 .rc-slider-mark-text {
-    color: #666666 !important;
+    color: #808080 !important;
     font-family: var(--font) !important;
     font-size: 9px !important;
 }
@@ -606,7 +625,7 @@ button:hover {
 .DateInput_input {
     background-color: #000000 !important;
     color: #d4d4d4 !important;
-    border: 1px solid #1a1a2e !important;
+    border: 1px solid #222240 !important;
     border-radius: 0 !important;
     font-family: var(--font) !important;
     font-size: 11px !important;
@@ -624,6 +643,7 @@ button:hover {
 }
 .heatmap-cell:hover {
     outline: 1px solid #ff8800;
+    background-color: rgba(255, 136, 0, 0.06);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -633,7 +653,7 @@ button:hover {
     display: inline-block;
     font-family: var(--font);
     font-size: 8px;
-    color: #666666;
+    color: #808080;
     cursor: pointer;
     letter-spacing: 0.5px;
     padding: 1px 4px;
@@ -641,7 +661,7 @@ button:hover {
 }
 .lab-link-btn:hover {
     color: #ff8800;
-    border-color: #1a1a2e;
+    border-color: #222240;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -677,7 +697,7 @@ button:hover {
    ═══════════════════════════════════════════════════════════════════════════ */
 .scratch-pad textarea {
     background: #000000 !important;
-    border: 1px solid #1a1a2e !important;
+    border: 1px solid #222240 !important;
     color: #d4d4d4 !important;
     font-family: var(--font) !important;
     font-size: 11px !important;
@@ -693,26 +713,23 @@ button:hover {
    ═══════════════════════════════════════════════════════════════════════════ */
 .card, .card-body, .card-header {
     background-color: #000000 !important;
-    border-color: #1a1a2e !important;
+    border-color: #222240 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
 }
 .modal-content {
     background-color: #000000 !important;
-    border: 1px solid #1a1a2e !important;
+    border: 1px solid #222240 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
 }
 .modal-header, .modal-footer {
-    border-color: #1a1a2e !important;
+    border-color: #222240 !important;
 }
 .close {
-    color: #666666 !important;
+    color: #808080 !important;
 }
 .alert {
     border-radius: 0 !important;
     font-family: var(--font) !important;
 }
-
-/* Glassmorphism overrides removed — they interfere with Plotly SVG rendering */
-/* cache-bust: 1774266386 */

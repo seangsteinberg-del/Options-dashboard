@@ -19,6 +19,7 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, TAB_STYLE, TAB_SELECTED_STYLE,
     TABLE_HEADER_STYLE, TABLE_CELL_STYLE, clickable_stat, make_stat_style,
+    GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
 )
 from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days
 
@@ -124,10 +125,10 @@ def _chart_layout(**overrides):
 def _empty_fig(title=""):
     fig = go.Figure()
     fig.update_layout(**_chart_layout(
-        height=220, margin=dict(l=20, r=10, t=30, b=10),
-        title=dict(text=title, font=dict(size=10, color="#666666")),
+        height=CHART_SM, margin=dict(l=20, r=10, t=30, b=10),
+        title=dict(text=title, font=dict(size=10, color="#808080")),
         annotations=[dict(text="No data", x=0.5, y=0.5, showarrow=False,
-                          font=dict(color="#666666", size=11), xref="paper", yref="paper")]))
+                          font=dict(color="#808080", size=11), xref="paper", yref="paper")]))
     return fig
 
 
@@ -256,14 +257,14 @@ def _build_top_movers(rows):
         ("RICHEST VOL", f"{richest['pair']} {richest['atm3m_pct']:.0f}%ile", "#ff3333"),
         ("BIGGEST SKEW", f"{biggest_skew['pair']} {biggest_skew['rr25_3m']:+.1f}", "#ff8800"),
         ("IV-RV GAP", f"{biggest_ivrv['pair']} {biggest_ivrv['ivrv_3m']:+.1f}", "#ff8800"),
-        ("SIGNALS", f"{n_signals}/{len(rows)}", "#00cc66" if n_signals > 0 else "#666666"),
+        ("SIGNALS", f"{n_signals}/{len(rows)}", "#00cc66" if n_signals > 0 else "#808080"),
     ]
     boxes = []
     for label, value, color in items:
         boxes.append(html.Div([
             html.Div(value, style={"fontSize": "11px", "fontWeight": "700",
                                    "color": color, "fontFamily": _MONO}),
-            html.Div(label, style={"fontSize": "8px", "color": "#666666",
+            html.Div(label, style={"fontSize": "8px", "color": "#808080",
                                    "letterSpacing": "1px", "fontFamily": _MONO}),
         ], style={**STAT_BOX_STYLE, "borderTop": f"2px solid {color}", "flex": "1"}))
     return boxes
@@ -314,10 +315,10 @@ def _build_heatmap(metric, lookback):
             colorbar=dict(title="Pctl", tickfont=dict(size=8), len=0.5),
             xgap=1, ygap=1,
         ))
-        fig.update_layout(**_chart_layout(height=520,
+        fig.update_layout(**_chart_layout(height=CHART_LG,
                           margin=dict(l=65, r=60, t=30, b=20),
                           title=dict(text=f"VOL RICHNESS — {metric} ({lookback}D)",
-                                     font=dict(size=10, color="#666666")),
+                                     font=dict(size=10, color="#808080")),
                           yaxis=dict(autorange="reversed", tickfont=dict(size=8)),
                           xaxis=dict(tickfont=dict(size=9))))
         return fig
@@ -341,16 +342,16 @@ def _build_cross_bar(metric, lookback):
         data.sort(key=lambda d: d["pct"])
         pairs_l = [d["pair"] for d in data]
         pcts = [d["pct"] for d in data]
-        colors = ["#0044ff" if p < 20 else "#ff3333" if p > 80 else "#666666" for p in pcts]
+        colors = ["#0044ff" if p < 20 else "#ff3333" if p > 80 else "#808080" for p in pcts]
 
         fig = go.Figure(go.Bar(y=pairs_l, x=pcts, orientation="h",
                                 marker_color=colors,
                                 text=[f"{p:.0f}%" for p in pcts],
                                 textposition="outside", textfont=dict(size=7)))
-        fig.update_layout(**_chart_layout(height=360,
+        fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=55, r=20, t=25, b=10), showlegend=False,
                           title=dict(text=f"3M {metric} PERCENTILE RANK",
-                                     font=dict(size=10, color="#666666")),
+                                     font=dict(size=10, color="#808080")),
                           xaxis=dict(range=[0, 105], tickfont=dict(size=8)),
                           yaxis=dict(tickfont=dict(size=7))))
         return fig
@@ -383,17 +384,17 @@ def _build_atm_history(pair, tenor, lookback):
                                  mode="lines", line=dict(color="#333355", width=1, dash="dot"),
                                  fill="tonexty", fillcolor="rgba(51,51,85,0.25)", showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=[mean_v]*len(x),
-                                 mode="lines", line=dict(color="#666666", width=1, dash="dash"),
+                                 mode="lines", line=dict(color="#808080", width=1, dash="dash"),
                                  showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=arr.tolist(), mode="lines",
                                  line=dict(color="#ff8800", width=2.5), name="ATM"))
         fig.add_trace(go.Scatter(x=[len(arr)-1], y=[float(arr[-1])],
                                  mode="markers", marker=dict(color="#ff8800", size=7),
                                  showlegend=False))
-        fig.update_layout(**_chart_layout(height=240,
+        fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=False,
                           title=dict(text=f"{pair} ATM {tenor} HISTORY",
-                                     font=dict(size=9, color="#666666"))))
+                                     font=dict(size=9, color="#808080"))))
         return fig
     except Exception:
         return _empty_fig(f"{pair} ATM HISTORY")
@@ -416,11 +417,11 @@ def _build_ivrv_chart(pair, tenor, lookback):
                                  line=dict(color="#ff8800", width=2.5), name="IV"))
         fig.add_trace(go.Scatter(x=x, y=rv, mode="lines",
                                  line=dict(color="#00cc66", width=1.5), name="RV"))
-        fig.update_layout(**_chart_layout(height=240,
+        fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} IV vs RV ({tenor})",
-                                     font=dict(size=9, color="#666666"))))
+                                     font=dict(size=9, color="#808080"))))
         return fig
     except Exception:
         return _empty_fig(f"{pair} IV-RV")
@@ -456,18 +457,18 @@ def _build_volcone_chart(pair, lookback):
                                      showlegend=False))
         if "p50" in cone.columns:
             fig.add_trace(go.Scatter(x=x, y=cone["p50"].values, mode="lines",
-                                     line=dict(color="#666666", width=1, dash="dot"),
+                                     line=dict(color="#808080", width=1, dash="dot"),
                                      name="Median"))
         if "current" in cone.columns:
             fig.add_trace(go.Scatter(x=x, y=cone["current"].values, mode="lines+markers",
                                      line=dict(color="#ff8800", width=2),
                                      marker=dict(size=4), name="Current RV"))
 
-        fig.update_layout(**_chart_layout(height=240,
+        fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} VOL CONE",
-                                     font=dict(size=9, color="#666666"))))
+                                     font=dict(size=9, color="#808080"))))
         return fig
     except Exception:
         return _empty_fig(f"{pair} VOL CONE")
@@ -517,12 +518,12 @@ def _build_drill_stats(pair, tenor, lookback):
             boxes.append(html.Div([
                 html.Div(value, style={"fontSize": "11px", "fontWeight": "700",
                                        "color": color, "fontFamily": _MONO}),
-                html.Div(label, style={"fontSize": "8px", "color": "#666666",
+                html.Div(label, style={"fontSize": "8px", "color": "#808080",
                                        "letterSpacing": "1px", "fontFamily": _MONO}),
             ], style={**STAT_BOX_STYLE, "marginBottom": "4px"}))
         return boxes
     except Exception:
-        return [html.Div("Error loading stats", style={"color": "#666666", "fontSize": "10px"})]
+        return [html.Div("Error loading stats", style={"color": "#808080", "fontSize": "10px"})]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -554,10 +555,10 @@ def _build_skew_surface():
             colorbar=dict(title="RR", tickfont=dict(size=8), len=0.5),
             xgap=1, ygap=1,
         ))
-        fig.update_layout(**_chart_layout(height=420,
+        fig.update_layout(**_chart_layout(height=CHART_LG,
                           margin=dict(l=65, r=60, t=30, b=20),
                           title=dict(text="25D RISK REVERSAL SURFACE",
-                                     font=dict(size=10, color="#666666")),
+                                     font=dict(size=10, color="#808080")),
                           yaxis=dict(autorange="reversed", tickfont=dict(size=8)),
                           xaxis=dict(tickfont=dict(size=9))))
         return fig
@@ -603,11 +604,11 @@ def _build_rr_spot_chart(pair, tenor):
         fig.add_trace(go.Scatter(x=x, y=spot_arr, mode="lines",
                                  line=dict(color="#ffffff", width=1, dash="dot"), name="Spot"),
                       secondary_y=True)
-        fig.update_layout(**_chart_layout(height=220,
+        fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=50, r=50, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} RR vs SPOT ({tenor})",
-                                     font=dict(size=9, color="#666666"))))
+                                     font=dict(size=9, color="#808080"))))
         return fig
     except Exception:
         return _empty_fig(f"{pair} RR vs SPOT")
@@ -643,11 +644,11 @@ def _build_smile_comparison(pair):
                                      line=dict(color=color, width=1.5),
                                      marker=dict(size=4), name=tenor))
 
-        fig.update_layout(**_chart_layout(height=220,
+        fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} SMILE COMPARISON",
-                                     font=dict(size=9, color="#666666"))))
+                                     font=dict(size=9, color="#808080"))))
         return fig
     except Exception:
         return _empty_fig(f"{pair} SMILE")
@@ -672,16 +673,16 @@ def _build_bf_map():
         data.sort(key=lambda d: d["bf"])
         pairs_l = [d["pair"] for d in data]
         bfs = [d["bf"] for d in data]
-        colors = ["#ff3333" if b > 0.8 else "#ff8800" if b > 0.4 else "#666666" for b in bfs]
+        colors = ["#ff3333" if b > 0.8 else "#ff8800" if b > 0.4 else "#808080" for b in bfs]
 
         fig = go.Figure(go.Bar(y=pairs_l, x=bfs, orientation="h",
                                 marker_color=colors,
                                 text=[f"{b:.2f}" for b in bfs],
                                 textposition="outside", textfont=dict(size=7)))
-        fig.update_layout(**_chart_layout(height=360,
+        fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=55, r=20, t=25, b=10), showlegend=False,
                           title=dict(text="25D BUTTERFLY (3M)",
-                                     font=dict(size=10, color="#666666")),
+                                     font=dict(size=10, color="#808080")),
                           xaxis=dict(tickfont=dict(size=8)),
                           yaxis=dict(tickfont=dict(size=7))))
         return fig
@@ -710,8 +711,8 @@ def _build_tail_table(pair, tenor):
             except Exception:
                 up, dn = 0, 0
 
-            up_color = "#ff3333" if up > 15 else "#ff8800" if up > 5 else "#666666"
-            dn_color = "#ff3333" if dn > 15 else "#ff8800" if dn > 5 else "#666666"
+            up_color = "#ff3333" if up > 15 else "#ff8800" if up > 5 else "#808080"
+            dn_color = "#ff3333" if dn > 15 else "#ff8800" if dn > 5 else "#808080"
             body.append(html.Tr([
                 html.Td(f"±{move}%", style={**TABLE_CELL_STYLE, "fontWeight": "600"}),
                 html.Td(f"{up:.1f}%", style={**TABLE_CELL_STYLE, "color": up_color}),
@@ -721,7 +722,7 @@ def _build_tail_table(pair, tenor):
                           style={"width": "100%", "borderCollapse": "collapse",
                                  "fontFamily": _MONO, "fontSize": "10px"})
     except Exception:
-        return html.Div("No tail data", style={"color": "#666666", "fontSize": "10px"})
+        return html.Div("No tail data", style={"color": "#808080", "fontSize": "10px"})
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -744,10 +745,10 @@ def _spark_term_structure(pair):
         fig = go.Figure(go.Scatter(x=labels, y=vols, mode="lines+markers",
                                     line=dict(color="#ff8800", width=2.5),
                                     marker=dict(size=5)))
-        fig.update_layout(**_chart_layout(height=180,
+        fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=20, b=15), showlegend=False,
                           title=dict(text=f"{pair} TERM STRUCTURE",
-                                     font=dict(size=9, color="#666666"))))
+                                     font=dict(size=9, color="#808080"))))
         return fig
     except Exception:
         return _empty_fig(f"{pair} TERM")
@@ -780,29 +781,29 @@ def layout():
                              clearable=False, style={**DROPDOWN_STYLE, "width": "120px"}),
                 dcc.Dropdown(id=f"{_P}-heatmap-metric", options=METRIC_OPTIONS, value="ATM",
                              clearable=False, style={**DROPDOWN_STYLE, "width": "90px"}),
-            ], style={"display": "flex", "gap": "6px"}),
+            ], style={"display": "flex", "gap": GAP}),
         ], style={"display": "flex", "justifyContent": "space-between",
                   "alignItems": "center", "padding": "8px 0",
-                  "borderBottom": "1px solid #1a1a2e"}),
+                  "borderBottom": "1px solid #222240"}),
 
         # ── View Tabs ──
         dcc.Tabs(id=f"{_P}-view-tabs", value="table", children=[
             dcc.Tab(label="TABLE", value="table", style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
             dcc.Tab(label="HEATMAP", value="heatmap", style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
             dcc.Tab(label="SKEW", value="skew", style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
-        ], style={"marginTop": "4px", "marginBottom": "0"}),
+        ], style={"marginTop": GAP, "marginBottom": "0"}),
 
         # ── Table View Container ──
         html.Div(id=f"{_P}-table-container", children=[
             # Top movers
             html.Div(id=f"{_P}-top-movers", style={
-                "display": "flex", "gap": "6px", "padding": "8px 0", "flexWrap": "wrap",
+                "display": "flex", "gap": GAP, "padding": "8px 0", "flexWrap": "wrap",
             }),
             # DataTable
-            html.Div(id=f"{_P}-table-wrapper", style={"marginTop": "4px"}),
+            html.Div(id=f"{_P}-table-wrapper", style={"marginTop": GAP}),
             # Drill-down
             html.Div(id=f"{_P}-table-drilldown", style={
-                "display": "none", "marginTop": "8px", "border": "1px solid #1a1a2e",
+                "display": "none", "marginTop": "8px", "border": "1px solid #222240",
                 "padding": "8px",
             }, children=[
                 html.Div(id=f"{_P}-drilldown-title", style={
@@ -816,7 +817,7 @@ def layout():
                               style={"flex": "1", "minWidth": "200px"}),
                     dcc.Graph(id=f"{_P}-spark-term", config={"displayModeBar": False, "responsive": True},
                               style={"flex": "1", "minWidth": "200px"}),
-                ], style={"display": "flex", "gap": "4px"}),
+                ], style={"display": "flex", "gap": GAP}),
             ]),
         ]),
 
@@ -826,22 +827,22 @@ def layout():
                 # Main heatmap
                 html.Div([
                     dcc.Graph(id=f"{_P}-heatmap", config={"displayModeBar": False, "responsive": True},
-                              style={"height": "520px"}),
-                ], style={"flex": "2"}),
+                              style={"height": f"{CHART_LG}px"}),
+                ], style={"flex": "3"}),
                 # Cross-pair bar
                 html.Div([
                     dcc.Graph(id=f"{_P}-cross-bar", config={"displayModeBar": False, "responsive": True},
-                              style={"height": "360px"}),
-                ], style={"flex": "1"}),
-            ], style={"display": "flex", "gap": "4px"}),
+                              style={"height": f"{CHART_MD}px"}),
+                ], style={"flex": "2"}),
+            ], style={"display": "flex", "gap": GAP}),
 
             # Drill-down section
             html.Div(id=f"{_P}-hm-drill", style={
-                "marginTop": "8px", "border": "1px solid #1a1a2e", "padding": "8px",
+                "marginTop": SECTION_GAP, "border": "1px solid #222240", "padding": GAP,
             }, children=[
                 html.Div(id=f"{_P}-drill-label", style={
                     "color": "#ff8800", "fontSize": "11px", "fontWeight": "700",
-                    "marginBottom": "8px", "fontFamily": _MONO,
+                    "marginBottom": GAP, "fontFamily": _MONO,
                 }),
                 html.Div([
                     dcc.Graph(id=f"{_P}-drill-atm", config={"displayModeBar": False, "responsive": True},
@@ -851,7 +852,7 @@ def layout():
                     dcc.Graph(id=f"{_P}-drill-cone", config={"displayModeBar": False, "responsive": True},
                               style={"flex": "1", "minWidth": "200px"}),
                     html.Div(id=f"{_P}-drill-stats", style={"minWidth": "120px"}),
-                ], style={"display": "flex", "gap": "4px"}),
+                ], style={"display": "flex", "gap": GAP}),
             ]),
         ]),
 
@@ -859,7 +860,7 @@ def layout():
         html.Div(id=f"{_P}-skew-container", style={"display": "none"}, children=[
             # Skew surface
             dcc.Graph(id=f"{_P}-skew-surface", config={"displayModeBar": False, "responsive": True},
-                      style={"height": "420px"}),
+                      style={"height": f"{CHART_LG}px"}),
 
             # RR vs Spot + Smile comparison
             html.Div([
@@ -868,28 +869,28 @@ def layout():
                     dcc.Dropdown(id=f"{_P}-skew-pair", options=[{"label": p, "value": p} for p in ALL_PAIRS],
                                  value="EURUSD", clearable=False,
                                  style={**DROPDOWN_STYLE, "width": "120px"}),
-                ], style={"display": "flex", "alignItems": "center", "gap": "6px",
+                ], style={"display": "flex", "alignItems": "center", "gap": GAP,
                           "padding": "4px 0"}),
                 html.Div([
                     dcc.Graph(id=f"{_P}-rr-spot", config={"displayModeBar": False, "responsive": True},
                               style={"flex": "1", "minWidth": "300px"}),
                     dcc.Graph(id=f"{_P}-smile", config={"displayModeBar": False, "responsive": True},
                               style={"flex": "1", "minWidth": "300px"}),
-                ], style={"display": "flex", "gap": "4px"}),
+                ], style={"display": "flex", "gap": GAP}),
             ]),
 
             # BF map + Tail table
             html.Div([
                 dcc.Graph(id=f"{_P}-bf-map", config={"displayModeBar": False, "responsive": True},
-                          style={"flex": "2", "height": "360px"}),
+                          style={"flex": "3", "height": f"{CHART_MD}px"}),
                 html.Div([
                     html.Div("TAIL PROBABILITIES", style={
-                        "color": "#666666", "fontSize": "9px", "fontWeight": "700",
-                        "letterSpacing": "1.5px", "marginBottom": "6px", "fontFamily": _MONO,
+                        "color": "#808080", "fontSize": "9px", "fontWeight": "700",
+                        "letterSpacing": "1.5px", "marginBottom": GAP, "fontFamily": _MONO,
                     }),
                     html.Div(id=f"{_P}-tail-table"),
-                ], style={"flex": "1", "padding": "8px", "border": "1px solid #1a1a2e"}),
-            ], style={"display": "flex", "gap": "4px", "marginTop": "4px"}),
+                ], style={"flex": "2", "padding": GAP, "border": "1px solid #222240"}),
+            ], style={"display": "flex", "gap": GAP, "marginTop": GAP}),
         ]),
 
     ], style={"fontFamily": _MONO})
@@ -976,20 +977,20 @@ def register_callbacks(app):
             row_selectable="single",
             style_table={"overflowX": "auto", "maxHeight": "450px", "overflowY": "auto"},
             style_header={
-                "backgroundColor": "#000000", "color": "#666666",
+                "backgroundColor": "#000000", "color": "#808080",
                 "fontWeight": "700", "fontSize": "9px", "textTransform": "uppercase",
-                "letterSpacing": "1px", "border": "1px solid #1a1a2e",
+                "letterSpacing": "1px", "border": "1px solid #222240",
                 "fontFamily": _MONO,
             },
             style_cell={
                 "backgroundColor": "#000000", "color": "#d4d4d4",
                 "fontSize": "11px", "fontFamily": _MONO,
-                "border": "1px solid #1a1a2e", "padding": "4px 6px",
+                "border": "1px solid #222240", "padding": "4px 6px",
                 "textAlign": "right", "minWidth": "60px",
             },
             style_cell_conditional=[
                 {"if": {"column_id": "pair"}, "textAlign": "left", "fontWeight": "700"},
-                {"if": {"column_id": "group"}, "textAlign": "center", "color": "#666666"},
+                {"if": {"column_id": "group"}, "textAlign": "center", "color": "#808080"},
                 {"if": {"column_id": "spot"}, "color": "#888888"},
                 {"if": {"column_id": "signal"}, "textAlign": "left", "fontSize": "9px"},
             ],
@@ -1049,7 +1050,7 @@ def register_callbacks(app):
         pair = row.get("pair", "EURUSD")
 
         return (
-            {"display": "block", "marginTop": "8px", "border": "1px solid #1a1a2e", "padding": "8px"},
+            {"display": "block", "marginTop": "8px", "border": "1px solid #222240", "padding": "8px"},
             f"{pair} — DRILL-DOWN",
             _build_atm_history(pair, "3M", 252),
             _build_ivrv_chart(pair, "3M", 252),

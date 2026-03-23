@@ -25,6 +25,7 @@ import pandas as pd
 from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     make_stat_style, grid_cell, section_header, chart_layout,
+    GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
 )
 from core.bloomberg_fx import (
     get_fx_spots, get_fx_vol_surface, get_fx_rates, get_all_pairs,
@@ -202,31 +203,31 @@ PRESET_OPTIONS = [{"label": "-- Select Preset --", "value": ""}] + [
 #  Styles
 # ============================================================================
 
-LABEL_STYLE = {"color": "#666666", "fontSize": "9px", "fontWeight": "600", "fontFamily": _FONT,
+LABEL_STYLE = {"color": "#808080", "fontSize": "9px", "fontWeight": "600", "fontFamily": _FONT,
                "textTransform": "uppercase", "letterSpacing": "1.2px", "marginBottom": "2px", "display": "block"}
-SLOT_STYLE = {"backgroundColor": "#000000", "border": "1px solid #1a1a2e", "borderRadius": "0px", "padding": "6px"}
-CTRL_WRAP = {"display": "flex", "gap": "6px", "flexWrap": "wrap", "alignItems": "flex-end", "marginBottom": "4px"}
+SLOT_STYLE = {"backgroundColor": "#000000", "border": "1px solid #222240", "borderRadius": "0px", "padding": "6px"}
+CTRL_WRAP = {"display": "flex", "gap": GAP, "flexWrap": "wrap", "alignItems": "flex-end", "marginBottom": GAP}
 BTN_STYLE = {"backgroundColor": "#ff8800", "color": "#000000", "border": "none", "borderRadius": "0px",
              "padding": "4px 12px", "fontFamily": _FONT, "fontSize": "9px", "fontWeight": "700",
              "cursor": "pointer", "letterSpacing": "0.8px", "textTransform": "uppercase"}
-BTN_TOGGLE_STYLE = {"backgroundColor": "#000000", "color": "#666666", "border": "1px solid #1a1a2e",
+BTN_TOGGLE_STYLE = {"backgroundColor": "#000000", "color": "#808080", "border": "1px solid #222240",
                     "borderRadius": "0px", "padding": "4px 10px", "fontFamily": _FONT, "fontSize": "9px",
                     "fontWeight": "700", "cursor": "pointer", "letterSpacing": "0.8px",
                     "textTransform": "uppercase", "marginRight": "4px"}
 BTN_TOGGLE_ACTIVE = {**BTN_TOGGLE_STYLE, "backgroundColor": "#ff8800", "color": "#000000", "border": "1px solid #ff8800"}
-BTN_PIN = {"backgroundColor": "transparent", "color": "#666666", "border": "1px solid #1a1a2e",
+BTN_PIN = {"backgroundColor": "transparent", "color": "#808080", "border": "1px solid #222240",
            "borderRadius": "0px", "padding": "2px 6px", "fontFamily": _FONT, "fontSize": "10px",
            "cursor": "pointer", "marginLeft": "auto"}
-TEXTAREA_STYLE = {"backgroundColor": "#000000", "color": "#d4d4d4", "border": "1px solid #1a1a2e",
+TEXTAREA_STYLE = {"backgroundColor": "#000000", "color": "#d4d4d4", "border": "1px solid #222240",
                   "borderRadius": "0px", "fontFamily": _FONT, "fontSize": "11px", "width": "100%",
                   "minHeight": "100px", "padding": "8px", "resize": "vertical"}
 GRAPH_CONFIG = {"displayModeBar": True, "displaylogo": False,
                 "modeBarButtonsToRemove": ["zoom2d", "pan2d", "select2d", "lasso2d",
                                            "zoomIn2d", "zoomOut2d", "autoScale2d", "resetScale2d"],
                 "toImageButtonOptions": {"format": "png", "height": 600, "width": 1000}}
-STAT_STRIP = {"display": "flex", "gap": "12px", "padding": "4px 6px", "borderTop": "1px solid #1a1a2e",
-              "marginTop": "2px", "flexWrap": "wrap"}
-STAT_ITEM = {"fontFamily": _FONT, "fontSize": "9px", "color": "#666666", "letterSpacing": "0.5px"}
+STAT_STRIP = {"display": "flex", "gap": "12px", "padding": f"{GAP} {GAP}", "borderTop": "1px solid #222240",
+              "marginTop": GAP, "flexWrap": "wrap"}
+STAT_ITEM = {"fontFamily": _FONT, "fontSize": "9px", "color": "#808080", "letterSpacing": "0.5px"}
 STAT_VAL = {"fontFamily": _FONT, "fontSize": "10px", "fontWeight": "700", "marginLeft": "4px"}
 
 
@@ -246,10 +247,10 @@ def _chart_slot(i):
             html.Span(f"SLOT {i+1}", style={"color": "#ff8800", "fontSize": "9px", "fontWeight": "700",
                                               "fontFamily": _FONT, "letterSpacing": "1.5px"}),
             html.Span(id={"type": "lab-slot-summary", "index": i}, children="",
-                      style={"color": "#666666", "fontSize": "9px", "fontFamily": _FONT, "marginLeft": "8px"}),
+                      style={"color": "#808080", "fontSize": "9px", "fontFamily": _FONT, "marginLeft": "8px"}),
             html.Button("\U0001F4CC", id={"type": "lab-pin-btn", "index": i}, n_clicks=0,
                         style=BTN_PIN, title="Pin this chart config"),
-        ], style={"display": "flex", "alignItems": "center", "marginBottom": "4px"}),
+        ], style={"display": "flex", "alignItems": "center", "marginBottom": GAP}),
         # Controls row
         html.Div([
             html.Div([html.Label("METRIC", style=LABEL_STYLE),
@@ -283,7 +284,7 @@ def _chart_slot(i):
                      style={"flex": "0.6", "minWidth": "70px"}),
         ], style=CTRL_WRAP),
         # Chart
-        dcc.Graph(id={"type": "lab-chart", "index": i}, style={"height": "400px"}, config=GRAPH_CONFIG),
+        dcc.Graph(id={"type": "lab-chart", "index": i}, style={"height": f"{CHART_MD}px"}, config=GRAPH_CONFIG),
         # Stats strip
         html.Div(id={"type": "lab-slot-stats", "index": i}, children=[], style=STAT_STRIP),
     ], style=SLOT_STYLE)
@@ -300,7 +301,7 @@ def layout():
             html.Div([
                 html.Span("CHART LAB", style={"color": "#ff8800", "fontSize": "13px", "fontWeight": "700",
                                                "fontFamily": _FONT, "letterSpacing": "2px"}),
-                html.Span("  |  Analytical Workshop", style={"color": "#666666", "fontSize": "10px",
+                html.Span("  |  Analytical Workshop", style={"color": "#808080", "fontSize": "10px",
                                                               "fontFamily": _FONT}),
             ], style={"flex": "1"}),
             # Preset
@@ -329,8 +330,8 @@ def layout():
                 html.Button("4", id="lab-layout-4", n_clicks=0, style=BTN_TOGGLE_STYLE),
             ], style={"display": "flex", "alignItems": "center"}),
         ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center",
-                  "padding": "6px 8px", "borderBottom": "1px solid #1a1a2e", "marginBottom": "6px",
-                  "flexWrap": "wrap", "gap": "4px"}),
+                  "padding": f"{GAP} {GAP}", "borderBottom": "1px solid #222240", "marginBottom": GAP,
+                  "flexWrap": "wrap", "gap": GAP}),
 
         # Stores
         dcc.Store(id="lab-layout-store", data=2),
@@ -343,11 +344,11 @@ def layout():
         html.Div(id="lab-row-1", children=[
             html.Div(_chart_slot(0), style={"flex": "1", "minWidth": "400px"}),
             html.Div(_chart_slot(1), style={"flex": "1", "minWidth": "400px"}),
-        ], style={"display": "flex", "gap": "6px", "marginBottom": "6px"}),
+        ], style={"display": "flex", "gap": GAP, "marginBottom": GAP}),
         html.Div(id="lab-row-2", children=[
             html.Div(_chart_slot(2), style={"flex": "1", "minWidth": "400px"}),
             html.Div(_chart_slot(3), style={"flex": "1", "minWidth": "400px"}),
-        ], style={"display": "flex", "gap": "6px", "marginBottom": "6px"}),
+        ], style={"display": "flex", "gap": GAP, "marginBottom": SECTION_GAP}),
 
         # ── Deep Study Panel ─────────────────────────────────────────────
         html.Div([
@@ -369,9 +370,9 @@ def layout():
                 html.Div([html.Button("RUN STUDY", id="lab-study-run", n_clicks=0, style=BTN_STYLE)],
                          style={"display": "flex", "alignItems": "flex-end"}),
             ], style=CTRL_WRAP),
-            dcc.Graph(id="lab-study-chart", style={"height": "500px"}, config=GRAPH_CONFIG),
+            dcc.Graph(id="lab-study-chart", style={"height": f"{CHART_LG}px"}, config=GRAPH_CONFIG),
             html.Div(id="lab-study-stats", children=[], style=STAT_STRIP),
-        ], style={**CARD_STYLE, "marginBottom": "6px"}),
+        ], style={**CARD_STYLE, "marginTop": SECTION_GAP, "marginBottom": SECTION_GAP}),
 
         # ── Comparison ───────────────────────────────────────────────────
         html.Div([
@@ -393,8 +394,8 @@ def layout():
                 html.Div([html.Button("REFRESH", id="lab-comp-refresh", n_clicks=0, style=BTN_STYLE)],
                          style={"display": "flex", "alignItems": "flex-end"}),
             ], style=CTRL_WRAP),
-            dcc.Graph(id="lab-comp-chart", style={"height": "400px"}, config=GRAPH_CONFIG),
-        ], style={**CARD_STYLE, "marginBottom": "6px"}),
+            dcc.Graph(id="lab-comp-chart", style={"height": f"{CHART_LG}px"}, config=GRAPH_CONFIG),
+        ], style={**CARD_STYLE, "marginTop": SECTION_GAP, "marginBottom": SECTION_GAP}),
 
         # ── Scratchpad + Pinned ──────────────────────────────────────────
         html.Div([
@@ -403,7 +404,7 @@ def layout():
                 html.Div([
                     html.Div([html.Label("NOTES", style=LABEL_STYLE),
                                html.Span(id="lab-scratchpad-meta", children="",
-                                         style={"color": "#666666", "fontSize": "9px", "fontFamily": _FONT,
+                                         style={"color": "#808080", "fontSize": "9px", "fontFamily": _FONT,
                                                 "marginLeft": "8px"})],
                              style={"display": "flex", "alignItems": "center", "marginBottom": "2px"}),
                     dcc.Textarea(id="lab-scratchpad", value="", placeholder="Type session notes here...",
@@ -412,18 +413,18 @@ def layout():
                 html.Div([
                     html.Label("PINNED CHARTS", style=LABEL_STYLE),
                     html.Div(id="lab-pinned-list", children=[
-                        html.Div("No charts pinned yet.", style={"color": "#666666", "fontSize": "10px",
+                        html.Div("No charts pinned yet.", style={"color": "#808080", "fontSize": "10px",
                                                                   "fontFamily": _FONT, "padding": "8px"})],
-                             style={"border": "1px solid #1a1a2e", "minHeight": "100px", "maxHeight": "200px",
-                                    "overflowY": "auto", "padding": "4px"}),
+                             style={"border": "1px solid #222240", "minHeight": "100px", "maxHeight": "200px",
+                                    "overflowY": "auto", "padding": GAP}),
                 ], style={"flex": "1", "minWidth": "200px"}),
-            ], style={"display": "flex", "gap": "8px", "flexWrap": "wrap"}),
-        ], style=CARD_STYLE),
+            ], style={"display": "flex", "gap": GAP, "flexWrap": "wrap"}),
+        ], style={**CARD_STYLE, "marginTop": SECTION_GAP}),
 
         # Persistent stores (local)
         dcc.Store(id="lab-scratchpad-store", storage_type="local", data=""),
         dcc.Store(id="lab-pinned-store", storage_type="local", data=[]),
-    ], style={"backgroundColor": "#000000", "fontFamily": _FONT, "padding": "6px", "minHeight": "100vh"})
+    ], style={"backgroundColor": "#000000", "fontFamily": _FONT, "padding": GAP, "minHeight": "100vh"})
 
 
 # ============================================================================
@@ -518,7 +519,7 @@ def _empty(msg="No data"):
     fig.update_layout(**chart_layout(
         xaxis=dict(visible=False), yaxis=dict(visible=False),
         annotations=[dict(text=msg, xref="paper", yref="paper", x=0.5, y=0.5,
-                          showarrow=False, font=dict(color="#666666", size=12, family=_FONT))]))
+                          showarrow=False, font=dict(color="#808080", size=12, family=_FONT))]))
     return fig
 
 
@@ -543,7 +544,7 @@ def _study_vol_cone(pair, tenor, timeframe):
                                   ("p10", "rgba(255,136,0,0.15)", "10th")]:
             if col in df.columns:
                 fig.add_trace(go.Scatter(x=w, y=df[col].tolist(), mode="lines", name=name,
-                                         line=dict(color="#666666", width=1, dash="dot")))
+                                         line=dict(color="#808080", width=1, dash="dot")))
         if "median" in df.columns:
             fig.add_trace(go.Scatter(x=w, y=df["median"].tolist(), mode="lines", name="Median",
                                      line=dict(color="#d4d4d4", width=1.5, dash="dash")))
@@ -617,7 +618,7 @@ def _study_vol_regime(pair, tenor, timeframe):
                                   name=f"{pair} ATM", line=dict(color="#ff8800", width=2)))
         # Regime bands
         for level, color, label in [(20, "#ff3333", "CRISIS"), (14, "#ff8800", "HIGH"),
-                                     (10, "#ffaa33", "ELEVATED"), (6, "#666666", "NORMAL")]:
+                                     (10, "#ffaa33", "ELEVATED"), (6, "#808080", "NORMAL")]:
             fig.add_hline(y=level, line_dash="dot", line_color=color,
                           annotation_text=label, annotation_font_size=8, annotation_font_color=color)
         regime = vol_regime_detect(pair)
@@ -659,7 +660,7 @@ def _study_surface_heatmap(pair, func, title_prefix):
         if df is None or df.empty: return _empty("No surface data")
         is_pctile = "percentile" in title_prefix.lower() or df.values.max() > 10
         cscale = [[0, "#00cc66"], [0.5, "#000000"], [1, "#ff3333"]] if not is_pctile else \
-                 [[0, "#00cc66"], [0.25, "#1a1a2e"], [0.5, "#666666"], [0.75, "#1a1a2e"], [1, "#ff3333"]]
+                 [[0, "#00cc66"], [0.25, "#222240"], [0.5, "#808080"], [0.75, "#222240"], [1, "#ff3333"]]
         fig = go.Figure(data=go.Heatmap(
             z=df.values, x=df.columns.tolist(), y=df.index.tolist(),
             colorscale=cscale, text=np.round(df.values, 1).astype(str), texttemplate="%{text}",
@@ -1071,7 +1072,7 @@ def _build_deep_study(study_type, pairs, tenor):
                 w = vc["window"].tolist()
                 if "median" in vc.columns:
                     fig.add_trace(go.Scatter(x=w, y=vc["median"].tolist(), mode="lines", name="Median",
-                                  line=dict(color="#666666", dash="dash")), row=1, col=2)
+                                  line=dict(color="#808080", dash="dash")), row=1, col=2)
                 if "current_c2c" in vc.columns:
                     fig.add_trace(go.Scatter(x=w, y=vc["current_c2c"].tolist(), mode="lines+markers",
                                   name="Current RV", line=dict(color="#ff8800", width=2)), row=1, col=2)
@@ -1192,7 +1193,7 @@ def _build_deep_study(study_type, pairs, tenor):
             return _empty(f"Unknown study: {study_type}")
 
         fig.update_layout(**chart_layout(margin=dict(l=50, r=20, t=45, b=35), hovermode="x unified",
-                          height=500, showlegend=True))
+                          height=CHART_LG, showlegend=True))
         for ann in fig.layout.annotations:
             ann.font = dict(size=10, color="#ff8800", family=_FONT)
         return fig
@@ -1236,7 +1237,7 @@ def register_callbacks(app):
         Input("lab-layout-store", "data"))
     def _visibility(lc):
         lc = lc or 2
-        r1 = {"display": "flex", "gap": "6px", "marginBottom": "6px"}
+        r1 = {"display": "flex", "gap": GAP, "marginBottom": GAP}
         r2 = {**r1}
         s1, s2, s3 = {**SLOT_STYLE}, {**SLOT_STYLE}, {**SLOT_STYLE}
         if lc == 1:
@@ -1419,7 +1420,7 @@ def register_callbacks(app):
     @app.callback(Output("lab-pinned-list", "children"), Input("lab-pinned-store", "data"))
     def _render_pinned(pinned):
         if not pinned:
-            return html.Div("No charts pinned yet.", style={"color": "#666666", "fontSize": "10px",
+            return html.Div("No charts pinned yet.", style={"color": "#808080", "fontSize": "10px",
                                                              "fontFamily": _FONT, "padding": "8px"})
         items = []
         for idx, e in enumerate(pinned):
@@ -1431,7 +1432,7 @@ def register_callbacks(app):
                             style={"backgroundColor": "transparent", "color": "#ff3333", "border": "none",
                                    "cursor": "pointer", "fontFamily": _FONT, "fontSize": "12px", "padding": "0 4px"}),
             ], style={"display": "flex", "alignItems": "center", "padding": "4px 8px",
-                      "borderBottom": "1px solid #1a1a2e"}))
+                      "borderBottom": "1px solid #222240"}))
         return items
 
     # ── 13. Unpin ────────────────────────────────────────────────────

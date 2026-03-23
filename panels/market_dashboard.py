@@ -32,6 +32,7 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, TAB_STYLE, TAB_SELECTED_STYLE,
     TABLE_HEADER_STYLE, TABLE_CELL_STYLE, clickable_stat, make_stat_style,
+    GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
 )
 from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days
 
@@ -40,8 +41,8 @@ from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days
 _P = "mdash"  # prefix for all IDs
 
 _MONO = "'JetBrains Mono', monospace"
-_CHART_H = 320
-_SMALL_H = 280
+_CHART_H = CHART_MD
+_SMALL_H = CHART_SM
 
 ALL_PAIRS = sorted(FX_PAIR_REGISTRY.keys())
 
@@ -355,7 +356,7 @@ def _build_vol_index_chart(pairs):
                                  fill="tonexty", fillcolor="rgba(51,51,85,0.25)", showlegend=False))
         # Mean
         fig.add_trace(go.Scatter(x=x, y=[mean_v]*len(x),
-                                 mode="lines", line=dict(color="#666666", width=1, dash="dash"),
+                                 mode="lines", line=dict(color="#808080", width=1, dash="dash"),
                                  showlegend=False))
         # Index line
         fig.add_trace(go.Scatter(x=x, y=index.tolist(),
@@ -366,8 +367,8 @@ def _build_vol_index_chart(pairs):
                                  mode="markers", marker=dict(color="#ff8800", size=7),
                                  showlegend=False))
         fig.update_layout(**_chart_layout( height=_CHART_H,
-                          margin=dict(l=40, r=10, t=25, b=20), showlegend=False,
-                          title=dict(text="G10 VOL INDEX (60D)", font=dict(size=10, color="#666666"))))
+                          margin=dict(l=50, r=15, t=35, b=28), showlegend=False,
+                          title=dict(text="G10 VOL INDEX (60D)", font=dict(size=10, color="#808080"))))
         return fig
     except Exception:
         return _empty_fig("G10 VOL INDEX")
@@ -394,15 +395,15 @@ def _build_skew_chart(pairs):
         pairs_l = [d["pair"] for d in data]
         rrs = [d["rr"] for d in data]
         colors = [COLORS["accent_red"] if r < -0.3 else COLORS["accent_green"] if r > 0.3
-                  else "#666666" for r in rrs]
+                  else "#808080" for r in rrs]
 
         fig = go.Figure(go.Bar(y=pairs_l, x=rrs, orientation="h",
                                 marker_color=colors, text=[f"{r:+.1f}" for r in rrs],
                                 textposition="outside", textfont=dict(size=8, color="#d4d4d4")))
         fig.update_layout(**_chart_layout( height=_SMALL_H,
                           margin=dict(l=55, r=10, t=25, b=10), showlegend=False,
-                          title=dict(text="25D RR (SKEW)", font=dict(size=10, color="#666666")),
-                          xaxis=dict(zeroline=True, zerolinecolor="#666666", zerolinewidth=1,
+                          title=dict(text="25D RR (SKEW)", font=dict(size=10, color="#808080")),
+                          xaxis=dict(zeroline=True, zerolinecolor="#808080", zerolinewidth=1,
                                      gridcolor="#111111", tickfont=dict(size=8)),
                           yaxis=dict(tickfont=dict(size=8, color="#d4d4d4"))))
         return fig
@@ -433,7 +434,7 @@ def _build_term_chart(pairs):
         pairs_l = [d["pair"] for d in data]
         spreads = [d["spread"] for d in data]
         colors = [COLORS["accent_red"] if s > 0.5 else COLORS["accent_green"] if s < -0.5
-                  else "#666666" for s in spreads]
+                  else "#808080" for s in spreads]
 
         fig = go.Figure(go.Bar(y=pairs_l, x=spreads, orientation="h",
                                 marker_color=colors,
@@ -441,8 +442,8 @@ def _build_term_chart(pairs):
                                 textposition="outside", textfont=dict(size=8, color="#d4d4d4")))
         fig.update_layout(**_chart_layout( height=_SMALL_H,
                           margin=dict(l=55, r=10, t=25, b=10), showlegend=False,
-                          title=dict(text="1M-1Y SPREAD", font=dict(size=10, color="#666666")),
-                          xaxis=dict(zeroline=True, zerolinecolor="#666666", zerolinewidth=1,
+                          title=dict(text="1M-1Y SPREAD", font=dict(size=10, color="#808080")),
+                          xaxis=dict(zeroline=True, zerolinecolor="#808080", zerolinewidth=1,
                                      gridcolor="#111111", tickfont=dict(size=8)),
                           yaxis=dict(tickfont=dict(size=8, color="#d4d4d4"))))
         return fig
@@ -475,10 +476,10 @@ def _build_delta_bars():
                             marker_color=colors,
                             text=[f"{d:+.1f}M" for d in deltas],
                             textposition="outside", textfont=dict(size=8, color="#d4d4d4")))
-    fig.update_layout(**_chart_layout( height=200,
+    fig.update_layout(**_chart_layout( height=CHART_SM,
                       margin=dict(l=55, r=30, t=25, b=10), showlegend=False,
-                      title=dict(text="NET Δ BY PAIR", font=dict(size=10, color="#666666")),
-                      xaxis=dict(zeroline=True, zerolinecolor="#666666", gridcolor="#111111",
+                      title=dict(text="NET Δ BY PAIR", font=dict(size=10, color="#808080")),
+                      xaxis=dict(zeroline=True, zerolinecolor="#808080", gridcolor="#111111",
                                  tickfont=dict(size=8)),
                       yaxis=dict(tickfont=dict(size=8, color="#d4d4d4"))))
     return fig
@@ -494,9 +495,9 @@ def _empty_fig(title=""):
     fig = go.Figure()
     fig.update_layout(**_chart_layout(
         height=_CHART_H, margin=dict(l=20, r=10, t=30, b=10),
-        title=dict(text=title, font=dict(size=10, color="#666666")),
+        title=dict(text=title, font=dict(size=10, color="#808080")),
         annotations=[dict(text="No data", x=0.5, y=0.5, showarrow=False,
-                          font=dict(color="#666666", size=11), xref="paper", yref="paper")]))
+                          font=dict(color="#808080", size=11), xref="paper", yref="paper")]))
     return fig
 
 
@@ -515,7 +516,7 @@ def layout():
                     "letterSpacing": "2px", "fontFamily": _MONO,
                 }),
                 html.Span(id=f"{_P}-timestamp", style={
-                    "color": "#666666", "fontSize": "9px", "marginLeft": "16px",
+                    "color": "#808080", "fontSize": "9px", "marginLeft": "16px",
                     "fontFamily": _MONO,
                 }),
             ]),
@@ -523,19 +524,18 @@ def layout():
                 html.Span("GROUP", style=LABEL_STYLE),
                 dcc.Dropdown(id=f"{_P}-group", options=GROUP_OPTIONS, value="ALL",
                              clearable=False, style={**DROPDOWN_STYLE, "width": "90px"}),
-            ], style={"display": "flex", "alignItems": "center", "gap": "6px"}),
+            ], style={"display": "flex", "alignItems": "center", "gap": GAP}),
             html.Div([
                 html.Span("SORT", style=LABEL_STYLE),
                 dcc.Dropdown(id=f"{_P}-sort", options=SORT_OPTIONS, value="spot",
                              clearable=False, style={**DROPDOWN_STYLE, "width": "100px"}),
-            ], style={"display": "flex", "alignItems": "center", "gap": "6px"}),
+            ], style={"display": "flex", "alignItems": "center", "gap": GAP}),
         ], style={"display": "flex", "justifyContent": "space-between",
-                  "alignItems": "center", "padding": "8px 0", "borderBottom": "1px solid #1a1a2e"}),
+                  "alignItems": "center", "padding": "8px 0", "borderBottom": "1px solid #222240"}),
 
         # ── KPI Row ──
-        html.Div(id=f"{_P}-kpis", style={
-            "display": "flex", "gap": "6px", "padding": "8px 0",
-            "flexWrap": "wrap",
+        html.Div(id=f"{_P}-kpis", className="stat-row", style={
+            "padding": "8px 0",
         }),
 
         # ── Main Grid: Movers (left) + Charts (right) ──
@@ -543,8 +543,8 @@ def layout():
             # Left column: movers table
             html.Div([
                 html.Div(id=f"{_P}-movers", style={"overflowY": "auto", "maxHeight": "520px"}),
-            ], style={"flex": "1", "minWidth": "400px", "border": "1px solid #1a1a2e",
-                       "padding": "4px"}),
+            ], style={"flex": "1", "minWidth": "400px", "border": "1px solid #222240",
+                       "padding": GAP}),
 
             # Right column: charts stacked
             html.Div([
@@ -555,36 +555,36 @@ def layout():
                 dcc.Graph(id=f"{_P}-term", config={"displayModeBar": False, "responsive": True},
                           style={"height": f"{_SMALL_H}px"}),
             ], style={"flex": "1", "minWidth": "350px", "display": "flex",
-                       "flexDirection": "column", "gap": "2px"}),
-        ], style={"display": "flex", "gap": "4px", "marginTop": "4px"}),
+                       "flexDirection": "column", "gap": GAP}),
+        ], style={"display": "flex", "gap": GAP, "marginTop": SECTION_GAP}),
 
         # ── Bottom Row: Book Summary (left) + Events & Positioning (right) ──
         html.Div([
             # Left: book delta bars
             html.Div([
                 html.Div("BOOK SUMMARY", style={
-                    "color": "#666666", "fontSize": "9px", "fontWeight": "700",
-                    "letterSpacing": "1.5px", "padding": "4px 8px",
-                    "fontFamily": _MONO, "borderBottom": "1px solid #1a1a2e",
+                    "color": "#808080", "fontSize": "10px", "fontWeight": "700",
+                    "letterSpacing": "1.5px", "padding": f"{GAP} 10px",
+                    "fontFamily": _MONO, "borderBottom": "1px solid #222240",
                 }),
                 html.Div(id=f"{_P}-book-greeks", style={
-                    "display": "flex", "gap": "8px", "padding": "6px 8px",
+                    "display": "flex", "gap": GAP, "padding": "6px 8px",
                 }),
                 dcc.Graph(id=f"{_P}-delta-bars", config={"displayModeBar": False, "responsive": True},
-                          style={"height": "200px"}),
-            ], style={"flex": "1", "border": "1px solid #1a1a2e"}),
+                          style={"height": f"{CHART_SM}px"}),
+            ], style={"flex": "1", "border": "1px solid #222240"}),
 
             # Right: events + positioning
             html.Div([
                 html.Div("EVENTS & POSITIONING", style={
-                    "color": "#666666", "fontSize": "9px", "fontWeight": "700",
-                    "letterSpacing": "1.5px", "padding": "4px 8px",
-                    "fontFamily": _MONO, "borderBottom": "1px solid #1a1a2e",
+                    "color": "#808080", "fontSize": "10px", "fontWeight": "700",
+                    "letterSpacing": "1.5px", "padding": f"{GAP} 10px",
+                    "fontFamily": _MONO, "borderBottom": "1px solid #222240",
                 }),
-                html.Div(id=f"{_P}-events", style={"padding": "4px 8px"}),
-                html.Div(id=f"{_P}-positioning", style={"padding": "4px 8px"}),
-            ], style={"flex": "1", "border": "1px solid #1a1a2e"}),
-        ], style={"display": "flex", "gap": "4px", "marginTop": "4px"}),
+                html.Div(id=f"{_P}-events", style={"padding": f"{GAP}"}),
+                html.Div(id=f"{_P}-positioning", style={"padding": f"{GAP}"}),
+            ], style={"flex": "1", "border": "1px solid #222240"}),
+        ], style={"display": "flex", "gap": GAP, "marginTop": SECTION_GAP}),
 
     ], style={"fontFamily": _MONO})
 
@@ -601,17 +601,18 @@ def _render_kpis(kpis):
         ("BIGGEST MOVER",  kpis.get("biggest", "—"),            "#d4d4d4"),
         ("BOOK VEGA",      kpis.get("book_vega", "—"),          "#ff8800"),
         ("BOOK THETA",     kpis.get("book_theta", "—"),         "#ff3333"),
-        ("EVENTS 48H",     str(kpis.get("events_48h", 0)),      "#ff8800" if kpis.get("events_48h", 0) > 0 else "#666666"),
+        ("EVENTS 48H",     str(kpis.get("events_48h", 0)),      "#ff8800" if kpis.get("events_48h", 0) > 0 else "#808080"),
     ]
     boxes = []
     for label, value, color in items:
         boxes.append(html.Div([
-            html.Div(value, style={"fontSize": "13px", "fontWeight": "700",
+            html.Div(value, style={"fontSize": "16px", "fontWeight": "700",
                                    "color": color, "fontFamily": _MONO}),
-            html.Div(label, style={"fontSize": "8px", "color": "#666666",
-                                   "letterSpacing": "1px", "fontFamily": _MONO}),
-        ], style={**STAT_BOX_STYLE, "borderTop": f"2px solid {color}",
-                  "minWidth": "90px", "flex": "1"}))
+            html.Div(label, style={"fontSize": "10px", "color": "#808080",
+                                   "letterSpacing": "1px", "fontFamily": _MONO,
+                                   "marginTop": "4px"}),
+        ], style={**STAT_BOX_STYLE, "borderLeft": f"3px solid {color}",
+                  "minWidth": "90px"}))
     return boxes
 
 
@@ -655,13 +656,13 @@ def _render_movers_table(rows, sort_key):
 def _render_events(events):
     """Render events table."""
     if not events:
-        return html.Div("No upcoming events", style={"color": "#666666", "fontSize": "10px"})
+        return html.Div("No upcoming events", style={"color": "#808080", "fontSize": "10px"})
 
     header = html.Tr([html.Th(h, style={**TABLE_HEADER_STYLE, "fontSize": "8px"})
                        for h in ["BANK", "DATE", "DAYS", "RATE", "IMPACT"]])
     body = []
     for e in events[:5]:
-        imp_color = {"HIGH": "#ff3333", "MED": "#ff8800", "LOW": "#666666"}.get(e["impact"], "#666666")
+        imp_color = {"HIGH": "#ff3333", "MED": "#ff8800", "LOW": "#808080"}.get(e["impact"], "#808080")
         body.append(html.Tr([
             html.Td(e["bank"], style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
             html.Td(e["date"], style=TABLE_CELL_STYLE),
@@ -679,7 +680,7 @@ def _render_positioning(extremes):
     """Render positioning extremes."""
     if not extremes:
         return html.Div("No positioning extremes (|z| > 1.2)",
-                        style={"color": "#666666", "fontSize": "10px"})
+                        style={"color": "#808080", "fontSize": "10px"})
 
     items = []
     for e in extremes:
@@ -711,14 +712,15 @@ def _render_book_greeks():
         ("VEGA", f"${book_vega/1000:.0f}K", "#ff8800"),
         ("THETA", f"-${abs(book_theta)/1000:.0f}K", "#ff3333"),
         ("DELTA", f"${book_delta/1000000:.1f}M", "#d4d4d4"),
-        ("MV", f"${book_mv/1000000:.0f}M", "#666666"),
+        ("MV", f"${book_mv/1000000:.0f}M", "#808080"),
     ]
     boxes = []
     for label, val, color in greeks:
         boxes.append(html.Div([
-            html.Div(val, style={"fontSize": "11px", "fontWeight": "700", "color": color}),
-            html.Div(label, style={"fontSize": "8px", "color": "#666666", "letterSpacing": "1px"}),
-        ], style={**STAT_BOX_STYLE, "minWidth": "60px"}))
+            html.Div(val, style={"fontSize": "14px", "fontWeight": "700", "color": color}),
+            html.Div(label, style={"fontSize": "10px", "color": "#808080", "letterSpacing": "1px",
+                                   "marginTop": "4px"}),
+        ], style={**STAT_BOX_STYLE, "borderLeft": f"3px solid {color}"}))
     return boxes
 
 

@@ -23,6 +23,7 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE, AXIS_DEFAULTS,
     make_stat_style, TAB_STYLE, LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE,
     clickable_stat,
+    GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
 )
 from core.bloomberg_fx import (
     get_fx_vol_surface, get_fx_spots, get_fx_rates,
@@ -114,7 +115,7 @@ PRESET_BTN = {
     "backgroundColor": COLORS["bg_input"],
     "color": COLORS["text_secondary"],
     "border": f"1px solid {COLORS['border']}",
-    "borderRadius": "6px",
+    "borderRadius": "0px",
     "padding": "5px 10px",
     "fontFamily": "'JetBrains Mono', monospace",
     "fontSize": "10px",
@@ -123,7 +124,6 @@ PRESET_BTN = {
     "letterSpacing": "0.8px",
     "marginRight": "4px",
     "marginBottom": "4px",
-    "transition": "all 0.2s ease",
 }
 
 
@@ -1473,6 +1473,9 @@ def layout():
                     ], style={"display": "flex", "flexWrap": "wrap"}),
                 ], style=SIDEBAR_SECTION),
 
+                # ── Group divider: core selection → comparison settings ──
+                html.Div(style={"borderBottom": "1px solid #333355", "margin": "8px 0 12px 0"}),
+
                 # Comparison toggle
                 html.Div([
                     html.Label("COMPARISON", style=SIDEBAR_LABEL),
@@ -1502,6 +1505,9 @@ def layout():
                                  value="USDJPY", clearable=False,
                                  style={"fontSize": "10px"}),
                 ], style=SIDEBAR_SECTION),
+
+                # ── Group divider: comparison settings → view settings ──
+                html.Div(style={"borderBottom": "1px solid #333355", "margin": "8px 0 12px 0"}),
 
                 # Tenor checklist
                 html.Div([
@@ -1569,52 +1575,52 @@ def layout():
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q1",
                                       config={"displayModeBar": True, "scrollZoom": True},
-                                      style={"height": "340px"}),
+                                      style={"height": f"{CHART_MD}px"}),
                             type="dot", color=COLORS["accent_cyan"],
                         ),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px",
-                              "padding": "12px", "marginRight": "8px", "marginBottom": "8px"}),
+                              "padding": "12px", "marginRight": GAP, "marginBottom": GAP}),
                     html.Div([
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q2",
                                       config={"displayModeBar": True, "scrollZoom": True},
-                                      style={"height": "340px"}),
+                                      style={"height": f"{CHART_MD}px"}),
                             type="dot", color=COLORS["accent_cyan"],
                         ),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px",
-                              "padding": "12px", "marginBottom": "8px"}),
-                ], style={"display": "flex", "flexWrap": "wrap"}),
+                              "padding": "12px", "marginBottom": GAP}),
+                ], style={"display": "flex", "flexWrap": "wrap", "gap": GAP}),
                 html.Div([
                     html.Div([
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q3",
                                       config={"displayModeBar": True, "scrollZoom": True},
-                                      style={"height": "340px"}),
+                                      style={"height": f"{CHART_MD}px"}),
                             type="dot", color=COLORS["accent_cyan"],
                         ),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px",
-                              "padding": "12px", "marginRight": "8px", "marginBottom": "8px"}),
+                              "padding": "12px", "marginRight": GAP, "marginBottom": GAP}),
                     html.Div([
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q4",
                                       config={"displayModeBar": True, "scrollZoom": True},
-                                      style={"height": "340px"}),
+                                      style={"height": f"{CHART_MD}px"}),
                             type="dot", color=COLORS["accent_cyan"],
                         ),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px",
-                              "padding": "12px", "marginBottom": "8px"}),
-                ], style={"display": "flex", "flexWrap": "wrap"}),
+                              "padding": "12px", "marginBottom": GAP}),
+                ], style={"display": "flex", "flexWrap": "wrap", "gap": GAP}),
 
                 # Stat Boxes Row (10 KPIs)
-                html.Div(id="vsfx-stat-row", style={
-                    "display": "flex", "gap": "8px", "flexWrap": "wrap",
+                html.Div(id="vsfx-stat-row", className="stat-row", style={
+                    "display": "flex", "gap": GAP, "flexWrap": "wrap",
                     "marginBottom": "10px",
                 }),
 
                 # Overnight Summary Strip
                 html.Div(id="vsfx-overnight-summary"),
 
-            ], style={"flex": "1", "padding": "12px", "overflowY": "auto"}),
+            ], style={"flex": "1", "padding": SECTION_GAP, "overflowY": "auto"}),
 
         ], style={"display": "flex", "height": "100vh",
                   "backgroundColor": COLORS["bg_primary"]}),

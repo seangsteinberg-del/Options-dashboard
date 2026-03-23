@@ -22,6 +22,7 @@ import pandas as pd
 from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE, LABEL_STYLE,
     DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
+    GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
     clickable_stat, chart_layout,
 )
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs
@@ -59,7 +60,7 @@ TAB_STYLE = {
     "backgroundColor": "transparent",
     "border": f"1px solid {COLORS['border']}",
     "borderBottom": "none",
-    "borderRadius": "10px 10px 0 0",
+    "borderRadius": "0px",
     "color": COLORS["text_muted"],
     "fontFamily": "'JetBrains Mono', monospace",
     "fontSize": "11px",
@@ -75,7 +76,6 @@ TAB_SELECTED_STYLE = {
     "color": COLORS["accent_cyan"],
     "borderBottom": "none",
     "borderTop": f"2px solid {COLORS['accent_cyan']}",
-    "boxShadow": f"0 -2px 12px rgba(6,182,212,0.15)",
 }
 
 TABLE_HEADER_STYLE = {
@@ -101,21 +101,18 @@ TABLE_CELL_STYLE = {
 BUTTON_DANGER_STYLE = {
     **BUTTON_STYLE,
     "backgroundColor": COLORS["accent_red"],
-    "boxShadow": "0 4px 14px rgba(239,68,68,0.3)",
 }
 
 BUTTON_SUCCESS_STYLE = {
     **BUTTON_STYLE,
     "backgroundColor": COLORS["accent_green"],
-    "boxShadow": "0 4px 14px rgba(16,185,129,0.3)",
 }
 
 
 def _make_stat_style(color=None):
     style = {**STAT_BOX_STYLE}
     if color:
-        style["borderTop"] = f"2px solid {color}"
-        style["boxShadow"] = f"0 -2px 12px {color}26"
+        style["borderLeft"] = f"3px solid {color}"
     return style
 
 
@@ -219,9 +216,8 @@ def layout():
         dcc.Interval(id="fxrisk-interval", interval=60_000, n_intervals=0),
 
         # ---- 8 KPI Stat Boxes ----
-        html.Div(id="fxrisk-stat-boxes", style={
-            "display": "flex", "gap": "10px", "marginBottom": "16px",
-            "flexWrap": "wrap",
+        html.Div(id="fxrisk-stat-boxes", className="stat-row", style={
+            "marginBottom": SECTION_GAP,
         }),
 
         # ---- Tabbed Risk Views ----
@@ -240,7 +236,7 @@ def layout():
                 dcc.Tab(label="HEDGE", value="hedge",
                         style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
             ], style={"marginBottom": "0"}),
-        ], style={"marginBottom": "16px"}),
+        ], style={"marginBottom": SECTION_GAP}),
 
         # ---- Tab content containers (visibility toggled by callback) ----
         # Greeks
@@ -248,12 +244,12 @@ def layout():
             html.Div([
                 html.Div("VEGA HEATMAP (PAIR x TENOR BUCKET)", style=CARD_HEADER_STYLE),
                 dcc.Graph(id="fxrisk-vega-heatmap", config={"displayModeBar": False}),
-            ], style={**CARD_STYLE, "marginBottom": "16px"}),
+            ], style={**CARD_STYLE, "marginBottom": SECTION_GAP}),
             html.Div(id="fxrisk-click-detail", style={
                 "border": f"1px solid {COLORS['border_subtle']}",
-                "padding": "8px",
-                "marginTop": "4px",
-                "marginBottom": "12px",
+                "padding": GAP,
+                "marginTop": GAP,
+                "marginBottom": GAP,
                 "display": "none",
             }),
             html.Div([
@@ -266,7 +262,7 @@ def layout():
                         html.Div("GAMMA BY PAIR (USD/%)", style=CARD_HEADER_STYLE),
                         dcc.Graph(id="fxrisk-gamma-bar", config={"displayModeBar": False}),
                     ], style={"flex": "1", "minWidth": "400px"}),
-                ], style={"display": "flex", "gap": "16px", "flexWrap": "wrap"}),
+                ], style={"display": "flex", "gap": SECTION_GAP, "flexWrap": "wrap"}),
             ]),
         ]),
 
@@ -277,12 +273,12 @@ def layout():
                     html.Div([
                         html.Div("VaR DISTRIBUTION (10K SIMULATIONS)", style=CARD_HEADER_STYLE),
                         dcc.Graph(id="fxrisk-var-dist", config={"displayModeBar": False}),
-                    ], style={"flex": "2", "minWidth": "500px"}),
+                    ], style={"flex": "3", "minWidth": "500px"}),
                     html.Div([
                         html.Div("COMPONENT VaR BY PAIR", style=CARD_HEADER_STYLE),
                         dcc.Graph(id="fxrisk-component-var", config={"displayModeBar": False}),
-                    ], style={"flex": "1", "minWidth": "350px"}),
-                ], style={"display": "flex", "gap": "16px", "flexWrap": "wrap"}),
+                    ], style={"flex": "2", "minWidth": "350px"}),
+                ], style={"display": "flex", "gap": SECTION_GAP, "flexWrap": "wrap"}),
             ]),
         ]),
 
@@ -291,7 +287,7 @@ def layout():
             html.Div([
                 html.Div("SCENARIO COMPARISON (ALL 15 SCENARIOS)", style=CARD_HEADER_STYLE),
                 dcc.Graph(id="fxrisk-scenario-bars", config={"displayModeBar": False}),
-            ], style={**CARD_STYLE, "marginBottom": "16px"}),
+            ], style={**CARD_STYLE, "marginBottom": SECTION_GAP}),
             html.Div([
                 html.Div([
                     html.Div([
@@ -323,7 +319,7 @@ def layout():
                         html.Button("RUN STRESS", id="fxrisk-run-stress",
                                     style=BUTTON_STYLE, n_clicks=0),
                         html.Div(id="fxrisk-custom-stress-result", style={
-                            "marginTop": "16px",
+                            "marginTop": SECTION_GAP,
                             "color": COLORS["text_primary"],
                             "fontFamily": "'JetBrains Mono', monospace",
                             "fontSize": "13px",
@@ -333,7 +329,7 @@ def layout():
                         html.Div("PER-POSITION IMPACT", style=CARD_HEADER_STYLE),
                         html.Div(id="fxrisk-stress-position-table"),
                     ], style={"flex": "1", "minWidth": "400px"}),
-                ], style={"display": "flex", "gap": "16px", "flexWrap": "wrap"}),
+                ], style={"display": "flex", "gap": SECTION_GAP, "flexWrap": "wrap"}),
             ], style=CARD_STYLE),
         ]),
 
@@ -349,7 +345,7 @@ def layout():
                         html.Div("P&L BY PAIR", style=CARD_HEADER_STYLE),
                         dcc.Graph(id="fxrisk-pnl-pair", config={"displayModeBar": False}),
                     ], style={"flex": "1", "minWidth": "400px"}),
-                ], style={"display": "flex", "gap": "16px", "flexWrap": "wrap"}),
+                ], style={"display": "flex", "gap": SECTION_GAP, "flexWrap": "wrap"}),
             ]),
         ]),
 
@@ -369,7 +365,7 @@ def layout():
                                     clearable=False,
                                     style={"fontSize": "12px"},
                                 ),
-                            ], style={"flex": "1", "minWidth": "120px", "marginRight": "10px"}),
+                            ], style={"flex": "1", "minWidth": "120px", "marginRight": GAP}),
                             html.Div([
                                 html.Label("TYPE", style=LABEL_STYLE),
                                 dcc.Dropdown(
@@ -382,7 +378,7 @@ def layout():
                                     clearable=False,
                                     style={"fontSize": "12px"},
                                 ),
-                            ], style={"flex": "1", "minWidth": "90px", "marginRight": "10px"}),
+                            ], style={"flex": "1", "minWidth": "90px", "marginRight": GAP}),
                             html.Div([
                                 html.Label("DIRECTION", style=LABEL_STYLE),
                                 dcc.Dropdown(
@@ -395,8 +391,8 @@ def layout():
                                     clearable=False,
                                     style={"fontSize": "12px"},
                                 ),
-                            ], style={"flex": "1", "minWidth": "90px", "marginRight": "10px"}),
-                        ], style={"display": "flex", "flexWrap": "wrap", "gap": "6px",
+                            ], style={"flex": "1", "minWidth": "90px", "marginRight": GAP}),
+                        ], style={"display": "flex", "flexWrap": "wrap", "gap": GAP,
                                   "marginBottom": "14px"}),
                         html.Div([
                             html.Div([
@@ -404,7 +400,7 @@ def layout():
                                 dcc.Input(id="fxrisk-wi-delta", type="number",
                                           value=0.25, step=0.05, min=0.01, max=0.99,
                                           style=INPUT_STYLE, debounce=True),
-                            ], style={"flex": "1", "minWidth": "80px", "marginRight": "10px"}),
+                            ], style={"flex": "1", "minWidth": "80px", "marginRight": GAP}),
                             html.Div([
                                 html.Label("TENOR", style=LABEL_STYLE),
                                 dcc.Dropdown(
@@ -415,14 +411,14 @@ def layout():
                                     clearable=False,
                                     style={"fontSize": "12px"},
                                 ),
-                            ], style={"flex": "1", "minWidth": "80px", "marginRight": "10px"}),
+                            ], style={"flex": "1", "minWidth": "80px", "marginRight": GAP}),
                             html.Div([
                                 html.Label("NOTIONAL (M)", style=LABEL_STYLE),
                                 dcc.Input(id="fxrisk-wi-notional", type="number",
                                           value=10, step=1, min=1, max=500,
                                           style=INPUT_STYLE, debounce=True),
                             ], style={"flex": "1", "minWidth": "100px"}),
-                        ], style={"display": "flex", "flexWrap": "wrap", "gap": "6px",
+                        ], style={"display": "flex", "flexWrap": "wrap", "gap": GAP,
                                   "marginBottom": "18px"}),
                         html.Button("PREVIEW IMPACT", id="fxrisk-wi-preview",
                                     style=BUTTON_STYLE, n_clicks=0),
@@ -431,19 +427,19 @@ def layout():
                         html.Div("IMPACT PREVIEW (BEFORE / AFTER)", style=CARD_HEADER_STYLE),
                         html.Div(id="fxrisk-wi-impact-table"),
                     ], style={"flex": "1", "minWidth": "380px"}),
-                ], style={"display": "flex", "gap": "16px", "flexWrap": "wrap"}),
-            ], style={**CARD_STYLE, "marginBottom": "16px"}),
+                ], style={"display": "flex", "gap": SECTION_GAP, "flexWrap": "wrap"}),
+            ], style={**CARD_STYLE, "marginBottom": SECTION_GAP}),
             html.Div([
                 html.Div("HEDGE SUGGESTIONS", style=CARD_HEADER_STYLE),
                 html.Div([
                     html.Button("NEUTRALIZE DELTA", id="fxrisk-hedge-delta",
                                 style=BUTTON_SUCCESS_STYLE, n_clicks=0),
                     html.Button("NEUTRALIZE VEGA 3M", id="fxrisk-hedge-vega",
-                                style={**BUTTON_STYLE, "marginLeft": "12px",
+                                style={**BUTTON_STYLE, "marginLeft": GAP,
                                        "backgroundColor": COLORS["accent_purple"],
-                                       "boxShadow": "0 4px 14px rgba(139,92,246,0.3)"},
+                                       },
                                 n_clicks=0),
-                ], style={"marginBottom": "16px"}),
+                ], style={"marginBottom": SECTION_GAP}),
                 html.Div(id="fxrisk-hedge-result"),
             ], style=CARD_STYLE),
         ]),
@@ -488,18 +484,18 @@ def layout():
                                               {"label": "No Hedge", "value": "No Hedge"}],
                                      value="Daily", clearable=False, style={"fontSize": "11px"}),
                     ], style={"flex": "1", "minWidth": "100px"}),
-                ], style={"display": "flex", "gap": "10px", "flexWrap": "wrap", "marginBottom": "12px"}),
+                ], style={"display": "flex", "gap": GAP, "flexWrap": "wrap", "marginBottom": GAP}),
                 html.Button("RUN SIMULATION", id="fxrisk-hsim-run", style=BUTTON_STYLE, n_clicks=0),
                 html.Div(id="fxrisk-hsim-stats", style={
-                    "display": "flex", "gap": "10px", "marginTop": "12px", "flexWrap": "wrap",
+                    "display": "flex", "gap": GAP, "marginTop": GAP, "flexWrap": "wrap",
                 }),
                 html.Div([
                     dcc.Graph(id="fxrisk-hsim-pnl", config={"displayModeBar": False},
                               style={"flex": "1", "minWidth": "350px"}),
                     dcc.Graph(id="fxrisk-hsim-gamma", config={"displayModeBar": False},
                               style={"flex": "1", "minWidth": "350px"}),
-                ], style={"display": "flex", "gap": "4px", "marginTop": "8px"}),
-            ], style={**CARD_STYLE, "marginBottom": "16px"}),
+                ], style={"display": "flex", "gap": GAP, "marginTop": GAP}),
+            ], style={**CARD_STYLE, "marginBottom": SECTION_GAP}),
 
             # Cross-hedge section
             html.Div([
@@ -526,14 +522,14 @@ def layout():
                                               ["EURUSD","GBPUSD","AUDUSD","USDCHF","USDJPY"]],
                                      value="USDJPY", clearable=False, style={"fontSize": "11px"}),
                     ], style={"flex": "1"}),
-                ], style={"display": "flex", "gap": "10px", "marginBottom": "12px"}),
+                ], style={"display": "flex", "gap": GAP, "marginBottom": GAP}),
                 html.Button("COMPUTE", id="fxrisk-xh-run", style=BUTTON_STYLE, n_clicks=0),
                 html.Div(id="fxrisk-xh-stats", style={
-                    "display": "flex", "gap": "10px", "marginTop": "12px", "flexWrap": "wrap",
+                    "display": "flex", "gap": GAP, "marginTop": GAP, "flexWrap": "wrap",
                 }),
                 dcc.Graph(id="fxrisk-xh-chart", config={"displayModeBar": False},
-                          style={"height": "280px", "marginTop": "8px"}),
-            ], style={**CARD_STYLE, "marginBottom": "16px"}),
+                          style={"height": f"{CHART_SM}px", "marginTop": GAP}),
+            ], style={**CARD_STYLE, "marginBottom": SECTION_GAP}),
 
             # Effectiveness monitor
             html.Div([
@@ -644,7 +640,7 @@ def register_callbacks(app):
                         "fontFamily": "'JetBrains Mono', monospace",
                         "letterSpacing": "1.2px",
                         "textTransform": "uppercase",
-                        "marginBottom": "6px",
+                        "marginBottom": GAP,
                     }),
                     html.Div(display_val, style={
                         "color": color,
@@ -674,7 +670,7 @@ def register_callbacks(app):
                     "fontWeight": "700",
                     "letterSpacing": "0.5px",
                     "width": "100%",
-                    "marginBottom": "6px",
+                    "marginBottom": GAP,
                 },
             ))
 
@@ -703,7 +699,7 @@ def register_callbacks(app):
             positions = get_all_positions()
             if not positions:
                 empty = go.Figure()
-                empty.update_layout(**chart_layout(height=300,
+                empty.update_layout(**chart_layout(height=CHART_MD,
                                     annotations=[{
                                         "text": "No positions",
                                         "xref": "paper", "yref": "paper",
@@ -793,7 +789,7 @@ def register_callbacks(app):
             ))
             heatmap_fig.update_layout(
                 **chart_layout(
-                height=max(350, 30 * len(extended_pairs) + 80),
+                height=max(CHART_LG, 30 * len(extended_pairs) + 80),
                 annotations=annotations,
                 xaxis=dict(side="top", tickfont=dict(size=10, color=COLORS["text_secondary"])),
                 yaxis=dict(autorange="reversed", tickfont=dict(size=10, color=COLORS["text_secondary"])),
@@ -817,7 +813,7 @@ def register_callbacks(app):
             ))
             delta_fig.update_layout(
                 **chart_layout(
-                height=max(300, 28 * len(dpairs) + 60),
+                height=max(CHART_MD, 28 * len(dpairs) + 60),
                 xaxis_title="Delta (USD)",
                 margin=dict(l=80, r=80, t=30, b=40),
                 showlegend=False,
@@ -843,7 +839,7 @@ def register_callbacks(app):
             ))
             gamma_fig.update_layout(
                 **chart_layout(
-                height=max(300, 28 * len(gpairs) + 60),
+                height=max(CHART_MD, 28 * len(gpairs) + 60),
                 xaxis_title="Gamma (USD/%)",
                 margin=dict(l=80, r=80, t=30, b=40),
                 showlegend=False,
@@ -853,7 +849,7 @@ def register_callbacks(app):
 
         except Exception:
             _err = go.Figure()
-            _err.update_layout(**chart_layout(height=300,
+            _err.update_layout(**chart_layout(height=CHART_MD,
                                annotations=[{
                                    "text": "Greeks tab error",
                                    "xref": "paper", "yref": "paper",
@@ -958,7 +954,7 @@ def register_callbacks(app):
             ),
         ], style={
             "display": "flex",
-            "gap": "12px",
+            "gap": GAP,
             "flexWrap": "wrap",
         })
 
@@ -966,9 +962,9 @@ def register_callbacks(app):
             "border": f"1px solid {COLORS['border_subtle']}",
             "borderLeft": f"3px solid {COLORS['accent_cyan']}",
             "backgroundColor": COLORS["bg_card"],
-            "padding": "12px",
-            "marginTop": "4px",
-            "marginBottom": "12px",
+            "padding": GAP,
+            "marginTop": GAP,
+            "marginBottom": GAP,
             "borderRadius": "6px",
             "display": "block",
         }
@@ -994,7 +990,7 @@ def register_callbacks(app):
             positions = get_all_positions()
             if not positions:
                 empty = go.Figure()
-                empty.update_layout(**chart_layout(height=400))
+                empty.update_layout(**chart_layout(height=CHART_LG))
                 return empty, empty
 
             spots, rates, vol_surfaces = _load_market_data()
@@ -1066,7 +1062,7 @@ def register_callbacks(app):
 
             dist_fig.update_layout(
                 **chart_layout(
-                height=420,
+                height=CHART_LG,
                 xaxis_title="P&L (USD)",
                 yaxis_title="Frequency",
                 barmode="overlay",
@@ -1107,7 +1103,7 @@ def register_callbacks(app):
             ))
             comp_fig.update_layout(
                 **chart_layout(
-                height=max(300, 28 * len(cv_pairs) + 60),
+                height=max(CHART_MD, 28 * len(cv_pairs) + 60),
                 xaxis_title="Component VaR 95% (USD)",
                 margin=dict(l=80, r=80, t=30, b=40),
                 showlegend=False,
@@ -1117,7 +1113,7 @@ def register_callbacks(app):
 
         except Exception:
             _err = go.Figure()
-            _err.update_layout(**chart_layout(height=400,
+            _err.update_layout(**chart_layout(height=CHART_LG,
                                annotations=[{
                                    "text": "VaR tab error",
                                    "xref": "paper", "yref": "paper",
@@ -1142,7 +1138,7 @@ def register_callbacks(app):
             positions = get_all_positions()
             if not positions:
                 empty = go.Figure()
-                empty.update_layout(**chart_layout(height=400))
+                empty.update_layout(**chart_layout(height=CHART_LG))
                 return empty
 
             spots, rates, vol_surfaces = _load_market_data()
@@ -1155,7 +1151,7 @@ def register_callbacks(app):
 
             if comp_df.empty:
                 empty = go.Figure()
-                empty.update_layout(**chart_layout(height=400))
+                empty.update_layout(**chart_layout(height=CHART_LG))
                 return empty
 
             # Build horizontal bar chart sorted by P&L impact
@@ -1181,7 +1177,7 @@ def register_callbacks(app):
             ))
             fig.update_layout(
                 **chart_layout(
-                height=max(450, 30 * len(scenario_names) + 80),
+                height=max(CHART_LG, 30 * len(scenario_names) + 80),
                 xaxis_title="Portfolio P&L Impact (USD)",
                 margin=dict(l=250, r=100, t=30, b=40),
                 showlegend=False,
@@ -1191,7 +1187,7 @@ def register_callbacks(app):
 
         except Exception:
             _err = go.Figure()
-            _err.update_layout(**chart_layout(height=400,
+            _err.update_layout(**chart_layout(height=CHART_LG,
                                annotations=[{
                                    "text": "Stress tab error",
                                    "xref": "paper", "yref": "paper",
@@ -1264,7 +1260,7 @@ def register_callbacks(app):
                                f"Vol Mult: {vol_mult or 1.0:.1f}x  |  "
                                f"Rate: {rate_shock or 0:+d}bps",
                                style={"color": COLORS["text_muted"], "fontSize": "11px"}),
-                ], style={"marginTop": "8px"}),
+                ], style={"marginTop": GAP}),
             ])
 
             # Per-position impact table
@@ -1328,7 +1324,7 @@ def register_callbacks(app):
             positions = get_all_positions()
             if not positions:
                 empty = go.Figure()
-                empty.update_layout(**chart_layout(height=400))
+                empty.update_layout(**chart_layout(height=CHART_LG))
                 return empty, empty
 
             spots, rates, vol_surfaces = _load_market_data()
@@ -1385,7 +1381,7 @@ def register_callbacks(app):
             ))
             waterfall_fig.update_layout(
                 **chart_layout(
-                height=420,
+                height=CHART_LG,
                 yaxis_title="P&L (USD)",
                 margin=dict(l=60, r=30, t=40, b=50),
                 showlegend=False,
@@ -1434,7 +1430,7 @@ def register_callbacks(app):
             pnl_pair_fig.update_layout(
                 **chart_layout(
                 barmode="stack",
-                height=max(320, 28 * len(sorted_pairs) + 80),
+                height=max(CHART_MD, 28 * len(sorted_pairs) + 80),
                 xaxis_title="P&L (USD)",
                 margin=dict(l=80, r=40, t=30, b=40),
                 legend=dict(
@@ -1448,7 +1444,7 @@ def register_callbacks(app):
 
         except Exception:
             _err = go.Figure()
-            _err.update_layout(**chart_layout(height=400,
+            _err.update_layout(**chart_layout(height=CHART_LG,
                                annotations=[{
                                    "text": "Attribution tab error",
                                    "xref": "paper", "yref": "paper",
@@ -1559,7 +1555,7 @@ def register_callbacks(app):
                     "fontSize": "11px",
                     "fontWeight": "700",
                     "fontFamily": "'JetBrains Mono', monospace",
-                    "marginBottom": "12px",
+                    "marginBottom": GAP,
                     "letterSpacing": "1px",
                 }),
                 impact_table,
@@ -1647,7 +1643,7 @@ def register_callbacks(app):
                     "fontSize": "11px",
                     "fontWeight": "700",
                     "fontFamily": "'JetBrains Mono', monospace",
-                    "marginBottom": "12px",
+                    "marginBottom": GAP,
                     "letterSpacing": "1px",
                 }),
                 hedge_table,
@@ -1760,19 +1756,19 @@ def register_callbacks(app):
         fig_pnl = go.Figure()
         fig_pnl.add_trace(go.Scatter(y=cum_pnl, mode="lines",
                                       line=dict(color="#ff8800", width=1.5), name="Cumulative P&L"))
-        fig_pnl.add_hline(y=0, line=dict(color="#666666", width=0.5, dash="dash"))
-        fig_pnl.update_layout(**chart_layout(height=280,
+        fig_pnl.add_hline(y=0, line=dict(color="#808080", width=0.5, dash="dash"))
+        fig_pnl.update_layout(**chart_layout(height=CHART_SM,
                                margin=dict(l=60, r=20, t=30, b=20),
-                               title=dict(text="CUMULATIVE HEDGE P&L", font=dict(size=10, color="#666666"))))
+                               title=dict(text="CUMULATIVE HEDGE P&L", font=dict(size=10, color="#808080"))))
 
         # Gamma PnL chart
         fig_gamma = go.Figure()
         fig_gamma.add_trace(go.Scatter(y=gamma_pnl, mode="lines",
                                         line=dict(color="#00cc66", width=1.5), name="Gamma P&L"))
-        fig_gamma.add_hline(y=0, line=dict(color="#666666", width=0.5, dash="dash"))
-        fig_gamma.update_layout(**chart_layout(height=280,
+        fig_gamma.add_hline(y=0, line=dict(color="#808080", width=0.5, dash="dash"))
+        fig_gamma.update_layout(**chart_layout(height=CHART_SM,
                                  margin=dict(l=60, r=20, t=30, b=20),
-                                 title=dict(text="GAMMA P&L", font=dict(size=10, color="#666666"))))
+                                 title=dict(text="GAMMA P&L", font=dict(size=10, color="#808080"))))
 
         return stats, fig_pnl, fig_gamma
 
@@ -1822,11 +1818,11 @@ def register_callbacks(app):
                                   line=dict(color="#ff3333", width=1.5), name=f"{target} unhedged"))
         fig.add_trace(go.Scatter(y=np.cumsum(hedged_pnl * 0.3), mode="lines",
                                   line=dict(color="#00cc66", width=1.5), name="Cross-hedged"))
-        fig.add_hline(y=0, line=dict(color="#666666", width=0.5, dash="dash"))
-        fig.update_layout(**chart_layout(height=280,
+        fig.add_hline(y=0, line=dict(color="#808080", width=0.5, dash="dash"))
+        fig.update_layout(**chart_layout(height=CHART_SM,
                           margin=dict(l=60, r=20, t=30, b=20),
                           title=dict(text=f"CROSS-HEDGE: {target} via {h1}+{h2}",
-                                     font=dict(size=10, color="#666666")),
+                                     font=dict(size=10, color="#808080")),
                           legend=dict(x=0.02, y=0.98, font=dict(size=8))))
         return stats, fig
 
@@ -1867,11 +1863,12 @@ def register_callbacks(app):
 
 def _make_stat_box(label, value, color):
     return html.Div([
-        html.Div(str(value), style={"fontSize": "13px", "fontWeight": "700",
+        html.Div(str(value), style={"fontSize": "16px", "fontWeight": "700",
                                      "color": color, "fontFamily": "'JetBrains Mono', monospace"}),
-        html.Div(label, style={"fontSize": "8px", "color": "#666666",
-                                "letterSpacing": "1px", "fontFamily": "'JetBrains Mono', monospace"}),
-    ], style={**STAT_BOX_STYLE, "borderTop": f"2px solid {color}", "flex": "1"})
+        html.Div(label, style={"fontSize": "10px", "color": "#808080",
+                                "letterSpacing": "1px", "fontFamily": "'JetBrains Mono', monospace",
+                                "marginTop": "4px"}),
+    ], style={**STAT_BOX_STYLE, "borderLeft": f"3px solid {color}"})
 
 
 # ---------------------------------------------------------------------------
