@@ -26,6 +26,7 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     make_stat_style, grid_cell, section_header, chart_layout,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG, CSV_BTN_STYLE,
+    no_data_fig,
 )
 from core.csv_export import export_csv
 from core.bloomberg_fx import (
@@ -830,7 +831,7 @@ def _build_slot_figure(metric, pairs, tenor, timeframe, chart_type, normalize, o
                           secondary_y=True)
 
     if not any_data:
-        return _empty("No data available")
+        return no_data_fig(height=CHART_MD, msg="NO DATA")
 
     m_label = next((m["label"] for m in METRIC_OPTIONS if m["value"] == metric), metric)
     title = m_label
@@ -1046,6 +1047,9 @@ def _build_comparison_figure(pairs, comp_type, tenor="3M"):
         logger.error("Comparison error: %s", traceback.format_exc())
         return _empty("Error building comparison")
 
+    if not fig.data:
+        return no_data_fig(height=CHART_LG, msg="NO DATA")
+
     fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
                                    font=dict(size=9, color="#d4d4d4", family=_FONT), bgcolor="rgba(0,0,0,0)"),
                       margin=dict(l=50, r=20, t=45, b=35), hovermode="x unified")
@@ -1196,6 +1200,9 @@ def _build_deep_study(study_type, pairs, tenor):
 
         else:
             return _empty(f"Unknown study: {study_type}")
+
+        if not fig.data:
+            return no_data_fig(height=CHART_LG, msg="NO DATA")
 
         fig.update_layout(**chart_layout(margin=dict(l=50, r=20, t=45, b=35), hovermode="x unified",
                           height=CHART_LG, showlegend=True))

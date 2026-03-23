@@ -20,6 +20,7 @@ from core.theme import (
     LABEL_STYLE, DROPDOWN_STYLE, TAB_STYLE, TAB_SELECTED_STYLE,
     TABLE_HEADER_STYLE, TABLE_CELL_STYLE, clickable_stat, make_stat_style,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG, CSV_BTN_STYLE,
+    no_data_fig,
 )
 from core.csv_export import export_csv
 from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days
@@ -644,6 +645,9 @@ def _build_smile_comparison(pair):
             fig.add_trace(go.Scatter(x=delta_labels, y=vols, mode="lines+markers",
                                      line=dict(color=color, width=1.5),
                                      marker=dict(size=4), name=tenor))
+
+        if not fig.data:
+            return no_data_fig(msg="NO SMILE DATA")
 
         fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,

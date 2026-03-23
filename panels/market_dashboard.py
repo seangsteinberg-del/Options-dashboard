@@ -456,6 +456,8 @@ def _build_delta_bars():
     try:
         from core.fx_portfolio import get_portfolio, compute_position_greeks
         portfolio = get_portfolio()
+        if not portfolio:
+            return no_data_fig(msg="NO POSITION DATA")
         delta_map = {}
         for pos in portfolio:
             pair = pos.get("pair", "")
@@ -467,7 +469,7 @@ def _build_delta_bars():
                     pass
         deltas = [delta_map.get(p, 0) / 1_000_000 for p in pairs]  # in millions
     except Exception:
-        deltas = [0.0] * len(pairs)
+        return no_data_fig(msg="NO POSITION DATA")
 
     colors = [COLORS["accent_green"] if d > 0 else COLORS["accent_red"] for d in deltas]
 

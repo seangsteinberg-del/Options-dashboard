@@ -19,7 +19,7 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
     make_stat_style, clickable_stat,
-    CSV_BTN_STYLE,
+    CSV_BTN_STYLE, no_data_fig,
 )
 from core.csv_export import export_csv
 from core.fx_analytics import vol_percentile
@@ -1295,9 +1295,19 @@ def register_callbacks(app):
 
         # Fetch market data
         spots = get_fx_spots([pair])
-        spot_data = spots.get(pair, {"mid": 1.0, "bid": 1.0, "ask": 1.0})
-        rates = get_fx_rates(pair)
         vol_surface = get_fx_vol_surface(pair)
+        rates = get_fx_rates(pair)
+
+        # Guard: if Bloomberg returned no data, show NO DATA on all charts
+        if not spots or not vol_surface:
+            ndf = no_data_fig(height=380, msg="NO MARKET DATA")
+            empty_table = html.Div("No market data", style={"color": COLORS["text_muted"],
+                                   "fontSize": "11px", "padding": "8px"})
+            empty_stats = [html.Div("--", style=STAT_BOX_STYLE)]
+            return ([empty_stats, ndf, ndf, ndf, ndf, empty_table, ndf]
+                    + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
+
+        spot_data = spots.get(pair, {"mid": 1.0, "bid": 1.0, "ask": 1.0})
 
         S = spot_data.get("mid", spot_data.get("bid", 1.0))
         r_d = rates.get("r_dom", 0.03)

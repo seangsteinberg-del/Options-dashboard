@@ -1006,9 +1006,7 @@ def register_callbacks(app):
         try:
             positions = get_all_positions()
             if not positions:
-                empty = go.Figure()
-                empty.update_layout(**chart_layout(height=CHART_LG))
-                return empty, empty
+                return no_data_fig(height=CHART_LG, msg="NO POSITIONS"), no_data_fig(height=CHART_LG, msg="NO POSITIONS")
 
             spots, rates, vol_surfaces = _load_market_data()
 
@@ -1154,9 +1152,7 @@ def register_callbacks(app):
         try:
             positions = get_all_positions()
             if not positions:
-                empty = go.Figure()
-                empty.update_layout(**chart_layout(height=CHART_LG))
-                return empty
+                return no_data_fig(msg="NO POSITIONS")
 
             spots, rates, vol_surfaces = _load_market_data()
 
@@ -1167,9 +1163,7 @@ def register_callbacks(app):
             comp_df = compare_scenarios(stress_positions, spots, rates, vol_surfaces)
 
             if comp_df.empty:
-                empty = go.Figure()
-                empty.update_layout(**chart_layout(height=CHART_LG))
-                return empty
+                return no_data_fig(msg="NO SCENARIO DATA")
 
             # Build horizontal bar chart sorted by P&L impact
             scenario_names = comp_df["Scenario"].tolist()
@@ -1340,9 +1334,7 @@ def register_callbacks(app):
         try:
             positions = get_all_positions()
             if not positions:
-                empty = go.Figure()
-                empty.update_layout(**chart_layout(height=CHART_LG))
-                return empty, empty
+                return no_data_fig(msg="NO POSITIONS"), no_data_fig(msg="NO POSITIONS")
 
             spots, rates, vol_surfaces = _load_market_data()
 

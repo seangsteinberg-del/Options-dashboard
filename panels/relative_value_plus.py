@@ -726,6 +726,9 @@ def _build_term_chart(pair, comp_pair=None):
         vols = [_extract_atm(surf, t) for t in TERM_TENORS]
         labels = TERM_TENORS
 
+        if all(v == 0 or v is None for v in vols):
+            return no_data_fig(msg="NO VOL DATA")
+
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=labels, y=vols, mode="lines+markers",
                                  line=dict(color="#ff8800", width=2), marker=dict(size=5),
@@ -754,6 +757,9 @@ def _build_fwd_vol(pair):
         surf = get_fx_vol_surface(pair) or {}
         tenors = ["1M", "2M", "3M", "6M", "1Y"]
         spot_vols = [_extract_atm(surf, t) for t in tenors]
+
+        if all(v == 0 or v is None for v in spot_vols):
+            return no_data_fig(msg="NO VOL DATA")
 
         # Calculate forward vols
         fwd_vols = [spot_vols[0]]
