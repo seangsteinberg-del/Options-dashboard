@@ -580,6 +580,8 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
             fields = ["PX_BID", "PX_ASK", "PX_LAST", "CHG_NET_1D",
                        "CHG_PCT_1D", "PX_HIGH", "PX_LOW", "PX_OPEN", "VOLUME"]
             df = bdp(tickers, fields)
+            logger.info("FX spots: BDP returned %d rows for %d pairs. Index: %s",
+                        len(df), len(tickers), list(df.index[:5]) if not df.empty else "EMPTY")
             def _sf(v):
                 """Safe float — handles None from Bloomberg null fields."""
                 try:
@@ -672,7 +674,17 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
                     ticker_map[tick] = (t, m)
 
             # Single batched bdp call
+            logger.info("Vol surface %s: requesting %d tickers, first 3: %s",
+                        pair, len(all_tickers), all_tickers[:3])
             df = bdp(all_tickers, ["PX_LAST"])
+            logger.info("Vol surface %s: BDP returned %d rows. Index values: %s",
+                        pair, len(df),
+                        list(df.index[:10]) if not df.empty else "EMPTY")
+            if not df.empty:
+                # Log actual values for first few tickers so we can see what BBG sends
+                sample = df.head(5)
+                for idx_val in sample.index:
+                    logger.info("  BDP row: %r -> PX_LAST=%r", idx_val, sample.loc[idx_val, "PX_LAST"])
 
             # Build a case-insensitive lookup from whatever Bloomberg returned
             idx_map = {}

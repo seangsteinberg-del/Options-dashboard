@@ -249,7 +249,13 @@ def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
         if not rows:
             logger.warning("BDP returned no data for %s", securities[:3])
             return pd.DataFrame()  # Empty — do NOT inject fake data
-        return pd.DataFrame(rows).set_index("security")
+        result_df = pd.DataFrame(rows).set_index("security")
+        logger.debug("BDP result: %d rows, index=%s, columns=%s, sample=%s",
+                      len(result_df), list(result_df.index[:5]),
+                      list(result_df.columns),
+                      result_df.head(3).to_dict() if len(result_df) <= 10
+                      else f"{len(result_df)} rows")
+        return result_df
 
     except Exception as e:
         logger.error(f"BDP request failed: {e}")
