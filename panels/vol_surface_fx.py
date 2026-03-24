@@ -150,10 +150,8 @@ def _get_surface_data(pair):
             bf10_vals.append(row.get("bf10", row.get("10D_BF", 0)))
 
     if not tenors_avail:
-        logging.getLogger(__name__).warning("Vol surface empty for %s — using hardcoded fallback", pair)
-        tenors_avail = ["1M"]
-        atm_vals, rr25_vals, bf25_vals = [8.0], [0.0], [0.2]
-        rr10_vals, bf10_vals = [0.0], [0.5]
+        logging.getLogger(__name__).warning("Vol surface empty for %s", pair)
+        return None
 
     n = len(tenors_avail)
     vol_grid = np.zeros((n, 5))
@@ -1706,6 +1704,9 @@ def register_callbacks(app):
 
         # Fetch data and apply tenor / delta filters
         sd_full = _get_surface_data(pair)
+        if sd_full is None:
+            ndf = no_data_fig(height=CHART_MD, msg="NO VOL SURFACE DATA")
+            return ndf, ndf, ndf, ndf, html.Div(), html.Div()
         sd = _filter_surface_data(sd_full, selected_tenors)
         sd = _filter_delta_range(sd, delta_range or "10-50")
         spot, fwd_1m, r_dom, r_for = _get_spot_and_rates(pair)
