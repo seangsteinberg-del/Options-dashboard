@@ -229,9 +229,13 @@ def _build_kpi_data(rows):
     except Exception as _e:
         import logging as _lg
         _lg.getLogger(__name__).debug("Portfolio load fallback: %s", _e)
-        book_vega, book_theta = 45000, -18000
-    kpis["book_vega"]  = f"${book_vega/1000:.0f}K"
-    kpis["book_theta"] = f"-${abs(book_theta)/1000:.0f}K"
+        book_vega, book_theta = 0, 0
+    if book_vega == 0 and book_theta == 0:
+        kpis["book_vega"]  = "N/A"
+        kpis["book_theta"] = "N/A"
+    else:
+        kpis["book_vega"]  = f"${book_vega/1000:.0f}K"
+        kpis["book_theta"] = f"-${abs(book_theta)/1000:.0f}K"
 
     # Events 48h
     try:
@@ -713,13 +717,21 @@ def _render_book_greeks():
         book_delta = risk.get("total_delta", 0)
         book_mv = risk.get("total_mv", 0)
     except Exception:
-        book_vega, book_theta, book_delta, book_mv = 45000, -18000, 2500000, 120000000
-    greeks = [
-        ("VEGA", f"${book_vega/1000:.0f}K", "#ff8800"),
-        ("THETA", f"-${abs(book_theta)/1000:.0f}K", "#ff3333"),
-        ("DELTA", f"${book_delta/1000000:.1f}M", "#d4d4d4"),
-        ("MV", f"${book_mv/1000000:.0f}M", "#808080"),
-    ]
+        book_vega, book_theta, book_delta, book_mv = 0, 0, 0, 0
+    if book_vega == 0 and book_theta == 0 and book_delta == 0 and book_mv == 0:
+        greeks = [
+            ("VEGA", "N/A", "#808080"),
+            ("THETA", "N/A", "#808080"),
+            ("DELTA", "N/A", "#808080"),
+            ("MV", "N/A", "#808080"),
+        ]
+    else:
+        greeks = [
+            ("VEGA", f"${book_vega/1000:.0f}K", "#ff8800"),
+            ("THETA", f"-${abs(book_theta)/1000:.0f}K", "#ff3333"),
+            ("DELTA", f"${book_delta/1000000:.1f}M", "#d4d4d4"),
+            ("MV", f"${book_mv/1000000:.0f}M", "#808080"),
+        ]
     boxes = []
     for label, val, color in greeks:
         boxes.append(html.Div([

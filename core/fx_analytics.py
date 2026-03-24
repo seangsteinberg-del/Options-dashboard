@@ -76,7 +76,7 @@ def vol_percentile(pair: str, tenor: str, metric: str = "ATM",
     """
     hist = get_fx_historical_vol(pair, tenor, metric, lookback_days)
     if hist is None or len(hist) < 10:
-        hist = _synth_vol_history(pair, tenor, metric, lookback_days)
+        return None
 
     current = hist.iloc[-1] if hasattr(hist, 'iloc') else hist[-1]
     pct = percentileofscore(hist, current)
@@ -106,7 +106,7 @@ def vol_zscore(pair: str, tenor: str, metric: str = "ATM",
     """
     hist = get_fx_historical_vol(pair, tenor, metric, lookback_days)
     if hist is None or len(hist) < 10:
-        hist = _synth_vol_history(pair, tenor, metric, lookback_days)
+        return None
 
     current = hist.iloc[-1] if hasattr(hist, 'iloc') else hist[-1]
     mu = np.mean(hist)
@@ -153,7 +153,7 @@ def vol_percentile_surface(pair: str, lookback: int = 252) -> pd.DataFrame:
         row = {"tenor": t}
         for m, label in zip(metrics, metric_names):
             info = vol_percentile(pair, t, m, lookback)
-            row[label] = round(info["percentile"], 1)
+            row[label] = round(info["percentile"], 1) if info is not None else None
         rows.append(row)
 
     return pd.DataFrame(rows).set_index("tenor")
@@ -174,7 +174,7 @@ def vol_zscore_surface(pair: str, lookback: int = 252) -> pd.DataFrame:
         row = {"tenor": t}
         for m, label in zip(metrics, metric_names):
             info = vol_zscore(pair, t, m, lookback)
-            row[label] = round(info["zscore"], 2)
+            row[label] = round(info["zscore"], 2) if info is not None else None
         rows.append(row)
 
     return pd.DataFrame(rows).set_index("tenor")
@@ -187,7 +187,7 @@ def vol_change(pair: str, tenor: str, metric: str = "ATM",
     """
     hist = get_fx_historical_vol(pair, tenor, metric, days_ago + 5)
     if hist is None or len(hist) < days_ago + 1:
-        hist = _synth_vol_history(pair, tenor, metric, days_ago + 10)
+        return None
 
     current = hist.iloc[-1] if hasattr(hist, 'iloc') else hist[-1]
     previous = hist.iloc[-(days_ago + 1)] if hasattr(hist, 'iloc') else hist[-(days_ago + 1)]
@@ -220,7 +220,7 @@ def vol_surface_diff(pair: str, days_ago: int = 1) -> pd.DataFrame:
         row = {"tenor": t}
         for m, label in zip(metrics, metric_names):
             ch = vol_change(pair, t, m, days_ago)
-            row[label] = round(ch["abs_change"], 2)
+            row[label] = round(ch["abs_change"], 2) if ch is not None else None
         rows.append(row)
 
     return pd.DataFrame(rows).set_index("tenor")
@@ -238,7 +238,7 @@ def vol_regime_detect(pair: str, short_window: int = 20,
     """
     rv_hist = get_fx_realized_vol(pair, window=short_window, days=long_window + 50)
     if rv_hist is None or len(rv_hist) < long_window:
-        rv_hist = _synth_rv_series(pair, long_window + 50)
+        return None
 
     rv_vals = rv_hist.values if hasattr(rv_hist, 'values') else np.array(rv_hist, dtype=float)
     rv_short = np.mean(rv_vals[-short_window:])
@@ -247,6 +247,8 @@ def vol_regime_detect(pair: str, short_window: int = 20,
 
     # Current ATM IV
     atm_info = vol_percentile(pair, "3M", "ATM")
+    if atm_info is None:
+        return None
     atm_current = atm_info["current"]
 
     if atm_current > 20.0:
@@ -298,7 +300,7 @@ def vol_regime_history(pair: str, lookback: int = 252) -> pd.DataFrame:
     """
     hist = get_fx_historical_vol(pair, "3M", "ATM", lookback)
     if hist is None or len(hist) < 10:
-        hist = _synth_vol_history(pair, "3M", "ATM", lookback)
+        return pd.DataFrame()
 
     records = []
     for i, v in enumerate(hist):
@@ -336,7 +338,7 @@ def vol_cone(pair: str,
     spot_hist_raw = get_fx_historical_spot(pair, lookback + max(windows) + 10)
     spot_hist = _to_close_array(spot_hist_raw) if spot_hist_raw is not None else None
     if spot_hist is None or len(spot_hist) < max(windows) + 20:
-        spot_hist = _synth_spot_series(pair, lookback + max(windows) + 10)
+        return pd.DataFrame()
 
     log_ret = np.diff(np.log(spot_hist))
     records = []
@@ -395,11 +397,11 @@ def iv_rv_spread(pair: str, tenor: str = "3M", rv_window: int = 20,
     """
     iv_hist = get_fx_historical_vol(pair, tenor, "ATM", lookback)
     if iv_hist is None or len(iv_hist) < 20:
-        iv_hist = _synth_vol_history(pair, tenor, "ATM", lookback)
+        return pd.DataFrame()
 
     rv_hist = get_fx_realized_vol(pair, window=rv_window, days=lookback)
     if rv_hist is None or len(rv_hist) < 20:
-        rv_hist = _synth_rv_series(pair, lookback)
+        return pd.DataFrame()
 
     # Convert to numpy to avoid DatetimeIndex issues
     iv_vals = iv_hist.values if hasattr(iv_hist, 'values') else np.array(iv_hist, dtype=float)
@@ -460,7 +462,10 @@ def breakeven_vol(pair: str, tenor: str, days_to_expiry: int) -> dict:
     r_for = rates.get("r_for", 0.02)
 
     surface = get_fx_vol_surface(pair)
-    atm_vol = _extract_atm(surface, tenor) / 100.0
+    atm_raw = _extract_atm(surface, tenor)
+    if atm_raw is None:
+        return None
+    atm_vol = atm_raw / 100.0
 
     # Straddle premium as fraction of spot
     fwd = spot * np.exp((r_dom - r_for) * T)
@@ -506,7 +511,10 @@ def theta_gamma_ratio(pair: str, tenor: str) -> dict:
     spot = spots.get(pair, {}).get("mid", 1.0)
 
     surface = get_fx_vol_surface(pair)
-    atm_vol = _extract_atm(surface, tenor) / 100.0
+    atm_raw = _extract_atm(surface, tenor)
+    if atm_raw is None:
+        return None
+    atm_vol = atm_raw / 100.0
 
     rates = get_fx_rates(pair)
     r_dom = rates.get("r_dom", 0.03)
@@ -539,7 +547,10 @@ def vol_carry(pair: str, tenor: str) -> dict:
     spot = spots.get(pair, {}).get("mid", 1.0)
 
     surface = get_fx_vol_surface(pair)
-    atm_vol = _extract_atm(surface, tenor) / 100.0
+    atm_raw = _extract_atm(surface, tenor)
+    if atm_raw is None:
+        return None
+    atm_vol = atm_raw / 100.0
 
     d1 = (0.5 * atm_vol ** 2 * T) / (atm_vol * np.sqrt(T))
     daily_theta = -0.5 * spot * atm_vol * norm.pdf(d1) / np.sqrt(T) / 365.0
@@ -573,8 +584,12 @@ def forward_vol(pair: str, T1: str, T2: str) -> dict:
         return {"error": "T2 must be after T1", "forward_vol": 0.0}
 
     surface = get_fx_vol_surface(pair)
-    v1 = _extract_atm(surface, T1) / 100.0
-    v2 = _extract_atm(surface, T2) / 100.0
+    v1_raw = _extract_atm(surface, T1)
+    v2_raw = _extract_atm(surface, T2)
+    if v1_raw is None or v2_raw is None:
+        return None
+    v1 = v1_raw / 100.0
+    v2 = v2_raw / 100.0
 
     var1 = v1 ** 2 * t1
     var2 = v2 ** 2 * t2
@@ -614,6 +629,8 @@ def forward_vol_curve(pair: str, start_tenor: str = "1M") -> pd.DataFrame:
         if t_end <= t_start:
             continue
         fv = forward_vol(pair, start_tenor, end_t)
+        if fv is None:
+            continue
         records.append({
             "end_tenor": end_t,
             "end_years": float(t_end),
@@ -635,7 +652,8 @@ def forward_vol_surface(pair: str) -> pd.DataFrame:
     for i in range(n):
         for j in range(i + 1, n):
             fv = forward_vol(pair, tenors[i], tenors[j])
-            data[i, j] = fv["forward_vol"]
+            if fv is not None:
+                data[i, j] = fv["forward_vol"]
 
     df = pd.DataFrame(data, index=tenors, columns=tenors)
     return df
@@ -653,6 +671,9 @@ def smile_skewness(pair: str, tenor: str) -> dict:
     surface = get_fx_vol_surface(pair)
     rr25 = _extract_metric(surface, tenor, "25D_RR")
     atm = _extract_atm(surface, tenor)
+
+    if rr25 is None or atm is None:
+        return None
 
     normalised = rr25 / max(atm, 1e-6)
 
@@ -675,6 +696,9 @@ def smile_kurtosis(pair: str, tenor: str) -> dict:
     bf25 = _extract_metric(surface, tenor, "25D_BF")
     atm = _extract_atm(surface, tenor)
 
+    if bf25 is None or atm is None:
+        return None
+
     normalised = bf25 / max(atm, 1e-6)
 
     return {
@@ -695,6 +719,9 @@ def wing_richness(pair: str, tenor: str) -> dict:
     surface = get_fx_vol_surface(pair)
     bf10 = _extract_metric(surface, tenor, "10D_BF")
     bf25 = _extract_metric(surface, tenor, "25D_BF")
+
+    if bf10 is None or bf25 is None:
+        return None
 
     ratio = bf10 / max(bf25, 1e-6)
 
@@ -717,6 +744,9 @@ def smile_asymmetry_index(pair: str, tenor: str) -> dict:
     atm = _extract_atm(surface, tenor)
     rr25 = _extract_metric(surface, tenor, "25D_RR")
     bf25 = _extract_metric(surface, tenor, "25D_BF")
+
+    if atm is None or rr25 is None or bf25 is None:
+        return None
 
     # From BF and RR conventions:
     # vol_25c = ATM + BF + 0.5 * RR
@@ -757,9 +787,16 @@ def smile_implied_pdf(pair: str, tenor: str,
     r_for = rates.get("r_for", 0.02)
 
     surface = get_fx_vol_surface(pair)
-    atm = _extract_atm(surface, tenor) / 100.0
-    rr25 = _extract_metric(surface, tenor, "25D_RR") / 100.0
-    bf25 = _extract_metric(surface, tenor, "25D_BF") / 100.0
+    atm_raw = _extract_atm(surface, tenor)
+    rr25_raw = _extract_metric(surface, tenor, "25D_RR")
+    bf25_raw = _extract_metric(surface, tenor, "25D_BF")
+
+    if atm_raw is None or rr25_raw is None or bf25_raw is None:
+        return pd.DataFrame()
+
+    atm = atm_raw / 100.0
+    rr25 = rr25_raw / 100.0
+    bf25 = bf25_raw / 100.0
 
     fwd = spot * np.exp((r_dom - r_for) * T)
     k_min = fwd * np.exp(-4 * atm * np.sqrt(T))
@@ -812,6 +849,8 @@ def smile_implied_cdf(pair: str, tenor: str,
     Risk-neutral cumulative distribution function derived from the implied PDF.
     """
     pdf_df = smile_implied_pdf(pair, tenor, n_points)
+    if pdf_df.empty:
+        return pd.DataFrame()
     strikes = pdf_df["strike"].values
     pdf = pdf_df["pdf"].values
 
@@ -836,6 +875,8 @@ def tail_probabilities(pair: str, tenor: str,
         moves = [0.01, 0.02, 0.03, 0.05, 0.10]
 
     cdf_df = smile_implied_cdf(pair, tenor)
+    if cdf_df.empty:
+        return pd.DataFrame()
     spots = get_fx_spots([pair])
     spot = spots.get(pair, {}).get("mid", 1.0)
 
@@ -876,7 +917,7 @@ def smile_pca(pair: str, lookback: int = 252) -> dict:
     for m in metrics:
         h = get_fx_historical_vol(pair, "3M", m, lookback)
         if h is None or len(h) < 20:
-            h = _synth_vol_history(pair, "3M", m, lookback)
+            return None
         data[m] = h
 
     n = min(len(v) for v in data.values())
@@ -927,12 +968,12 @@ def sticky_delta_monitor(pair: str, tenor: str,
     """
     iv_hist = get_fx_historical_vol(pair, tenor, "ATM", lookback + 5)
     if iv_hist is None or len(iv_hist) < lookback:
-        iv_hist = _synth_vol_history(pair, tenor, "ATM", lookback + 5)
+        return None
 
     spot_hist_raw = get_fx_historical_spot(pair, lookback + 5)
     spot_hist = _to_close_array(spot_hist_raw) if spot_hist_raw is not None else None
     if spot_hist is None or len(spot_hist) < lookback:
-        spot_hist = _synth_spot_series(pair, lookback + 5)
+        return None
 
     n = min(len(iv_hist), len(spot_hist)) - 1
     iv_changes = np.diff(iv_hist[-n-1:])
@@ -942,6 +983,8 @@ def sticky_delta_monitor(pair: str, tenor: str,
 
     # Skew for reference
     skew_info = smile_skewness(pair, tenor)
+    if skew_info is None:
+        return None
     rr = skew_info["rr_25d"]
 
     # Sticky-delta => slope near 0
@@ -977,9 +1020,9 @@ def cross_pair_vol_spread(pair_a: str, pair_b: str, tenor: str = "3M",
     hist_a = get_fx_historical_vol(pair_a, tenor, "ATM", lookback)
     hist_b = get_fx_historical_vol(pair_b, tenor, "ATM", lookback)
     if hist_a is None or len(hist_a) < 20:
-        hist_a = _synth_vol_history(pair_a, tenor, "ATM", lookback)
+        return None
     if hist_b is None or len(hist_b) < 20:
-        hist_b = _synth_vol_history(pair_b, tenor, "ATM", lookback)
+        return None
 
     n = min(len(hist_a), len(hist_b))
     a = hist_a[-n:]
@@ -1037,22 +1080,9 @@ def cross_pair_term_spread(pair_a: str, pair_b: str,
     bl = get_fx_historical_vol(pair_b, long_tenor, "ATM", lookback)
     bs = get_fx_historical_vol(pair_b, short_tenor, "ATM", lookback)
 
-    for arr_name, arr in [("al", al), ("as", a_s), ("bl", bl), ("bs", bs)]:
+    for arr in [al, a_s, bl, bs]:
         if arr is None or len(arr) < 20:
-            if arr_name[0] == "a":
-                p = pair_a
-            else:
-                p = pair_b
-            t = long_tenor if arr_name[1] == "l" else short_tenor
-            arr_gen = _synth_vol_history(p, t, "ATM", lookback)
-            if arr_name == "al":
-                al = arr_gen
-            elif arr_name == "as":
-                a_s = arr_gen
-            elif arr_name == "bl":
-                bl = arr_gen
-            else:
-                bs = arr_gen
+            return None
 
     n = min(len(al), len(a_s), len(bl), len(bs))
     term_a = al[-n:] - a_s[-n:]
@@ -1087,9 +1117,9 @@ def vol_beta(pair_a: str, pair_b: str, tenor: str = "3M",
     ha = get_fx_historical_vol(pair_a, tenor, "ATM", lookback)
     hb = get_fx_historical_vol(pair_b, tenor, "ATM", lookback)
     if ha is None or len(ha) < 20:
-        ha = _synth_vol_history(pair_a, tenor, "ATM", lookback)
+        return None
     if hb is None or len(hb) < 20:
-        hb = _synth_vol_history(pair_b, tenor, "ATM", lookback)
+        return None
 
     n = min(len(ha), len(hb)) - 1
     da = np.diff(ha[-n-1:])
@@ -1131,17 +1161,22 @@ def rv_scanner(pairs: List[str] = None,
             pct_info = vol_percentile(p, t, "ATM", lookback)
             iv_rv = iv_rv_percentile(p, t, lookback=lookback)
 
+            if info is None or pct_info is None:
+                continue
+
             records.append({
                 "pair": p,
                 "tenor": t,
                 "atm_vol": info["current"],
                 "zscore": info["zscore"],
                 "percentile": pct_info["percentile"],
-                "iv_rv_spread": iv_rv["current_spread"],
-                "iv_rv_pct": iv_rv["percentile"],
+                "iv_rv_spread": iv_rv.get("current_spread", 0.0) if iv_rv else 0.0,
+                "iv_rv_pct": iv_rv.get("percentile", 50.0) if iv_rv else 50.0,
                 "signal": info["interpretation"],
             })
 
+    if not records:
+        return pd.DataFrame()
     df = pd.DataFrame(records)
     df["abs_zscore"] = df["zscore"].abs()
     df = df.sort_values("abs_zscore", ascending=False).drop(columns=["abs_zscore"])
@@ -1154,24 +1189,30 @@ def rv_signal_composite(pair: str, lookback: int = 252) -> dict:
     Score range: -100 (extremely cheap) to +100 (extremely rich).
     """
     # ATM IV z-score (weight 30%)
-    atm_z = vol_zscore(pair, "3M", "ATM", lookback)["zscore"]
+    atm_z_info = vol_zscore(pair, "3M", "ATM", lookback)
+    if atm_z_info is None:
+        return None
+    atm_z = atm_z_info["zscore"]
 
     # IV-RV spread percentile (weight 25%)
     ivrv = iv_rv_percentile(pair, "3M", lookback=lookback)
-    ivrv_score = (ivrv["percentile"] - 50) / 50  # normalise to -1..+1
+    ivrv_score = ((ivrv["percentile"] - 50) / 50) if ivrv else 0.0
 
     # Term structure slope z-score (weight 15%)
-    ts_1m = vol_zscore(pair, "1M", "ATM", lookback)["zscore"]
-    ts_1y = vol_zscore(pair, "1Y", "ATM", lookback)["zscore"]
+    ts_1m_info = vol_zscore(pair, "1M", "ATM", lookback)
+    ts_1y_info = vol_zscore(pair, "1Y", "ATM", lookback)
+    ts_1m = ts_1m_info["zscore"] if ts_1m_info is not None else 0.0
+    ts_1y = ts_1y_info["zscore"] if ts_1y_info is not None else 0.0
     ts_z = ts_1m - ts_1y  # front rich => positive
 
     # BF z-score (weight 15%)
-    bf_z = vol_zscore(pair, "3M", "25D_BF", lookback)["zscore"]
+    bf_z_info = vol_zscore(pair, "3M", "25D_BF", lookback)
+    bf_z = bf_z_info["zscore"] if bf_z_info is not None else 0.0
 
     # Regime adjustment (weight 15%)
     regime = vol_regime_detect(pair)
     regime_map = {"LOW": -1.0, "NORMAL": 0.0, "ELEVATED": 0.5, "HIGH": 1.0, "CRISIS": 1.5}
-    regime_score = regime_map.get(regime["regime"], 0.0)
+    regime_score = regime_map.get(regime["regime"], 0.0) if regime is not None else 0.0
 
     composite = (
         0.30 * np.clip(atm_z, -3, 3) / 3.0 +
@@ -1210,7 +1251,11 @@ def carry_adjusted_rv(pair: str, tenor: str = "3M",
     Cheap vol with negative carry may not be as attractive.
     """
     z = vol_zscore(pair, tenor, "ATM", lookback)
+    if z is None:
+        return None
     carry = vol_carry(pair, tenor)
+    if carry is None:
+        return None
 
     # Carry adjustment: penalise if buying vol but carry is negative (expensive)
     carry_adj = carry["carry_as_pct_of_spot"]
@@ -1239,9 +1284,16 @@ def implied_correlation(pair_a: str, pair_b: str, cross_pair: str,
     surface_b = get_fx_vol_surface(pair_b)
     surface_c = get_fx_vol_surface(cross_pair)
 
-    va = _extract_atm(surface_a, tenor) / 100.0
-    vb = _extract_atm(surface_b, tenor) / 100.0
-    vc = _extract_atm(surface_c, tenor) / 100.0
+    va_raw = _extract_atm(surface_a, tenor)
+    vb_raw = _extract_atm(surface_b, tenor)
+    vc_raw = _extract_atm(surface_c, tenor)
+
+    if va_raw is None or vb_raw is None or vc_raw is None:
+        return None
+
+    va = va_raw / 100.0
+    vb = vb_raw / 100.0
+    vc = vc_raw / 100.0
 
     denom = 2 * va * vb
     if denom < 1e-10:
@@ -1270,11 +1322,13 @@ def correlation_richness(pair_a: str, pair_b: str, cross_pair: str,
     Positive gap => implied corr is higher than realised (corr is expensive).
     """
     impl = implied_correlation(pair_a, pair_b, cross_pair, tenor)
+    if impl is None:
+        return None
     implied_rho = impl["implied_corr"]
 
     realized_rho = get_fx_correlation(pair_a, pair_b, window=60)
     if realized_rho is None:
-        realized_rho = _synth_correlation(pair_a, pair_b)
+        return None
 
     gap = implied_rho - realized_rho
 
@@ -1306,10 +1360,12 @@ def spot_correlation_matrix(pairs: List[str] = None,
     for p in pairs:
         hist = _to_close_array(get_fx_historical_spot(p, window + 10))
         if hist is None or len(hist) < window:
-            hist = _synth_spot_series(p, window + 10)
+            continue
         ret = np.diff(np.log(hist[-(window + 1):]))
         returns[p] = ret[:window]
 
+    if not returns:
+        return pd.DataFrame()
     df = pd.DataFrame(returns)
     return df.corr()
 
@@ -1326,10 +1382,12 @@ def vol_correlation_matrix(pairs: List[str] = None, tenor: str = "3M",
     for p in pairs:
         hist = get_fx_historical_vol(p, tenor, "ATM", window + 10)
         if hist is None or len(hist) < window:
-            hist = _synth_vol_history(p, tenor, "ATM", window + 10)
+            continue
         ch = np.diff(hist[-(window + 1):])
         changes[p] = ch[:window]
 
+    if not changes:
+        return pd.DataFrame()
     df = pd.DataFrame(changes)
     return df.corr()
 
@@ -1341,11 +1399,11 @@ def spot_vol_correlation(pair: str, window: int = 60) -> dict:
     """
     spot_hist = _to_close_array(get_fx_historical_spot(pair, window + 10))
     if spot_hist is None or len(spot_hist) < window:
-        spot_hist = _synth_spot_series(pair, window + 10)
+        return None
 
     vol_hist = get_fx_historical_vol(pair, "3M", "ATM", window + 10)
     if vol_hist is None or len(vol_hist) < window:
-        vol_hist = _synth_vol_history(pair, "3M", "ATM", window + 10)
+        return None
 
     n = min(len(spot_hist), len(vol_hist)) - 1
     spot_ret = np.diff(np.log(spot_hist[-n-1:]))
@@ -1415,9 +1473,9 @@ def correlation_term_structure(pair_a: str, pair_b: str,
     hist_a = _to_close_array(get_fx_historical_spot(pair_a, max_w + 10))
     hist_b = _to_close_array(get_fx_historical_spot(pair_b, max_w + 10))
     if hist_a is None or len(hist_a) < max_w:
-        hist_a = _synth_spot_series(pair_a, max_w + 10)
+        return pd.DataFrame()
     if hist_b is None or len(hist_b) < max_w:
-        hist_b = _synth_spot_series(pair_b, max_w + 10)
+        return pd.DataFrame()
 
     n = min(len(hist_a), len(hist_b)) - 1
     ret_a = np.diff(np.log(hist_a[-n-1:]))
@@ -1445,9 +1503,9 @@ def correlation_cone(pair_a: str, pair_b: str,
     hist_a = _to_close_array(get_fx_historical_spot(pair_a, lookback + max(windows) + 10))
     hist_b = _to_close_array(get_fx_historical_spot(pair_b, lookback + max(windows) + 10))
     if hist_a is None or len(hist_a) < lookback:
-        hist_a = _synth_spot_series(pair_a, lookback + max(windows) + 10)
+        return pd.DataFrame()
     if hist_b is None or len(hist_b) < lookback:
-        hist_b = _synth_spot_series(pair_b, lookback + max(windows) + 10)
+        return pd.DataFrame()
 
     n = min(len(hist_a), len(hist_b)) - 1
     ret_a = np.diff(np.log(hist_a[-n-1:]))
@@ -1540,7 +1598,10 @@ def carry_per_vol(pairs: List[str] = None) -> pd.DataFrame:
         diff = abs(r_dom - r_for)
 
         surface = get_fx_vol_surface(p)
-        atm = _extract_atm(surface, "3M") / 100.0
+        atm_raw = _extract_atm(surface, "3M")
+        if atm_raw is None:
+            continue
+        atm = atm_raw / 100.0
 
         ratio = diff / max(atm, 1e-6)
         sharpe_proxy = ratio * np.sqrt(4)  # annualise the 3M ratio
@@ -1598,60 +1659,38 @@ def carry_momentum(pair: str, lookback: int = 60) -> dict:
     """
     Is carry improving or deteriorating?
     Tracks the change in rate differential over the lookback period.
+
+    Note: Without a Bloomberg historical rate differential series, this
+    function can only return the current snapshot. No synthetic data is
+    generated to fake a history.
     """
     rates = get_fx_rates(pair)
     r_dom = rates.get("r_dom", 0.03)
     r_for = rates.get("r_for", 0.02)
     current_diff = r_dom - r_for
 
-    # OU-process based rate differential history
-    hist_diff = _synth_rate_diff_history(pair, current_diff, lookback)
-
-    change_20d = current_diff - hist_diff[-min(20, len(hist_diff))]
-    change_60d = current_diff - hist_diff[0]
-
-    if change_20d > 0.002:
-        momentum = "IMPROVING"
-    elif change_20d < -0.002:
-        momentum = "DETERIORATING"
-    else:
-        momentum = "STABLE"
-
+    # Without real historical rate data we cannot compute momentum.
+    # Return the current level with UNKNOWN momentum instead of faking a history.
     return {
         "pair": pair,
         "current_diff_bps": float(current_diff * 10000),
-        "change_20d_bps": float(change_20d * 10000),
-        "change_60d_bps": float(change_60d * 10000),
-        "momentum": momentum,
+        "change_20d_bps": None,
+        "change_60d_bps": None,
+        "momentum": "UNKNOWN",
     }
 
 
 def rate_differential_history(pair: str, lookback: int = 252) -> pd.DataFrame:
     """
     Time series of domestic-foreign rate differential.
-    Uses OU-process based history for realistic autocorrelation.
+
+    Note: Without a Bloomberg historical rate series, this function
+    cannot produce a real time series. Returns an empty DataFrame
+    instead of fabricating synthetic data.
     """
-    rates = get_fx_rates(pair)
-    r_dom = rates.get("r_dom", 0.03)
-    r_for = rates.get("r_for", 0.02)
-    current_diff = r_dom - r_for
-
-    # OU-process based rate differential history
-    hist = _synth_rate_diff_history(pair, current_diff, lookback)
-
-    # Decompose into domestic and foreign rate estimates
-    # Use a simple proportion: r_dom_est = r_for + hist (since diff = r_dom - r_for)
-    r_for_series = _synth_rate_diff_history(
-        pair + "_rfor", r_for, lookback
-    )
-    r_dom_series = r_for_series + hist
-
-    return pd.DataFrame({
-        "day": np.arange(lookback),
-        "rate_diff": hist,
-        "r_dom_est": r_dom_series,
-        "r_for_est": r_for_series,
-    })
+    # No real historical rate differential data source is available.
+    # Return empty DataFrame so callers know there is no data.
+    return pd.DataFrame()
 
 
 # =========================================================================
@@ -1665,7 +1704,7 @@ def cftc_positioning_data(pair: str) -> dict:
     """
     data = get_cftc_positioning(pair)
     if data is None:
-        data = _synth_cftc_data(pair)
+        return None
 
     return {
         "pair": pair,
@@ -1676,7 +1715,7 @@ def cftc_positioning_data(pair: str) -> dict:
         "spec_short": int(data.get("spec_short", 0)),
         "comm_long": int(data.get("comm_long", 0)),
         "comm_short": int(data.get("comm_short", 0)),
-        "report_date": data.get("report_date", "2026-03-17"),
+        "report_date": data.get("report_date", ""),
     }
 
 
@@ -1703,26 +1742,25 @@ def _synth_positioning_history(pair: str, current_net: int, n: int) -> np.ndarra
 def positioning_zscore(pair: str, lookback: int = 156) -> dict:
     """
     Z-score of net speculative positioning vs 3-year weekly history.
+
+    Note: Without real historical CFTC positioning data, this function
+    cannot compute a meaningful z-score.  Returns None if no positioning
+    data is available.
     """
     current = cftc_positioning_data(pair)
-    net_spec = current["net_speculative"]
+    if current is None:
+        return None
 
-    # Generate autocorrelated historical positioning (weekly) via OU process
-    hist = _synth_positioning_history(pair, net_spec, lookback)
-
-    mu = np.mean(hist)
-    sigma = np.std(hist)
-    z = (net_spec - mu) / max(sigma, 1)
-
+    # Without real historical positioning data we cannot compute a z-score.
+    # Return the current snapshot with UNKNOWN signal.
     return {
         "pair": pair,
-        "net_speculative": int(net_spec),
-        "mean_3y": float(mu),
-        "std_3y": float(sigma),
-        "zscore": float(z),
+        "net_speculative": int(current["net_speculative"]),
+        "mean_3y": None,
+        "std_3y": None,
+        "zscore": None,
         "lookback_weeks": lookback,
-        "signal": "EXTREME_LONG" if z > 1.5 else
-                 ("EXTREME_SHORT" if z < -1.5 else "NORMAL"),
+        "signal": "UNKNOWN",
     }
 
 
@@ -1736,12 +1774,15 @@ def positioning_extremes(pairs: List[str] = None) -> pd.DataFrame:
     records = []
     for p in pairs:
         z_data = positioning_zscore(p)
+        if z_data is None:
+            continue
+        zscore_val = z_data["zscore"]
         records.append({
             "pair": p,
             "net_speculative": z_data["net_speculative"],
-            "zscore": round(z_data["zscore"], 2),
+            "zscore": round(zscore_val, 2) if zscore_val is not None else None,
             "signal": z_data["signal"],
-            "extreme": abs(z_data["zscore"]) > 1.5,
+            "extreme": abs(zscore_val) > 1.5 if zscore_val is not None else False,
         })
 
     df = pd.DataFrame(records)
@@ -1753,26 +1794,21 @@ def positioning_vs_spot(pair: str, lookback: int = 156) -> pd.DataFrame:
     """
     Overlay of positioning and spot for divergence analysis.
     Weekly frequency aligned to CFTC report dates.
+
+    Note: Without real historical CFTC positioning data and sufficient
+    spot history, returns an empty DataFrame.
     """
     spot_hist = _to_close_array(get_fx_historical_spot(pair, lookback * 5 + 10))
     if spot_hist is None or len(spot_hist) < lookback:
-        spot_hist = _synth_spot_series(pair, lookback * 5 + 10)
-
-    # Downsample spot to weekly
-    spot_weekly = spot_hist[::5][-lookback:]
+        return pd.DataFrame()
 
     current = cftc_positioning_data(pair)
-    net_spec = current["net_speculative"]
+    if current is None:
+        return pd.DataFrame()
 
-    # Use OU-process based positioning history (same as positioning_zscore)
-    pos_hist = _synth_positioning_history(pair, net_spec, lookback)
-
-    n = min(len(spot_weekly), len(pos_hist))
-    return pd.DataFrame({
-        "week": np.arange(n),
-        "spot": spot_weekly[-n:],
-        "net_speculative": pos_hist[-n:].astype(int),
-    })
+    # Without real historical positioning time series we cannot build
+    # the overlay.  Return empty DataFrame.
+    return pd.DataFrame()
 
 
 # =========================================================================
@@ -2005,9 +2041,9 @@ def _cross_pair_metric_spread(pair_a: str, pair_b: str, tenor: str,
     ha = get_fx_historical_vol(pair_a, tenor, metric, lookback)
     hb = get_fx_historical_vol(pair_b, tenor, metric, lookback)
     if ha is None or len(ha) < 20:
-        ha = _synth_vol_history(pair_a, tenor, metric, lookback)
+        return None
     if hb is None or len(hb) < 20:
-        hb = _synth_vol_history(pair_b, tenor, metric, lookback)
+        return None
 
     n = min(len(ha), len(hb))
     a = ha[-n:]
@@ -2035,20 +2071,26 @@ def _cross_pair_metric_spread(pair_a: str, pair_b: str, tenor: str,
 
 
 def _extract_atm(surface, tenor: str) -> float:
-    """Extract ATM vol from a surface dict. Returns vol in percent."""
+    """Extract ATM vol from a surface dict. Returns vol in percent, or None if unavailable."""
     if isinstance(surface, dict):
         # bloomberg_fx returns {tenor: {"atm": val, ...}} directly (lowercase keys)
         if tenor in surface and isinstance(surface[tenor], dict):
-            return surface[tenor].get("atm", surface[tenor].get("ATM", 8.0))
+            val = surface[tenor].get("atm", surface[tenor].get("ATM"))
+            if val is not None:
+                return val
         # Try nested "tenors" key for alternate format
         tenors = surface.get("tenors", {})
         if tenor in tenors:
-            return tenors[tenor].get("atm", tenors[tenor].get("ATM", 8.0))
+            val = tenors[tenor].get("atm", tenors[tenor].get("ATM"))
+            if val is not None:
+                return val
         # Try nearest tenor
         for t in ["3M", "1M", "6M", "1Y"]:
             if t in surface and isinstance(surface[t], dict):
-                return surface[t].get("atm", surface[t].get("ATM", 8.0))
-    return _synth_atm(tenor)
+                val = surface[t].get("atm", surface[t].get("ATM"))
+                if val is not None:
+                    return val
+    return None
 
 
 _METRIC_KEY_MAP = {
@@ -2058,17 +2100,21 @@ _METRIC_KEY_MAP = {
 
 
 def _extract_metric(surface, tenor: str, metric: str) -> float:
-    """Extract a specific metric from the surface dict. Returns vol in percent."""
+    """Extract a specific metric from the surface dict. Returns vol in percent, or None if unavailable."""
     key = _METRIC_KEY_MAP.get(metric, metric.lower())
     if isinstance(surface, dict):
         # Direct tenor lookup (bloomberg_fx format)
         if tenor in surface and isinstance(surface[tenor], dict):
-            return surface[tenor].get(key, surface[tenor].get(metric, 0.0))
+            val = surface[tenor].get(key, surface[tenor].get(metric))
+            if val is not None:
+                return val
         # Nested "tenors" key
         tenors = surface.get("tenors", {})
         if tenor in tenors:
-            return tenors[tenor].get(key, tenors[tenor].get(metric, 0.0))
-    return _synth_metric(metric)
+            val = tenors[tenor].get(key, tenors[tenor].get(metric))
+            if val is not None:
+                return val
+    return None
 
 
 def _synth_atm(tenor: str) -> float:

@@ -605,11 +605,11 @@ def chart_smile_curve(pair, sd, spot, r_dom, r_for, **kw):
     avail = sd["tenors"]
     tenor_use = sel_tenor if sel_tenor in avail else (avail[len(avail) // 2] if avail else "1M")
     row = surface.get(tenor_use, {})
-    atm = row.get("atm", row.get("ATM", 8.0))
+    atm = row.get("atm", row.get("ATM", 0))
     rr25 = row.get("rr25", row.get("25D_RR", 0.0))
-    bf25 = row.get("bf25", row.get("25D_BF", 0.2))
+    bf25 = row.get("bf25", row.get("25D_BF", 0.0))
     rr10 = row.get("rr10", row.get("10D_RR", 0.0))
-    bf10 = row.get("bf10", row.get("10D_BF", 0.5))
+    bf10 = row.get("bf10", row.get("10D_BF", 0.0))
 
     smile = bf_rr_to_smile(atm, rr25, bf25, rr10, bf10)
     pillar_deltas = [-10, -25, 0, 25, 10]
@@ -972,9 +972,9 @@ def chart_sabr_params(pair, sd, spot, r_dom, r_for, **kw):
 
     for i, t in enumerate(tenors):
         row = surface.get(t, {})
-        atm_vol = row.get("atm", row.get("ATM", 8.0)) / 100.0
+        atm_vol = row.get("atm", row.get("ATM", 0)) / 100.0
         rr25 = row.get("rr25", row.get("25D_RR", 0.0)) / 100.0
-        bf25 = row.get("bf25", row.get("25D_BF", 0.2)) / 100.0
+        bf25 = row.get("bf25", row.get("25D_BF", 0.0)) / 100.0
 
         # Approximate SABR params from market quotes
         F = fwd[i] if i < len(fwd) else spot

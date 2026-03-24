@@ -576,8 +576,10 @@ def _study_smile(pair, tenor, timeframe):
         fig = go.Figure()
         for idx, t in enumerate(["1M", "3M", "6M", "1Y"]):
             td = surface.get(t, {})
-            atm = td.get("atm", 10); rr25 = td.get("rr25", 0); bf25 = td.get("bf25", 0)
+            atm = td.get("atm", 0); rr25 = td.get("rr25", 0); bf25 = td.get("bf25", 0)
             rr10 = td.get("rr10", 0); bf10 = td.get("bf10", 0)
+            if atm == 0:
+                continue
             vols = [atm - rr10/2 + bf10, atm - rr25/2 + bf25, atm, atm + rr25/2 + bf25, atm + rr10/2 + bf10]
             fig.add_trace(go.Scatter(x=["10P", "25P", "ATM", "25C", "10C"], y=vols,
                                      mode="lines+markers", name=t, line=dict(color=_CW[idx % len(_CW)], width=2),
@@ -958,8 +960,10 @@ def _build_comparison_figure(pairs, comp_type, tenor="3M"):
                     surface = get_fx_vol_surface(pair)
                     if surface:
                         td = surface.get(tenor, surface.get("3M", {}))
-                        atm, rr25, bf25 = td.get("atm", 10), td.get("rr25", 0), td.get("bf25", 0)
+                        atm, rr25, bf25 = td.get("atm", 0), td.get("rr25", 0), td.get("bf25", 0)
                         rr10, bf10 = td.get("rr10", 0), td.get("bf10", 0)
+                        if atm == 0:
+                            continue
                         vols = [atm-rr10/2+bf10, atm-rr25/2+bf25, atm, atm+rr25/2+bf25, atm+rr10/2+bf10]
                         fig.add_trace(go.Scatter(x=["10P","25P","ATM","25C","10C"], y=vols,
                                                   mode="lines+markers", name=f"{pair} {tenor}",
@@ -1112,11 +1116,12 @@ def _build_deep_study(study_type, pairs, tenor):
             surface = get_fx_vol_surface(pair)
             if surface:
                 td = surface.get(tenor, {})
-                atm, rr25, bf25 = td.get("atm", 10), td.get("rr25", 0), td.get("bf25", 0)
+                atm, rr25, bf25 = td.get("atm", 0), td.get("rr25", 0), td.get("bf25", 0)
                 rr10, bf10 = td.get("rr10", 0), td.get("bf10", 0)
-                vols = [atm-rr10/2+bf10, atm-rr25/2+bf25, atm, atm+rr25/2+bf25, atm+rr10/2+bf10]
-                fig.add_trace(go.Scatter(x=["10P","25P","ATM","25C","10C"], y=vols,
-                              mode="lines+markers", name="Smile", line=dict(color="#ff8800", width=2)), row=1, col=1)
+                if atm > 0:
+                    vols = [atm-rr10/2+bf10, atm-rr25/2+bf25, atm, atm+rr25/2+bf25, atm+rr10/2+bf10]
+                    fig.add_trace(go.Scatter(x=["10P","25P","ATM","25C","10C"], y=vols,
+                                  mode="lines+markers", name="Smile", line=dict(color="#ff8800", width=2)), row=1, col=1)
             # PDF
             pdf = smile_implied_pdf(pair, tenor)
             if pdf is not None and not pdf.empty:

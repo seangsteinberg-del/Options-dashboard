@@ -114,9 +114,7 @@ def _build_vol_spread_ts(pair_a, pair_b, tenor, lookback):
         hist_a = get_fx_historical_vol(pair_a, tenor, "ATM", lookback)
         hist_b = get_fx_historical_vol(pair_b, tenor, "ATM", lookback)
         if hist_a is None or hist_b is None:
-            from core.fx_analytics import _synth_vol_history
-            hist_a = hist_a if hist_a is not None else _synth_vol_history(pair_a, tenor, "ATM", lookback)
-            hist_b = hist_b if hist_b is not None else _synth_vol_history(pair_b, tenor, "ATM", lookback)
+            return no_data_fig(msg="NO VOL HISTORY")
 
         a = np.array(hist_a, dtype=float)
         b = np.array(hist_b, dtype=float)
@@ -234,9 +232,7 @@ def _build_skew_scatter(pair_a, pair_b, tenor, lookback):
         rr_a = get_fx_historical_vol(pair_a, tenor, "25D_RR", lookback)
         rr_b = get_fx_historical_vol(pair_b, tenor, "25D_RR", lookback)
         if rr_a is None or rr_b is None:
-            from core.fx_analytics import _synth_vol_history
-            rr_a = rr_a if rr_a is not None else _synth_vol_history(pair_a, tenor, "25D_RR", lookback)
-            rr_b = rr_b if rr_b is not None else _synth_vol_history(pair_b, tenor, "25D_RR", lookback)
+            return _empty_fig("NO SKEW DATA")
 
         a = np.array(rr_a, dtype=float)
         b = np.array(rr_b, dtype=float)

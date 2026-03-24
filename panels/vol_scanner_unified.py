@@ -370,8 +370,7 @@ def _build_atm_history(pair, tenor, lookback):
         from core.fx_analytics import vol_percentile
         hist = get_fx_historical_vol(pair, tenor, "ATM", 252)
         if hist is None or len(hist) < 10:
-            from core.fx_analytics import _synth_vol_history
-            hist = _synth_vol_history(pair, tenor, "ATM", 252)
+            return _empty_fig("NO VOL HISTORY")
 
         arr = np.array(hist, dtype=float) if not isinstance(hist, np.ndarray) else hist
         mean_v = float(np.nanmean(arr))
@@ -576,8 +575,7 @@ def _build_rr_spot_chart(pair, tenor):
         spot_hist = get_fx_historical_spot(pair, 252)
 
         if rr_hist is None:
-            from core.fx_analytics import _synth_vol_history
-            rr_hist = _synth_vol_history(pair, tenor, "25D_RR", 252)
+            return _empty_fig("NO VOL HISTORY")
 
         rr_arr = np.array(rr_hist, dtype=float) if not isinstance(rr_hist, np.ndarray) else rr_hist
 
