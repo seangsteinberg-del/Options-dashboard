@@ -48,7 +48,7 @@ except ImportError:
     BLPAPI_AVAILABLE = False
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Cache Layer (thread-safe)
+# Cache Layer (thread-safe, with request deduplication)
 # ═══════════════════════════════════════════════════════════════════════════
 
 _CACHE_TTL = {
@@ -62,6 +62,11 @@ _CACHE_TTL = {
 
 _cache: Dict[str, Tuple[float, object]] = {}
 _cache_lock = threading.Lock()
+
+# In-flight request deduplication: when multiple callbacks want the same
+# data, only ONE makes the Bloomberg call. Others wait on the Event.
+_inflight: Dict[str, threading.Event] = {}
+_inflight_lock = threading.Lock()
 
 # ── Data Integrity Tracking (thread-safe) ─────────────────────────────────
 _fetch_errors: list = []
@@ -125,6 +130,48 @@ def _cache_get(key: str, category: str = "spot"):
 def _cache_set(key: str, value, category: str = "spot"):
     with _cache_lock:
         _cache[key] = (time.time(), value)
+
+
+def _cache_wait_or_claim(key: str, category: str = "spot"):
+    """Check cache, and if miss, claim the right to fetch.
+
+    Returns (cached_value, should_fetch):
+      - (value, False) if cache hit — use value directly
+      - (None, True) if cache miss and YOU should fetch — others will wait
+      - (value, False) if another thread fetched while you waited
+    """
+    # Fast path: cache hit
+    cached = _cache_get(key, category)
+    if cached is not None:
+        return cached, False
+
+    # Check if another thread is already fetching this key
+    with _inflight_lock:
+        if key in _inflight:
+            # Another thread is fetching — wait for it
+            evt = _inflight[key]
+        else:
+            # We're first — claim it
+            evt = threading.Event()
+            _inflight[key] = evt
+            return None, True  # caller should fetch
+
+    # Wait for the other thread to finish (max 30s)
+    evt.wait(timeout=30)
+    # Now check cache for the result
+    cached = _cache_get(key, category)
+    if cached is not None:
+        return cached, False
+    # Other thread failed — we could retry but just return miss
+    return None, False
+
+
+def _cache_done(key: str):
+    """Signal that fetching for this key is complete."""
+    with _inflight_lock:
+        evt = _inflight.pop(key, None)
+    if evt:
+        evt.set()
 
 
 def cache_clear():
@@ -588,14 +635,6 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
             fields = ["PX_BID", "PX_ASK", "PX_LAST", "PX_MID", "CHG_NET_1D",
                        "CHG_PCT_1D", "PX_HIGH", "PX_LOW", "PX_OPEN", "VOLUME"]
             df = bdp(tickers, fields)
-            if not df.empty:
-                logger.warning("FX spots: BDP returned %d rows for %d pairs. "
-                               "Index: %s | First row data: %s",
-                               len(df), len(tickers),
-                               list(df.index[:5]),
-                               {c: df.iloc[0][c] for c in df.columns[:4]} if len(df) > 0 else "N/A")
-            else:
-                logger.warning("FX spots: Bloomberg returned EMPTY DataFrame")
             def _sf(v):
                 """Safe float — handles None from Bloomberg null fields."""
                 try:
@@ -695,24 +734,8 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
                     ticker_map[tick] = (t, m)
 
             # Single batched bdp call — request PX_LAST and PX_MID
-            # Some Bloomberg terminals only populate PX_MID for FX vol
             vol_fields = ["PX_LAST", "PX_MID"]
-            logger.warning("Vol surface %s: requesting %d tickers, first 3: %s",
-                        pair, len(all_tickers), all_tickers[:3])
             df = bdp(all_tickers, vol_fields)
-            if not df.empty:
-                # CRITICAL DIAGNOSTIC — log what Bloomberg ACTUALLY returned
-                logger.warning("Vol surface %s: BDP returned %d rows. "
-                               "Index sample: %s | Columns: %s",
-                               pair, len(df),
-                               list(df.index[:5]),
-                               list(df.columns))
-                sample = df.head(3)
-                for idx_val in sample.index:
-                    row_data = {c: sample.loc[idx_val, c] for c in sample.columns}
-                    logger.warning("  BDP row: %r -> %s", idx_val, row_data)
-            else:
-                logger.warning("Vol surface %s: BDP returned EMPTY DataFrame", pair)
 
             # Build a case-insensitive lookup from whatever Bloomberg returned
             idx_map = {}

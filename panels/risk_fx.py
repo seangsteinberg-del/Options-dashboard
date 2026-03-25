@@ -217,7 +217,7 @@ def layout():
         # Hidden stores
         dcc.Store(id="fxrisk-init-flag", data=False),
         dcc.Store(id="fxrisk-selected-pair", data=None),
-        dcc.Interval(id="fxrisk-interval", interval=60_000, n_intervals=0),
+        dcc.Interval(id="fxrisk-interval", interval=180_000, n_intervals=0),
 
         # ---- 8 KPI Stat Boxes ----
         html.Div(id="fxrisk-stat-boxes", className="stat-row", style={

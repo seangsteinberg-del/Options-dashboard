@@ -767,7 +767,7 @@ def layout():
         dcc.Store(id=f"{_P}-drill-pair", data="EURUSD"),
         dcc.Store(id=f"{_P}-drill-tenor", data="3M"),
         dcc.Store(id=f"{_P}-scanner-store", data=[]),
-        dcc.Interval(id=f"{_P}-interval", interval=60_000, n_intervals=0),
+        dcc.Interval(id=f"{_P}-interval", interval=180_000, n_intervals=0),
         dcc.Download(id=f"{_P}-csv-download"),
 
         # ── Title + Controls ──

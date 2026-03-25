@@ -511,7 +511,7 @@ def _empty_fig(title=""):
 def layout():
     return html.Div([
         dcc.Store(id=f"{_P}-selected-pair", data=None),
-        dcc.Interval(id=f"{_P}-interval", interval=30_000, n_intervals=0),
+        dcc.Interval(id=f"{_P}-interval", interval=120_000, n_intervals=0),
         dcc.Download(id=f"{_P}-csv-download"),
 
         # ── Title + Controls ──

@@ -835,7 +835,7 @@ def layout():
         dcc.Store(id=f"{_P}-corr-pair-a", data="EURUSD"),
         dcc.Store(id=f"{_P}-corr-pair-b", data="USDJPY"),
         dcc.Store(id=f"{_P}-carry-pair", data="EURUSD"),
-        dcc.Interval(id=f"{_P}-interval", interval=60_000, n_intervals=0),
+        dcc.Interval(id=f"{_P}-interval", interval=180_000, n_intervals=0),
 
         # ── Title + Controls ──
         html.Div([

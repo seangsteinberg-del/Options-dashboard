@@ -265,7 +265,7 @@ def make_ticker_tape():
         html.Div(items + items, id="ticker-tape-content",
                  className="ticker-tape-inner",
                  style={"display": "inline-flex", "whiteSpace": "nowrap"}),
-        dcc.Interval(id="ticker-refresh-interval", interval=30_000, n_intervals=0),
+        dcc.Interval(id="ticker-refresh-interval", interval=120_000, n_intervals=0),
     ], className="ticker-tape")
 
 
@@ -734,7 +734,7 @@ def serve_layout():
         dcc.Store(id="metric-popup-data", data=None),
 
         # ── Data source status refresh (every 10s) ──
-        dcc.Interval(id="data-source-interval", interval=10_000, n_intervals=0),
+        dcc.Interval(id="data-source-interval", interval=120_000, n_intervals=0),
 
         # ── Hidden keyboard listener for Ctrl+K ──
         html.Div(id="kb-listener", style={"display": "none"}),
