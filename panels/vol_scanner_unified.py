@@ -53,12 +53,14 @@ LOOKBACK_OPTIONS = [
 
 SIGNAL_OPTIONS = [
     {"label": "ALL SIGNALS", "value": "ALL"},
-    {"label": "VOL CHEAP",   "value": "CHEAP"},
-    {"label": "VOL RICH",    "value": "RICH"},
-    {"label": "SKEW EXTREME","value": "SKEW"},
-    {"label": "RV BUY",      "value": "RV_BUY"},
-    {"label": "RV SELL",     "value": "RV_SELL"},
-    {"label": "TERM STEEP",  "value": "TERM"},
+    {"label": "BUY VOL",     "value": "BUY_VOL"},
+    {"label": "SELL VOL",    "value": "SELL_VOL"},
+    {"label": "BUY SKEW",    "value": "BUY_SKEW"},
+    {"label": "SELL SKEW",   "value": "SELL_SKEW"},
+    {"label": "TERM STEEP",  "value": "TERM_STEEP"},
+    {"label": "TERM FLAT",   "value": "TERM_FLAT"},
+    {"label": "RV RICH",     "value": "RV_RICH"},
+    {"label": "RV CHEAP",    "value": "RV_CHEAP"},
 ]
 
 METRIC_OPTIONS = [
@@ -140,20 +142,26 @@ def _empty_fig(title=""):
 
 def _compute_signal(atm_pct, rr_pct, ivrv_z, term_z):
     signals = []
-    if atm_pct < 10:
-        signals.append("VOL CHEAP")
-    elif atm_pct < 15:
-        signals.append("VOL CHEAP-ISH")
-    if atm_pct > 90:
-        signals.append("VOL RICH")
-    if rr_pct < 10 or rr_pct > 90:
-        signals.append("SKEW EXTREME")
-    if abs(term_z) > 2:
+    # Directional vol signals: require both percentile AND IV-RV confirmation
+    if atm_pct > 85 and ivrv_z > 1:
+        signals.append("SELL VOL")
+    if atm_pct < 15 and ivrv_z < -1:
+        signals.append("BUY VOL")
+    # Skew signals: extreme RR percentile
+    if rr_pct > 90:
+        signals.append("SELL SKEW")
+    if rr_pct < 10:
+        signals.append("BUY SKEW")
+    # Term structure signals: z-score of 1M-1Y spread
+    if term_z > 1.5:
         signals.append("TERM STEEP")
-    if ivrv_z < -1:
-        signals.append("RV BUY")
-    if ivrv_z > 1:
-        signals.append("RV SELL")
+    if term_z < -1.5:
+        signals.append("TERM FLAT")
+    # IV-RV extremes (standalone)
+    if ivrv_z > 2:
+        signals.append("RV RICH")
+    if ivrv_z < -2:
+        signals.append("RV CHEAP")
     return " | ".join(signals) if signals else "—"
 
 
@@ -245,7 +253,7 @@ def _build_scanner_rows(pairs, lookback):
 
 
 def _build_top_movers(rows):
-    """5 top mover stat boxes."""
+    """6 top mover stat boxes."""
     if not rows:
         return []
     cheapest = min(rows, key=lambda r: r.get("atm3m_pct", 50))
@@ -253,6 +261,8 @@ def _build_top_movers(rows):
     biggest_skew = max(rows, key=lambda r: abs(r.get("rr25_3m", 0)))
     biggest_ivrv = max(rows, key=lambda r: abs(r.get("ivrv_3m", 0)))
     n_signals = sum(1 for r in rows if r.get("signal", "—") != "—")
+    n_inverted = sum(1 for r in rows if r.get("atm_1m", 0) > 0 and r.get("atm_1y", 0) > 0
+                     and r.get("atm_1m", 0) > r.get("atm_1y", 0))
 
     items = [
         ("CHEAPEST VOL", f"{cheapest['pair']} {cheapest['atm3m_pct']:.0f}%ile", "#60a5fa"),
@@ -260,6 +270,7 @@ def _build_top_movers(rows):
         ("BIGGEST SKEW", f"{biggest_skew['pair']} {biggest_skew['rr25_3m']:+.1f}", "#ff8800"),
         ("IV-RV GAP", f"{biggest_ivrv['pair']} {biggest_ivrv['ivrv_3m']:+.1f}", "#ff8800"),
         ("SIGNALS", f"{n_signals}/{len(rows)}", "#00cc66" if n_signals > 0 else "#808080"),
+        ("TERM INVERSION", f"{n_inverted}/{len(rows)}", "#ff3333" if n_inverted > 0 else "#808080"),
     ]
     boxes = []
     for label, value, color in items:
@@ -1049,10 +1060,18 @@ def register_callbacks(app):
                  "color": "#f87171", "fontWeight": "bold"},
                 {"if": {"filter_query": "{z_atm3m} < -2", "column_id": "z_atm3m"},
                  "color": "#60a5fa", "fontWeight": "bold"},
-                # Signal coloring
-                {"if": {"filter_query": '{signal} contains "CHEAP"', "column_id": "signal"},
+                # IV-RV spread coloring
+                {"if": {"filter_query": "{ivrv_3m} > 1.5", "column_id": "ivrv_3m"},
+                 "color": "#34d399", "fontWeight": "bold"},
+                {"if": {"filter_query": "{ivrv_3m} < -1.5", "column_id": "ivrv_3m"},
+                 "color": "#f87171", "fontWeight": "bold"},
+                # Signal coloring — any signal present gets orange
+                {"if": {"filter_query": '{signal} != "—"', "column_id": "signal"},
+                 "color": "#ff8800", "borderLeft": "2px solid #ff8800"},
+                # Signal-specific overrides for key types
+                {"if": {"filter_query": '{signal} contains "BUY VOL"', "column_id": "signal"},
                  "color": "#34d399", "borderLeft": "2px solid #34d399"},
-                {"if": {"filter_query": '{signal} contains "RICH"', "column_id": "signal"},
+                {"if": {"filter_query": '{signal} contains "SELL VOL"', "column_id": "signal"},
                  "color": "#f87171", "borderLeft": "2px solid #f87171"},
                 {"if": {"filter_query": '{signal} contains "SKEW"', "column_id": "signal"},
                  "color": "#fbbf24", "borderLeft": "2px solid #fbbf24"},

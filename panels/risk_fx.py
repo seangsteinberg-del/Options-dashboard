@@ -224,6 +224,43 @@ def layout():
             "marginBottom": SECTION_GAP,
         }),
 
+        # ---- Risk Limits Configuration ----
+        html.Div([
+            html.Div("RISK LIMITS", style={
+                **CARD_HEADER_STYLE, "marginBottom": "12px",
+                "cursor": "pointer", "display": "inline-block",
+            }),
+            html.Div([
+                html.Div([
+                    html.Label("DELTA LIMIT ($M)", style=LABEL_STYLE),
+                    dcc.Input(
+                        id="fxrisk-limit-delta", type="number",
+                        value=10, step=1, min=1, max=500,
+                        style={**INPUT_STYLE, "width": "100px"},
+                        debounce=True,
+                    ),
+                ], style={"flex": "1", "minWidth": "120px"}),
+                html.Div([
+                    html.Label("VEGA LIMIT ($K)", style=LABEL_STYLE),
+                    dcc.Input(
+                        id="fxrisk-limit-vega", type="number",
+                        value=500, step=50, min=10, max=10000,
+                        style={**INPUT_STYLE, "width": "100px"},
+                        debounce=True,
+                    ),
+                ], style={"flex": "1", "minWidth": "120px"}),
+                html.Div([
+                    html.Label("GAMMA LIMIT ($K)", style=LABEL_STYLE),
+                    dcc.Input(
+                        id="fxrisk-limit-gamma", type="number",
+                        value=100, step=10, min=5, max=5000,
+                        style={**INPUT_STYLE, "width": "100px"},
+                        debounce=True,
+                    ),
+                ], style={"flex": "1", "minWidth": "120px"}),
+            ], style={"display": "flex", "gap": GAP, "flexWrap": "wrap"}),
+        ], style={**CARD_STYLE, "marginBottom": SECTION_GAP, "padding": "12px 18px"}),
+
         # ---- Tabbed Risk Views ----
         html.Div([
             dcc.Tabs(id="fxrisk-tabs", value="greeks", children=[
@@ -294,7 +331,7 @@ def layout():
         # Stress
         html.Div(id="fxrisk-stress-container", style={"display": "none"}, children=[
             html.Div([
-                html.Div("SCENARIO COMPARISON (ALL 15 SCENARIOS)", style=CARD_HEADER_STYLE),
+                html.Div("SCENARIO COMPARISON (ALL SCENARIOS)", style=CARD_HEADER_STYLE),
                 html.Button("CSV", id="fxrisk-csv-scenario", n_clicks=0, style=CSV_BTN_STYLE),
                 dcc.Graph(id="fxrisk-scenario-bars", config={"displayModeBar": False}),
             ], style={**CARD_STYLE, "marginBottom": SECTION_GAP}),
@@ -582,11 +619,15 @@ def register_callbacks(app):
         [
             Input("fxrisk-interval", "n_intervals"),
             Input("fxrisk-tabs", "value"),
+            Input("fxrisk-limit-delta", "value"),
+            Input("fxrisk-limit-vega", "value"),
+            Input("fxrisk-limit-gamma", "value"),
         ],
         [State("fxrisk-init-flag", "data")],
         prevent_initial_call=False,
     )
-    def update_main_risk(n_intervals, tab, init_flag):
+    def update_main_risk(n_intervals, tab, limit_delta_m, limit_vega_k,
+                         limit_gamma_k, init_flag):
         # Initialize portfolio on first load
         if not init_flag:
             positions = get_all_positions()
@@ -605,8 +646,20 @@ def register_callbacks(app):
         risk = compute_portfolio_risk(spots, rates, vol_surfaces)
         totals = risk.get("totals", {})
 
-        # Limit breaches
-        breaches = check_risk_limits(risk)
+        # Limit breaches -- use configurable limits from UI inputs
+        custom_limits = {
+            "max_total_delta": (limit_delta_m or 10) * 1_000_000,
+            "max_delta_per_pair": (limit_delta_m or 10) * 1_000_000 / 2,
+            "max_total_vega": (limit_vega_k or 500) * 1_000,
+            "max_vega_per_pair": (limit_vega_k or 500) * 1_000 / 3,
+            "max_vega_per_tenor_bucket": (limit_vega_k or 500) * 1_000 / 5,
+            "max_gamma_per_pair": (limit_gamma_k or 100) * 1_000,
+            "max_daily_theta": -50_000,
+            "max_var_95_1d": 500_000,
+            "max_notional_per_pair": 100_000_000,
+            "max_em_notional_pct": 0.30,
+        }
+        breaches = check_risk_limits(risk, limits=custom_limits)
         n_breaches = len([b for b in breaches if b["severity"] in ("BREACH", "CRITICAL")])
 
         # Unrealised P&L estimate (price field from risk is mark-to-market)
@@ -1618,15 +1671,52 @@ def register_callbacks(app):
                                        "fontFamily": "'JetBrains Mono', monospace",
                                        "fontSize": "12px"})
 
+            # Build enhanced table data with actionable descriptions and cost
             table_data = []
+            action_lines = []
+            total_cost = 0.0
             for s in suggestions:
+                pair = s.get("pair", "")
+                instrument = s.get("instrument", "")
+                direction = s.get("direction", "").upper()
+                notional = s.get("notional", 0)
+                spot = spots.get(pair, 1.0)
+                vol = _safe_atm_vol(vol_surfaces.get(pair, 0.10))
+
+                # Estimate approximate cost
+                if instrument == "SPOT":
+                    # Spot hedge: cost is spread (~2-5 pips)
+                    spread_cost = notional * 0.0003  # ~3 pips spread cost
+                    action_desc = f"{direction} {notional:,.0f} units of {pair} spot"
+                    cost_str = f"~${spread_cost:,.0f} spread"
+                    total_cost += spread_cost
+                elif "STRADDLE" in instrument:
+                    # Straddle cost: approximate as 2 * BS premium for ATM
+                    tenor_str = instrument.split()[0] if instrument else "3M"
+                    tenor_map = {"1W": 7/365, "2W": 14/365, "1M": 30/365,
+                                 "2M": 60/365, "3M": 90/365, "6M": 180/365,
+                                 "9M": 270/365, "1Y": 1.0, "2Y": 2.0}
+                    T = tenor_map.get(tenor_str, 0.25)
+                    # ATM straddle premium ~ 2 * S * vol * sqrt(T) * 0.4 (approx)
+                    straddle_prem_pct = 2 * vol * np.sqrt(T) * 0.4
+                    straddle_cost = notional * straddle_prem_pct
+                    action_desc = (f"{direction} {notional:,.0f} notional "
+                                   f"{pair} {tenor_str} ATM straddle")
+                    cost_str = f"~${straddle_cost:,.0f} premium"
+                    total_cost += straddle_cost
+                else:
+                    action_desc = f"{direction} {notional:,.0f} {pair} {instrument}"
+                    cost_str = "N/A"
+
                 table_data.append({
-                    "Pair": s.get("pair", ""),
-                    "Instrument": s.get("instrument", ""),
-                    "Direction": s.get("direction", "").upper(),
-                    "Notional": f"{s.get('notional', 0):,.0f}",
+                    "Pair": pair,
+                    "Action": action_desc,
+                    "Direction": direction,
+                    "Notional": f"{notional:,.0f}",
+                    "Est. Cost": cost_str,
                     "Rationale": s.get("rationale", ""),
                 })
+                action_lines.append(action_desc)
 
             hedge_table = dash_table.DataTable(
                 columns=[{"name": c, "id": c} for c in table_data[0].keys()],
@@ -1654,6 +1744,12 @@ def register_callbacks(app):
                     "fontFamily": "'JetBrains Mono', monospace",
                     "marginBottom": GAP,
                     "letterSpacing": "1px",
+                }),
+                html.Div(f"Total estimated hedge cost: ${total_cost:,.0f}", style={
+                    "color": COLORS["text_secondary"],
+                    "fontSize": "12px",
+                    "fontFamily": "'JetBrains Mono', monospace",
+                    "marginBottom": GAP,
                 }),
                 hedge_table,
             ])

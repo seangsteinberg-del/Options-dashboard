@@ -465,6 +465,133 @@ FX_STRESS_SCENARIOS = {
         },
         "default_shock": _default(0.00, 3.0, 0),
     },
+
+    # -----------------------------------------------------------------
+    # Uniform stress scenarios (apply same shock to all pairs)
+    # -----------------------------------------------------------------
+
+    "VOL_SPIKE_50": {
+        "name": "Vol Spike (+50%)",
+        "description": "Implied volatility jumps 50% across all pairs. Tests short-vega exposure.",
+        "severity": "MODERATE",
+        "date": "",
+        "shocks": {},
+        "default_shock": _default(0.0, 1.5, 0),
+    },
+
+    "VOL_SPIKE_100": {
+        "name": "Vol Spike (+100%)",
+        "description": "Implied volatility doubles across all pairs. Extreme vega stress.",
+        "severity": "SEVERE",
+        "date": "",
+        "shocks": {},
+        "default_shock": _default(0.0, 2.0, 0),
+    },
+
+    "VOL_COLLAPSE_30": {
+        "name": "Vol Collapse (-30%)",
+        "description": "Implied volatility drops 30% across all pairs. Tests long-vega exposure.",
+        "severity": "MODERATE",
+        "date": "",
+        "shocks": {},
+        "default_shock": _default(0.0, 0.7, 0),
+    },
+
+    "RISK_OFF_JPY": {
+        "name": "Risk-Off (JPY rally)",
+        "description": "Classic risk-off move: spot down 5%, vol nearly doubles, rates fall 50bp.",
+        "severity": "SEVERE",
+        "date": "",
+        "shocks": {
+            "USDJPY": _default(-0.08, 2.2, -50),
+            "EURJPY": _default(-0.07, 2.0, -50),
+            "GBPJPY": _default(-0.07, 2.0, -50),
+            "AUDJPY": _default(-0.06, 2.0, -50),
+            "AUDUSD": _default(-0.04, 1.8, -50),
+            "NZDUSD": _default(-0.04, 1.8, -50),
+        },
+        "default_shock": _default(-0.05, 1.8, -50),
+    },
+
+    "RISK_ON_EM": {
+        "name": "Risk-On (EM rally)",
+        "description": "EM rally: spot up 3%, vol compresses, rates rise 25bp on growth optimism.",
+        "severity": "MODERATE",
+        "date": "",
+        "shocks": {
+            "USDZAR": _default(-0.05, 0.7, 25),
+            "USDMXN": _default(-0.04, 0.7, 25),
+            "USDTRY": _default(-0.03, 0.8, 25),
+            "USDBRL": _default(-0.04, 0.7, 25),
+            "USDCNH": _default(-0.02, 0.8, 25),
+            "AUDUSD": _default(0.03, 0.8, 25),
+            "NZDUSD": _default(0.03, 0.8, 25),
+        },
+        "default_shock": _default(0.03, 0.8, 25),
+    },
+
+    "RATES_UP_100": {
+        "name": "Rates +100bp",
+        "description": "Parallel +100bp rate shock across all pairs. Pure rho stress test.",
+        "severity": "MODERATE",
+        "date": "",
+        "shocks": {},
+        "default_shock": _default(0.0, 1.0, 100),
+    },
+
+    "RATES_DOWN_100": {
+        "name": "Rates -100bp",
+        "description": "Parallel -100bp rate shock across all pairs. Pure rho stress test.",
+        "severity": "MODERATE",
+        "date": "",
+        "shocks": {},
+        "default_shock": _default(0.0, 1.0, -100),
+    },
+
+    "SPOT_UP_5": {
+        "name": "Spot +5%",
+        "description": "Uniform 5% spot appreciation. Tests delta and gamma exposure.",
+        "severity": "MODERATE",
+        "date": "",
+        "shocks": {},
+        "default_shock": _default(0.05, 1.0, 0),
+    },
+
+    "SPOT_DOWN_5": {
+        "name": "Spot -5%",
+        "description": "Uniform 5% spot depreciation. Tests delta and gamma exposure.",
+        "severity": "MODERATE",
+        "date": "",
+        "shocks": {},
+        "default_shock": _default(-0.05, 1.0, 0),
+    },
+
+    "SPOT_UP_10": {
+        "name": "Spot +10%",
+        "description": "Uniform 10% spot appreciation. Large directional stress.",
+        "severity": "SEVERE",
+        "date": "",
+        "shocks": {},
+        "default_shock": _default(0.10, 1.0, 0),
+    },
+
+    "SPOT_DOWN_10": {
+        "name": "Spot -10%",
+        "description": "Uniform 10% spot depreciation. Large directional stress.",
+        "severity": "SEVERE",
+        "date": "",
+        "shocks": {},
+        "default_shock": _default(-0.10, 1.0, 0),
+    },
+
+    "TAIL_RISK": {
+        "name": "Tail Risk",
+        "description": "Combined tail event: spot -15%, vol 3.5x, rates -150bp. Worst-case scenario.",
+        "severity": "EXTREME",
+        "date": "",
+        "shocks": {},
+        "default_shock": _default(-0.15, 3.5, -150),
+    },
 }
 
 
