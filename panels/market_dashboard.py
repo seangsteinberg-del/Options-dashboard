@@ -550,42 +550,6 @@ def _build_vol_richness_heatmap(pairs):
         return _empty_fig("VOL RICHNESS")
 
 
-def _build_delta_bars():
-    """Net delta by pair (book summary)."""
-    pairs = G10_PAIRS[:10]
-    try:
-        from core.fx_portfolio import get_portfolio, compute_position_greeks
-        portfolio = get_portfolio()
-        if not portfolio:
-            return no_data_fig(msg="NO POSITION DATA")
-        delta_map = {}
-        for pos in portfolio:
-            pair = pos.get("pair", "")
-            if pair in pairs:
-                try:
-                    greeks = compute_position_greeks(pos)
-                    delta_map[pair] = delta_map.get(pair, 0) + greeks.get("delta", 0)
-                except Exception:
-                    pass
-        deltas = [delta_map.get(p, 0) / 1_000_000 for p in pairs]  # in millions
-    except Exception:
-        return no_data_fig(msg="NO POSITION DATA")
-
-    colors = [COLORS["accent_green"] if d > 0 else COLORS["accent_red"] for d in deltas]
-
-    fig = go.Figure(go.Bar(y=pairs, x=deltas, orientation="h",
-                            marker_color=colors,
-                            text=[f"{d:+.1f}M" for d in deltas],
-                            textposition="outside", textfont=dict(size=8, color="#d4d4d4")))
-    fig.update_layout(**_chart_layout( height=CHART_SM,
-                      margin=dict(l=55, r=30, t=25, b=10), showlegend=False,
-                      title=dict(text="NET Δ BY PAIR", font=dict(size=10, color="#808080")),
-                      xaxis=dict(zeroline=True, zerolinecolor="#808080", gridcolor="#111111",
-                                 tickfont=dict(size=8)),
-                      yaxis=dict(tickfont=dict(size=8, color="#d4d4d4"))))
-    return fig
-
-
 def _chart_layout(**overrides):
     """Merge CHART_TEMPLATE with overrides including deep-merged axes."""
     from core.theme import chart_layout
@@ -831,42 +795,6 @@ def _render_positioning(extremes):
                                               "letterSpacing": "1px"}),
         ], style={"padding": "2px 0"}))
     return html.Div(items)
-
-
-def _render_book_greeks():
-    """Render book Greeks summary boxes."""
-    try:
-        from core.fx_portfolio import get_portfolio, compute_portfolio_risk
-        portfolio = get_portfolio()
-        risk = compute_portfolio_risk(portfolio)
-        book_vega = risk.get("total_vega", 0)
-        book_theta = risk.get("total_theta", 0)
-        book_delta = risk.get("total_delta", 0)
-        book_mv = risk.get("total_mv", 0)
-    except Exception:
-        book_vega, book_theta, book_delta, book_mv = 0, 0, 0, 0
-    if book_vega == 0 and book_theta == 0 and book_delta == 0 and book_mv == 0:
-        greeks = [
-            ("VEGA", "N/A", "#808080"),
-            ("THETA", "N/A", "#808080"),
-            ("DELTA", "N/A", "#808080"),
-            ("MV", "N/A", "#808080"),
-        ]
-    else:
-        greeks = [
-            ("VEGA", f"${book_vega/1000:.0f}K", "#ff8800"),
-            ("THETA", f"-${abs(book_theta)/1000:.0f}K", "#ff3333"),
-            ("DELTA", f"${book_delta/1000000:.1f}M", "#d4d4d4"),
-            ("MV", f"${book_mv/1000000:.0f}M", "#808080"),
-        ]
-    boxes = []
-    for label, val, color in greeks:
-        boxes.append(html.Div([
-            html.Div(val, style={"fontSize": "14px", "fontWeight": "700", "color": color}),
-            html.Div(label, style={"fontSize": "10px", "color": "#808080", "letterSpacing": "1px",
-                                   "marginTop": "4px"}),
-        ], style={**STAT_BOX_STYLE, "borderLeft": f"3px solid {color}"}))
-    return boxes
 
 
 # ── Callbacks ────────────────────────────────────────────────────────────────

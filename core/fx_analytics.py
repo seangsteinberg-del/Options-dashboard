@@ -28,10 +28,14 @@ def _ttl_memo(ttl_seconds=120):
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            # Make args hashable (convert lists to tuples)
+            # Make args hashable (recursively convert mutable containers)
             def _hashable(x):
                 if isinstance(x, list):
-                    return tuple(x)
+                    return tuple(_hashable(i) for i in x)
+                if isinstance(x, dict):
+                    return tuple(sorted((_hashable(k), _hashable(v)) for k, v in x.items()))
+                if isinstance(x, set):
+                    return frozenset(_hashable(i) for i in x)
                 return x
             key = (fn.__name__,) + tuple(_hashable(a) for a in args) + tuple(sorted(kwargs.items()))
             with _memo_lock:

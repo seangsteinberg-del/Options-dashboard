@@ -313,7 +313,7 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
     all_ck = "spots_" + ",".join(_ALL_PAIRS)
     if pairs != _ALL_PAIRS:
         all_cached = _cache_get(all_ck, "spot")
-        if all_cached is not None:
+        if all_cached is not None and isinstance(all_cached, dict):
             return {p: all_cached[p] for p in pairs if p in all_cached}
 
     ck = "spots_" + ",".join(pairs)

@@ -142,6 +142,11 @@ def _empty_fig(title=""):
 
 def _compute_signal(atm_pct, rr_pct, ivrv_z, term_z):
     signals = []
+    # Safe defaults for None values
+    atm_pct = atm_pct if atm_pct is not None else 50
+    rr_pct = rr_pct if rr_pct is not None else 50
+    ivrv_z = ivrv_z if ivrv_z is not None else 0
+    term_z = term_z if term_z is not None else 0
     # Directional vol signals: require both percentile AND IV-RV confirmation
     if atm_pct > 85 and ivrv_z > 1:
         signals.append("SELL VOL")
@@ -1207,7 +1212,6 @@ def register_callbacks(app):
         pair = click_data["points"][0].get("y", "")
         if pair in ALL_PAIRS:
             return pair
-        raise PreventUpdate
         raise PreventUpdate
 
     # ── CSV Export ──────────────────────────────────────────────────────
