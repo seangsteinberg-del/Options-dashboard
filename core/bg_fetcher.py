@@ -163,14 +163,16 @@ class BloombergFetcher(threading.Thread):
             logger.info("BG: historical spots %d/%d OK", ok, len(pairs))
 
             ok = 0
+            vol_combos = [("1M", "ATM"), ("3M", "ATM"), ("3M", "25D_RR")]
             for pair in pairs:
-                try:
-                    series = get_fx_historical_vol(pair, "1M", "atm", 252)
-                    if len(series) > 0:
-                        ok += 1
-                except Exception:
-                    pass
-            logger.info("BG: historical vols %d/%d OK", ok, len(pairs))
+                for tenor, metric in vol_combos:
+                    try:
+                        series = get_fx_historical_vol(pair, tenor, metric, 252)
+                        if len(series) > 0:
+                            ok += 1
+                    except Exception:
+                        pass
+            logger.info("BG: historical vols %d/%d OK", ok, len(pairs) * len(vol_combos))
             self._last_historical = time.monotonic()
 
         elapsed = time.monotonic() - t0

@@ -309,6 +309,13 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
     if pairs is None:
         pairs = _ALL_PAIRS
 
+    # If requesting a subset, check the all-pairs cache first (populated by bg_fetcher)
+    all_ck = "spots_" + ",".join(_ALL_PAIRS)
+    if pairs != _ALL_PAIRS:
+        all_cached = _cache_get(all_ck, "spot")
+        if all_cached is not None:
+            return {p: all_cached[p] for p in pairs if p in all_cached}
+
     ck = "spots_" + ",".join(pairs)
     cached, should_fetch = _cache_wait_or_claim(ck, "spot")
     if cached is not None:
@@ -765,6 +772,7 @@ def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
 def get_fx_historical_vol(pair: str, tenor: str = "1M",
                           metric: str = "atm", days: int = 252) -> pd.Series:
     """Historical vol time series for a given tenor/metric."""
+    metric = metric.upper()  # normalize cache key
     ck = f"histvol_{pair}_{tenor}_{metric}_{days}"
     cached, should_fetch = _cache_wait_or_claim(ck, "historical")
     if cached is not None:
