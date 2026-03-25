@@ -135,24 +135,39 @@ class BloombergConnection:
             self.connected = False
             logger.info("Disconnected from Bloomberg")
 
+    _next_cid = 1  # class-level counter for correlation IDs
+
     def _send_request(self, request):
         """Send request and collect all response events.
 
-        Thread-safe: holds `_lock` for the entire send→receive cycle so
-        concurrent Dash callbacks never interleave on the session.
+        Thread-safe: holds `_lock` for the entire send→receive cycle.
+        Uses a unique CorrelationId per request so stale events from
+        previous requests are discarded instead of being mixed in.
         """
         with self._lock:
             if not self.connected or not self.session:
                 return []
+
+            # Assign a unique correlation ID to this request
+            cid_val = BloombergConnection._next_cid
+            BloombergConnection._next_cid += 1
+            cid = blpapi.CorrelationId(cid_val)
+
+            # Drain any stale events sitting in the queue before sending
+            while True:
+                stale = self.session.nextEvent(timeout=0)
+                if stale.eventType() == blpapi.Event.TIMEOUT:
+                    break  # queue is empty
+
             try:
-                self.session.sendRequest(request)
+                self.session.sendRequest(request, correlationId=cid)
             except Exception as e:
                 logger.error("Bloomberg sendRequest failed: %s", e)
                 self.connected = False
                 return []
 
             data = []
-            max_attempts = 3  # 3 × 5s = 15s max per request
+            max_attempts = 6  # 6 × 5s = 30s max per request
             for _ in range(max_attempts):
                 try:
                     event = self.session.nextEvent(timeout=5000)
@@ -162,14 +177,21 @@ class BloombergConnection:
                     return data
                 ev_type = event.eventType()
                 if ev_type == blpapi.Event.TIMEOUT:
-                    logger.warning("Bloomberg request timed out waiting for response")
+                    logger.warning("Bloomberg request timed out (cid=%d)", cid_val)
                     break
                 if ev_type in (blpapi.Event.REQUEST_STATUS,):
                     for msg in event:
                         logger.error("Bloomberg request status error: %s", msg)
                     break
+
+                # Only accept messages that match OUR correlation ID
                 for msg in event:
-                    data.append(msg)
+                    if msg.correlationId() == cid:
+                        data.append(msg)
+                    else:
+                        logger.debug("Discarding stale event (expected cid=%d, got %s)",
+                                     cid_val, msg.correlationId())
+
                 if ev_type == blpapi.Event.RESPONSE:
                     break
             return data
