@@ -625,9 +625,12 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
     if pairs is None:
         pairs = _ALL_PAIRS
 
-    cached = _cache_get("spots_" + ",".join(pairs), "spot")
+    ck = "spots_" + ",".join(pairs)
+    cached, should_fetch = _cache_wait_or_claim(ck, "spot")
     if cached is not None:
         return cached
+    if not should_fetch:
+        return {}  # another thread tried and failed
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
@@ -656,7 +659,6 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
                     row = df.loc[actual]
                     bid = _sf(row.get("PX_BID"))
                     ask = _sf(row.get("PX_ASK"))
-                    # Best mid: bid/ask average > PX_MID > PX_LAST
                     if bid and ask:
                         mid = round((bid + ask) / 2, 6)
                     else:
@@ -677,14 +679,16 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
                 _log_fetch_failure("get_fx_spots", ",".join(missing[:5]),
                                   f"{len(missing)} pairs missing from BDP response")
             if result:
-                _cache_set("spots_" + ",".join(pairs), result, "spot")
+                _cache_set(ck, result, "spot")
+                _cache_done(ck)
                 return result
-            # All pairs missing — log and return empty
             _log_fetch_failure("get_fx_spots", ",".join(pairs[:3]), "BDP returned no data for any pair")
+            _cache_done(ck)
             return {}
         except Exception as e:
             logger.error(f"FX spots BBG request failed: {e}")
             _log_fetch_failure("get_fx_spots", ",".join(pairs[:3]), str(e))
+            _cache_done(ck)
             return {}
 
     # No Bloomberg — return empty if it was ever connected (no synthetic leak)
@@ -701,9 +705,11 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
     Uses OVDV screen fields when Bloomberg is available.
     """
     ck = f"volsurf_{pair}"
-    cached = _cache_get(ck, "vol_surface")
+    cached, should_fetch = _cache_wait_or_claim(ck, "vol_surface")
     if cached is not None:
         return cached
+    if not should_fetch:
+        return {}
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
@@ -790,17 +796,21 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
                 logger.info("Vol surface %s: %d tenors from %d/%d tickers",
                             pair, len(surface), matched, len(all_tickers))
                 _cache_set(ck, surface, "vol_surface")
+                _cache_done(ck)
                 return surface
             logger.warning("Vol surface %s: 0 ATM tenors (BDP returned %d rows, "
                            "matched %d/%d tickers). Sample tickers sent: %s",
                            pair, len(df), matched, len(all_tickers),
                            all_tickers[:3])
+            _cache_done(ck)
             return {}
         except Exception as e:
             logger.error(f"FX vol surface BBG request failed: {e}")
             _log_fetch_failure("get_fx_vol_surface", pair, str(e))
+            _cache_done(ck)
             return {}
 
+    _cache_done(ck)
     if bloomberg_ever_connected():
         return {}
     surface = _fallback_vol_surface(pair)
@@ -832,9 +842,11 @@ def get_fx_rates(pair: str) -> dict:
     Returns {r_dom, r_for, rate_diff}.
     """
     ck = f"rates_{pair}"
-    cached = _cache_get(ck, "rates")
+    cached, should_fetch = _cache_wait_or_claim(ck, "rates")
     if cached is not None:
         return cached
+    if not should_fetch:
+        return {}
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
@@ -867,12 +879,15 @@ def get_fx_rates(pair: str) -> dict:
             res = {"r_dom": r_dom, "r_for": r_for,
                    "rate_diff": round(r_dom - r_for, 4)}
             _cache_set(ck, res, "rates")
+            _cache_done(ck)
             return res
         except Exception as e:
             logger.error(f"FX rates BBG request failed: {e}")
             _log_fetch_failure("get_fx_rates", pair, str(e))
+            _cache_done(ck)
             return {}
 
+    _cache_done(ck)
     if bloomberg_ever_connected():
         return {}
     res = _fallback_rates(pair)
@@ -1007,9 +1022,11 @@ def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
     Returns DataFrame with columns: open, high, low, close.
     """
     ck = f"histspot_{pair}_{days}"
-    cached = _cache_get(ck, "historical")
+    cached, should_fetch = _cache_wait_or_claim(ck, "historical")
     if cached is not None:
         return cached
+    if not should_fetch:
+        return pd.DataFrame()
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
@@ -1024,14 +1041,18 @@ def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
                 })
                 df = df.tail(days)
                 _cache_set(ck, df, "historical")
+                _cache_done(ck)
                 return df
             _log_fetch_failure("get_fx_historical_spot", pair, "BDH returned empty dataframe")
+            _cache_done(ck)
             return pd.DataFrame()
         except Exception as e:
             logger.error(f"FX historical spot BBG request failed: {e}")
             _log_fetch_failure("get_fx_historical_spot", pair, str(e))
+            _cache_done(ck)
             return pd.DataFrame()
 
+    _cache_done(ck)
     if bloomberg_ever_connected():
         return pd.DataFrame()
     df = _generate_spot_history(pair, days)
@@ -1043,9 +1064,11 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
                           metric: str = "atm", days: int = 252) -> pd.Series:
     """Historical vol time series for a given tenor/metric."""
     ck = f"histvol_{pair}_{tenor}_{metric}_{days}"
-    cached = _cache_get(ck, "historical")
+    cached, should_fetch = _cache_wait_or_claim(ck, "historical")
     if cached is not None:
         return cached
+    if not should_fetch:
+        return pd.Series(dtype=float)
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
@@ -1079,14 +1102,18 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
                     series = df[col].tail(days)
                     series.name = f"{pair}_{tenor}_{metric}"
                     _cache_set(ck, series, "historical")
+                    _cache_done(ck)
                     return series
             _log_fetch_failure("get_fx_historical_vol", f"{pair}/{tenor}/{metric}", "BDH returned empty")
+            _cache_done(ck)
             return pd.Series(dtype=float)
         except Exception as e:
             logger.error(f"FX historical vol BBG request failed: {e}")
             _log_fetch_failure("get_fx_historical_vol", f"{pair}/{tenor}/{metric}", str(e))
+            _cache_done(ck)
             return pd.Series(dtype=float)
 
+    _cache_done(ck)
     if bloomberg_ever_connected():
         return pd.Series(dtype=float)
     series = _generate_vol_history(pair, tenor, metric, days)
