@@ -17,6 +17,7 @@ dashboard always works even without a terminal connection.
 """
 
 import logging
+import threading
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from functools import lru_cache
@@ -37,7 +38,11 @@ except ImportError:
 
 
 class BloombergConnection:
-    """Manages the blpapi session lifecycle."""
+    """Manages the blpapi session lifecycle.
+
+    Thread-safe: a lock serialises all sendRequest/nextEvent calls so
+    concurrent Dash callbacks never interleave on the same session.
+    """
 
     def __init__(self, host="localhost", port=8194):
         self.host = host
@@ -45,6 +50,7 @@ class BloombergConnection:
         self.session = None
         self.ref_data_service = None
         self.connected = False
+        self._lock = threading.Lock()  # serialises ALL blpapi calls
 
     def connect(self) -> bool:
         if not BLPAPI_AVAILABLE:
@@ -52,6 +58,15 @@ class BloombergConnection:
             return False
 
         try:
+            # Tear down any stale session first
+            if self.session:
+                try:
+                    self.session.stop()
+                except Exception:
+                    pass
+                self.session = None
+                self.ref_data_service = None
+
             opts = blpapi.SessionOptions()
             opts.setServerHost(self.host)
             opts.setServerPort(self.port)
@@ -69,6 +84,33 @@ class BloombergConnection:
             self.ref_data_service = self.session.getService("//blp/refdata")
             self.connected = True
             logger.info(f"Connected to Bloomberg Terminal at {self.host}:{self.port}")
+
+            # Quick health check: verify Bloomberg actually returns data
+            try:
+                request = self.ref_data_service.createRequest("ReferenceDataRequest")
+                request.append("securities", "EURUSD Curncy")
+                request.append("fields", "PX_LAST")
+                request.append("fields", "PX_MID")
+                responses = self._send_request(request)
+                has_data = False
+                for msg in responses:
+                    if msg.hasElement("securityData"):
+                        sd = msg.getElement("securityData")
+                        for i in range(sd.numValues()):
+                            sec = sd.getValueAsElement(i)
+                            if sec.hasElement("fieldData"):
+                                fd = sec.getElement("fieldData")
+                                for fld in ("PX_LAST", "PX_MID"):
+                                    if fd.hasElement(fld) and not fd.getElement(fld).isNull():
+                                        has_data = True
+                if has_data:
+                    logger.info("Bloomberg health check PASSED — EURUSD data available")
+                else:
+                    logger.warning("Bloomberg health check WARNING — connected but EURUSD "
+                                   "returned no price data. Terminal may not be logged in "
+                                   "or may lack FX data permissions.")
+            except Exception as hc_err:
+                logger.warning("Bloomberg health check failed: %s", hc_err)
             return True
 
         except Exception as e:
@@ -76,66 +118,98 @@ class BloombergConnection:
             self.connected = False
             return False
 
+    def reconnect(self) -> bool:
+        """Tear down and rebuild the session. Returns True on success."""
+        logger.info("Bloomberg reconnecting...")
+        self.connected = False
+        return self.connect()
+
     def disconnect(self):
         if self.session:
-            self.session.stop()
+            try:
+                self.session.stop()
+            except Exception:
+                pass
             self.connected = False
             logger.info("Disconnected from Bloomberg")
 
     def _send_request(self, request):
         """Send request and collect all response events.
 
-        Handles PARTIAL_RESPONSE (keep collecting), RESPONSE (final),
-        and TIMEOUT (bail out). Max 60s total wait to avoid hanging.
+        Thread-safe: holds `_lock` for the entire send→receive cycle so
+        concurrent Dash callbacks never interleave on the session.
         """
-        self.session.sendRequest(request)
-        data = []
-        max_attempts = 6  # 6 × 10s = 60s max
-        for _ in range(max_attempts):
-            event = self.session.nextEvent(timeout=10000)
-            ev_type = event.eventType()
-            if ev_type == blpapi.Event.TIMEOUT:
-                logger.warning("Bloomberg request timed out waiting for response")
-                break
-            if ev_type in (blpapi.Event.REQUEST_STATUS,):
-                # Request failed at session level
+        with self._lock:
+            if not self.connected or not self.session:
+                return []
+            try:
+                self.session.sendRequest(request)
+            except Exception as e:
+                logger.error("Bloomberg sendRequest failed: %s", e)
+                self.connected = False
+                return []
+
+            data = []
+            max_attempts = 6  # 6 × 10s = 60s max
+            for _ in range(max_attempts):
+                try:
+                    event = self.session.nextEvent(timeout=10000)
+                except Exception as e:
+                    logger.error("Bloomberg nextEvent failed: %s", e)
+                    self.connected = False
+                    return data
+                ev_type = event.eventType()
+                if ev_type == blpapi.Event.TIMEOUT:
+                    logger.warning("Bloomberg request timed out waiting for response")
+                    break
+                if ev_type in (blpapi.Event.REQUEST_STATUS,):
+                    for msg in event:
+                        logger.error("Bloomberg request status error: %s", msg)
+                    break
                 for msg in event:
-                    logger.error("Bloomberg request status error: %s", msg)
-                break
-            for msg in event:
-                data.append(msg)
-            if ev_type == blpapi.Event.RESPONSE:
-                break
-            # PARTIAL_RESPONSE: keep looping to collect more data
-        return data
+                    data.append(msg)
+                if ev_type == blpapi.Event.RESPONSE:
+                    break
+            return data
 
 
-# ── Singleton connection ──────────────────────────────────────────────────
+# ── Singleton connection (thread-safe) ────────────────────────────────────
 _connection: Optional[BloombergConnection] = None
+_conn_lock = threading.Lock()
 
 
 def get_connection() -> BloombergConnection:
+    """Return the singleton BloombergConnection, creating it on first call."""
     global _connection
-    if _connection is None:
-        _connection = BloombergConnection()
+    if _connection is not None and _connection.connected:
+        return _connection
+    with _conn_lock:
+        # Double-check inside the lock
+        if _connection is not None and _connection.connected:
+            return _connection
+        if _connection is None:
+            _connection = BloombergConnection()
         _connection.connect()
-    return _connection
+        return _connection
 
 
 def is_connected() -> bool:
-    """Check if Bloomberg session is alive. Re-verifies periodically."""
+    """Check if Bloomberg session is alive. Attempts reconnect if dead."""
     conn = get_connection()
     if not conn.connected:
+        # Try one reconnect
+        logger.info("Bloomberg not connected — attempting reconnect")
+        if conn.reconnect():
+            return True
         return False
-    # Lightweight health check: try to access the service
     if conn.session and conn.ref_data_service:
         try:
-            # If session died, this will raise
             _ = conn.ref_data_service.name()
             return True
         except Exception:
-            logger.warning("Bloomberg session health check failed — marking disconnected")
-            conn.connected = False
+            logger.warning("Bloomberg health check failed — attempting reconnect")
+            if conn.reconnect():
+                return True
             return False
     return False
 
@@ -179,6 +253,10 @@ def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
         return _fallback_bdp(securities, fields)
 
     try:
+        if not conn.ref_data_service:
+            logger.error("BDP: ref_data_service is None — session broken")
+            conn.connected = False
+            return pd.DataFrame()
         request = conn.ref_data_service.createRequest("ReferenceDataRequest")
         for sec in securities:
             request.append("securities", sec)
@@ -259,6 +337,7 @@ def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
 
     except Exception as e:
         logger.error(f"BDP request failed: {e}")
+        conn.connected = False  # Mark broken so next call triggers reconnect
         return pd.DataFrame()  # Empty — do NOT inject fake data
 
 
@@ -277,6 +356,9 @@ def bdh(security: str, fields: List[str], start_date: str, end_date: str = None,
         if end_date is None:
             end_date = datetime.now().strftime("%Y%m%d")
 
+        if not conn.ref_data_service:
+            conn.connected = False
+            return pd.DataFrame()
         request = conn.ref_data_service.createRequest("HistoricalDataRequest")
         request.append("securities", security)
         for fld in fields:
@@ -346,6 +428,7 @@ def bdh(security: str, fields: List[str], start_date: str, end_date: str = None,
 
     except Exception as e:
         logger.error(f"BDH request failed: {e}")
+        conn.connected = False
         return pd.DataFrame()  # Empty — do NOT inject fake data
 
 
@@ -356,6 +439,9 @@ def bds(security: str, field: str, **overrides) -> pd.DataFrame:
         return pd.DataFrame()
 
     try:
+        if not conn.ref_data_service:
+            conn.connected = False
+            return pd.DataFrame()
         request = conn.ref_data_service.createRequest("ReferenceDataRequest")
         request.append("securities", security)
         request.append("fields", field)
@@ -400,6 +486,7 @@ def bds(security: str, field: str, **overrides) -> pd.DataFrame:
 
     except Exception as e:
         logger.error(f"BDS request failed: {e}")
+        conn.connected = False
         return pd.DataFrame()
 
 

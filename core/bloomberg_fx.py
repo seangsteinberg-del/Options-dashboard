@@ -22,6 +22,7 @@ results are reproducible across sessions.
 """
 
 import logging
+import threading
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -35,8 +36,9 @@ logger = logging.getLogger(__name__)
 try:
     from core.bloomberg import get_connection, is_connected, bdp, bdh, bds
     _HAS_EQUITY_BBG = True
-except ImportError:
+except Exception as _bbg_import_err:
     _HAS_EQUITY_BBG = False
+    logger.warning("Failed to import core.bloomberg: %s", _bbg_import_err)
 
 try:
     import blpapi
@@ -45,7 +47,7 @@ except ImportError:
     BLPAPI_AVAILABLE = False
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Cache Layer
+# Cache Layer (thread-safe)
 # ═══════════════════════════════════════════════════════════════════════════
 
 _CACHE_TTL = {
@@ -58,24 +60,25 @@ _CACHE_TTL = {
 }
 
 _cache: Dict[str, Tuple[float, object]] = {}
+_cache_lock = threading.Lock()
 
-# ── Data Integrity Tracking ──────────────────────────────────────────────
-# When Bloomberg IS connected, any fetch that falls back to synthetic is a
-# failure — not a feature. Track these so the UI can surface them.
-_fetch_errors: list = []  # List of {"time": float, "function": str, "pair": str, "error": str}
+# ── Data Integrity Tracking (thread-safe) ─────────────────────────────────
+_fetch_errors: list = []
+_errors_lock = threading.Lock()
 _MAX_ERRORS = 50
 
 
 def _log_fetch_failure(function: str, pair: str, error: str):
     """Record a Bloomberg fetch failure (only when Bloomberg is connected)."""
-    _fetch_errors.append({
-        "time": time.time(),
-        "function": function,
-        "pair": pair,
-        "error": str(error),
-    })
-    if len(_fetch_errors) > _MAX_ERRORS:
-        _fetch_errors.pop(0)
+    with _errors_lock:
+        _fetch_errors.append({
+            "time": time.time(),
+            "function": function,
+            "pair": pair,
+            "error": str(error),
+        })
+        if len(_fetch_errors) > _MAX_ERRORS:
+            _fetch_errors.pop(0)
     logger.warning("BBG fetch failed [%s] %s: %s", function, pair, error)
 
 
@@ -87,9 +90,9 @@ def get_data_mode() -> str:
     """
     if not (_HAS_EQUITY_BBG and is_connected()):
         return "SYNTHETIC"
-    # Connected — check for recent failures (last 5 minutes)
     cutoff = time.time() - 300
-    recent = [e for e in _fetch_errors if e["time"] > cutoff]
+    with _errors_lock:
+        recent = [e for e in _fetch_errors if e["time"] > cutoff]
     if len(recent) >= 5:
         return "DEGRADED"
     return "LIVE"
@@ -98,30 +101,35 @@ def get_data_mode() -> str:
 def get_recent_errors() -> list:
     """Return recent fetch failures for UI display."""
     cutoff = time.time() - 300
-    return [e for e in _fetch_errors if e["time"] > cutoff]
+    with _errors_lock:
+        return [e for e in _fetch_errors if e["time"] > cutoff]
 
 
 def clear_errors():
     """Clear the error log."""
-    _fetch_errors.clear()
+    with _errors_lock:
+        _fetch_errors.clear()
 
 
 def _cache_get(key: str, category: str = "spot"):
     """Return cached value if not expired, else None."""
-    if key in _cache:
-        ts, val = _cache[key]
-        if time.time() - ts < _CACHE_TTL.get(category, 60):
-            return val
+    with _cache_lock:
+        if key in _cache:
+            ts, val = _cache[key]
+            if time.time() - ts < _CACHE_TTL.get(category, 60):
+                return val
     return None
 
 
 def _cache_set(key: str, value, category: str = "spot"):
-    _cache[key] = (time.time(), value)
+    with _cache_lock:
+        _cache[key] = (time.time(), value)
 
 
 def cache_clear():
     """Flush the entire FX cache."""
-    _cache.clear()
+    with _cache_lock:
+        _cache.clear()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -576,11 +584,14 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
     if _HAS_EQUITY_BBG and is_connected():
         try:
             tickers = [_fx_bbg_ticker(p) for p in pairs]
-            fields = ["PX_BID", "PX_ASK", "PX_LAST", "CHG_NET_1D",
+            fields = ["PX_BID", "PX_ASK", "PX_LAST", "PX_MID", "CHG_NET_1D",
                        "CHG_PCT_1D", "PX_HIGH", "PX_LOW", "PX_OPEN", "VOLUME"]
             df = bdp(tickers, fields)
             logger.info("FX spots: BDP returned %d rows for %d pairs. Index: %s",
                         len(df), len(tickers), list(df.index[:5]) if not df.empty else "EMPTY")
+            if df.empty:
+                logger.warning("FX spots: Bloomberg returned EMPTY — terminal may not "
+                               "be logged in or authenticated")
             def _sf(v):
                 """Safe float — handles None from Bloomberg null fields."""
                 try:
@@ -602,9 +613,14 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
                     row = df.loc[actual]
                     bid = _sf(row.get("PX_BID"))
                     ask = _sf(row.get("PX_ASK"))
+                    # Best mid: bid/ask average > PX_MID > PX_LAST
+                    if bid and ask:
+                        mid = round((bid + ask) / 2, 6)
+                    else:
+                        mid = _sf(row.get("PX_MID")) or _sf(row.get("PX_LAST"))
                     result[pair] = {
                         "bid": bid, "ask": ask,
-                        "mid": round((bid + ask) / 2, 6) if (bid and ask) else _sf(row.get("PX_LAST")),
+                        "mid": mid,
                         "change": _sf(row.get("CHG_NET_1D")),
                         "change_pct": _sf(row.get("CHG_PCT_1D")),
                         "high": _sf(row.get("PX_HIGH")),
@@ -672,10 +688,12 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
                     all_tickers.append(tick)
                     ticker_map[tick] = (t, m)
 
-            # Single batched bdp call
+            # Single batched bdp call — request PX_LAST and PX_MID
+            # Some Bloomberg terminals only populate PX_MID for FX vol
+            vol_fields = ["PX_LAST", "PX_MID"]
             logger.info("Vol surface %s: requesting %d tickers, first 3: %s",
                         pair, len(all_tickers), all_tickers[:3])
-            df = bdp(all_tickers, ["PX_LAST"])
+            df = bdp(all_tickers, vol_fields)
             logger.info("Vol surface %s: BDP returned %d rows. Index values: %s",
                         pair, len(df),
                         list(df.index[:10]) if not df.empty else "EMPTY")
@@ -683,7 +701,9 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
                 # Log actual values for first few tickers so we can see what BBG sends
                 sample = df.head(5)
                 for idx_val in sample.index:
-                    logger.info("  BDP row: %r -> PX_LAST=%r", idx_val, sample.loc[idx_val, "PX_LAST"])
+                    px_last = sample.loc[idx_val, "PX_LAST"] if "PX_LAST" in sample.columns else "N/A"
+                    px_mid = sample.loc[idx_val, "PX_MID"] if "PX_MID" in sample.columns else "N/A"
+                    logger.info("  BDP row: %r -> PX_LAST=%r, PX_MID=%r", idx_val, px_last, px_mid)
 
             # Build a case-insensitive lookup from whatever Bloomberg returned
             idx_map = {}
@@ -691,25 +711,41 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
                 for idx_val in df.index:
                     idx_map[idx_val.upper().strip()] = idx_val
 
+            def _best_vol_value(row):
+                """Extract best available vol value: PX_LAST > PX_MID."""
+                for fld in ("PX_LAST", "PX_MID"):
+                    if fld not in df.columns:
+                        continue
+                    v = row[fld] if isinstance(row, pd.Series) else df.loc[row, fld]
+                    if v is None or (isinstance(v, float) and np.isnan(v)):
+                        continue
+                    try:
+                        fv = float(v)
+                        if fv != 0:
+                            return fv
+                    except (TypeError, ValueError):
+                        continue
+                return None
+
             matched = 0
+            null_count = 0
             surface = {}
             for tick, (tenor, metric_name) in ticker_map.items():
                 # Try exact match first, then case-insensitive
                 actual = tick if tick in df.index else idx_map.get(tick.upper().strip())
                 if actual is not None:
-                    try:
-                        raw = df.loc[actual, "PX_LAST"]
-                        if raw is None or (isinstance(raw, float) and np.isnan(raw)):
-                            continue
-                        val = float(raw)
-                        if val == 0:
-                            continue  # 0 vol is not real data
+                    val = _best_vol_value(df.loc[actual])
+                    if val is not None:
                         if tenor not in surface:
                             surface[tenor] = {}
                         surface[tenor][metric_name] = val
                         matched += 1
-                    except (TypeError, ValueError):
-                        continue
+                    else:
+                        null_count += 1
+            if null_count > 0 and matched == 0:
+                logger.warning("Vol surface %s: BDP returned %d rows but ALL values "
+                               "were None/NaN/0 — Bloomberg may not be fully authenticated "
+                               "or lacks FX vol data subscription", pair, len(df))
 
             # Only keep tenors that have at least ATM
             surface = {t: v for t, v in surface.items() if "atm" in v}
@@ -776,15 +812,25 @@ def get_fx_rates(pair: str) -> dict:
             # Simplification: use 3M deposit rates
             dom_tick = _deposit_bbg(ccy_dom, "3M")
             for_tick = _deposit_bbg(ccy_for, "3M")
-            df = bdp([dom_tick, for_tick], ["PX_LAST"])
+            df = bdp([dom_tick, for_tick], ["PX_LAST", "PX_MID"])
             # Case-insensitive lookup
             idx_map = {iv.upper().strip(): iv for iv in df.index} if not df.empty else {}
             dom_actual = dom_tick if dom_tick in df.index else idx_map.get(dom_tick.upper().strip())
             for_actual = for_tick if for_tick in df.index else idx_map.get(for_tick.upper().strip())
             if dom_actual is None or for_actual is None:
                 raise ValueError(f"Missing rate data: dom={dom_actual is not None}, for={for_actual is not None}")
-            r_dom = float(df.loc[dom_actual, "PX_LAST"]) / 100.0
-            r_for = float(df.loc[for_actual, "PX_LAST"]) / 100.0
+
+            def _rate_val(actual_idx):
+                """Extract rate from PX_LAST or PX_MID."""
+                for fld in ("PX_LAST", "PX_MID"):
+                    if fld in df.columns:
+                        v = df.loc[actual_idx, fld]
+                        if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                            return float(v) / 100.0
+                raise ValueError(f"No rate data for {actual_idx}")
+
+            r_dom = _rate_val(dom_actual)
+            r_for = _rate_val(for_actual)
             res = {"r_dom": r_dom, "r_for": r_for,
                    "rate_diff": round(r_dom - r_for, 4)}
             _cache_set(ck, res, "rates")
@@ -814,13 +860,20 @@ def get_fx_rate_curve(ccy: str) -> Dict[str, float]:
         try:
             tenors = ["1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y"]
             tickers = [_deposit_bbg(ccy, t) for t in tenors]
-            df = bdp(tickers, ["PX_LAST"])  # Single batched call
+            df = bdp(tickers, ["PX_LAST", "PX_MID"])  # Single batched call
             idx_map = {iv.upper().strip(): iv for iv in df.index} if not df.empty else {}
             curve = {}
             for tenor, tick in zip(tenors, tickers):
                 actual = tick if tick in df.index else idx_map.get(tick.upper().strip())
                 if actual is not None:
-                    val = df.loc[actual, "PX_LAST"]
+                    # Try PX_LAST then PX_MID
+                    val = None
+                    for fld in ("PX_LAST", "PX_MID"):
+                        if fld in df.columns:
+                            v = df.loc[actual, fld]
+                            if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                                val = v
+                                break
                     if val is not None:
                         curve[tenor] = float(val) / 100.0
             if curve:
@@ -865,7 +918,7 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
                              "3M": "3M", "6M": "6M", "9M": "9M", "1Y": "12M", "2Y": "2Y",
                              "3Y": "3Y", "5Y": "5Y"}
             tickers = [f"{fwd_sym}{fwd_tenor_map.get(t, t)} Curncy" for t in _ALL_TENORS]
-            df = bdp(tickers, ["PX_LAST"])
+            df = bdp(tickers, ["PX_LAST", "PX_MID"])
             idx_map = {iv.upper().strip(): iv for iv in df.index} if not df.empty else {}
             spot_data = get_fx_spots([pair])
             if pair not in spot_data:
@@ -878,7 +931,16 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
             for tenor, tick in zip(_ALL_TENORS, tickers):
                 actual = tick if tick in df.index else idx_map.get(tick.upper().strip())
                 if actual is not None:
-                    pts = float(df.loc[actual, "PX_LAST"])
+                    pts_raw = None
+                    for fld in ("PX_LAST", "PX_MID"):
+                        if fld in df.columns:
+                            v = df.loc[actual, fld]
+                            if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                                pts_raw = v
+                                break
+                    if pts_raw is None:
+                        continue
+                    pts = float(pts_raw)
                     outright = spot + pts / pts_divisor
                     ty = tenor_to_years(tenor)
                     impl_diff = np.log(outright / spot) / ty if ty > 0 else 0.0
@@ -972,12 +1034,15 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
             ticker = f"{pfx}{tc} Curncy"
 
             start = (datetime.now() - timedelta(days=int(days * 1.5))).strftime("%Y%m%d")
-            df = bdh(ticker, ["PX_LAST"], start)
+            df = bdh(ticker, ["PX_LAST", "PX_MID"], start)
             if not df.empty:
-                series = df["PX_LAST"].tail(days)
-                series.name = f"{pair}_{tenor}_{metric}"
-                _cache_set(ck, series, "historical")
-                return series
+                # Use PX_LAST if available, else PX_MID
+                col = "PX_LAST" if "PX_LAST" in df.columns and df["PX_LAST"].notna().any() else "PX_MID"
+                if col in df.columns:
+                    series = df[col].tail(days)
+                    series.name = f"{pair}_{tenor}_{metric}"
+                    _cache_set(ck, series, "historical")
+                    return series
             _log_fetch_failure("get_fx_historical_vol", f"{pair}/{tenor}/{metric}", "BDH returned empty")
             return pd.Series(dtype=float)
         except Exception as e:
