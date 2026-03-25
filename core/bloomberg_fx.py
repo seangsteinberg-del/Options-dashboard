@@ -34,10 +34,11 @@ logger = logging.getLogger(__name__)
 
 # ── Bloomberg connection reuse ───────────────────────────────────────────
 try:
-    from core.bloomberg import get_connection, is_connected, bdp, bdh, bds
+    from core.bloomberg import get_connection, is_connected, bdp, bdh, bds, bloomberg_ever_connected
     _HAS_EQUITY_BBG = True
 except Exception as _bbg_import_err:
     _HAS_EQUITY_BBG = False
+    def bloomberg_ever_connected(): return False
     logger.warning("Failed to import core.bloomberg: %s", _bbg_import_err)
 
 try:
@@ -644,7 +645,9 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
             _log_fetch_failure("get_fx_spots", ",".join(pairs[:3]), str(e))
             return {}
 
-    # SYNTHETIC mode only — Bloomberg not connected
+    # No Bloomberg — return empty if it was ever connected (no synthetic leak)
+    if bloomberg_ever_connected():
+        return {}
     result = {p: _fallback_spot(p) for p in pairs}
     _cache_set("spots_" + ",".join(pairs), result, "spot")
     return result
@@ -769,7 +772,8 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
             _log_fetch_failure("get_fx_vol_surface", pair, str(e))
             return {}
 
-    # SYNTHETIC mode only — Bloomberg not connected
+    if bloomberg_ever_connected():
+        return {}
     surface = _fallback_vol_surface(pair)
     _cache_set(ck, surface, "vol_surface")
     return surface
@@ -840,7 +844,8 @@ def get_fx_rates(pair: str) -> dict:
             _log_fetch_failure("get_fx_rates", pair, str(e))
             return {}
 
-    # SYNTHETIC mode only — Bloomberg not connected
+    if bloomberg_ever_connected():
+        return {}
     res = _fallback_rates(pair)
     _cache_set(ck, res, "rates")
     return res
@@ -886,7 +891,8 @@ def get_fx_rate_curve(ccy: str) -> Dict[str, float]:
             _log_fetch_failure("get_fx_rate_curve", ccy, str(e))
             return {}
 
-    # SYNTHETIC mode only — Bloomberg not connected
+    if bloomberg_ever_connected():
+        return {}
     curve = _fallback_rate_curve(ccy)
     _cache_set(ck, curve, "rates")
     return curve
@@ -959,7 +965,8 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
             _log_fetch_failure("get_fx_forward_curve", pair, str(e))
             return {}
 
-    # SYNTHETIC mode only — Bloomberg not connected
+    if bloomberg_ever_connected():
+        return {}
     curve = _fallback_forward_curve(pair)
     _cache_set(ck, curve, "forwards")
     return curve
@@ -996,7 +1003,8 @@ def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
             _log_fetch_failure("get_fx_historical_spot", pair, str(e))
             return pd.DataFrame()
 
-    # SYNTHETIC mode only — Bloomberg not connected
+    if bloomberg_ever_connected():
+        return pd.DataFrame()
     df = _generate_spot_history(pair, days)
     _cache_set(ck, df, "historical")
     return df
@@ -1050,7 +1058,8 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
             _log_fetch_failure("get_fx_historical_vol", f"{pair}/{tenor}/{metric}", str(e))
             return pd.Series(dtype=float)
 
-    # SYNTHETIC mode only — Bloomberg not connected
+    if bloomberg_ever_connected():
+        return pd.Series(dtype=float)
     series = _generate_vol_history(pair, tenor, metric, days)
     _cache_set(ck, series, "historical")
     return series
@@ -1093,7 +1102,8 @@ def get_fx_option_chain(pair: str, tenor: str = "1M") -> pd.DataFrame:
             _log_fetch_failure("get_fx_option_chain", pair, str(e))
             return pd.DataFrame()
 
-    # SYNTHETIC mode only — Bloomberg not connected
+    if bloomberg_ever_connected():
+        return pd.DataFrame()
     df = _fallback_option_chain(pair, tenor)
     _cache_set(ck, df, "vol_surface")
     return df
@@ -1120,7 +1130,8 @@ def get_cftc_positioning(pair: str) -> dict:
         # CFTC data not available via Bloomberg real-time — return empty
         return {}
 
-    # SYNTHETIC mode only — Bloomberg not connected
+    if bloomberg_ever_connected():
+        return {}
     result = _fallback_positioning(pair)
     _cache_set(ck, result, "positioning")
     return result

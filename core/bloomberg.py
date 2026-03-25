@@ -177,10 +177,15 @@ class BloombergConnection:
 _connection: Optional[BloombergConnection] = None
 _conn_lock = threading.Lock()
 
+# Once Bloomberg has connected successfully even once, this flag is set True
+# and NEVER reset. This prevents ANY synthetic/fallback data from leaking
+# through if the session temporarily drops.
+_bloomberg_ever_connected = False
+
 
 def get_connection() -> BloombergConnection:
     """Return the singleton BloombergConnection, creating it on first call."""
-    global _connection
+    global _connection, _bloomberg_ever_connected
     if _connection is not None and _connection.connected:
         return _connection
     with _conn_lock:
@@ -190,7 +195,18 @@ def get_connection() -> BloombergConnection:
         if _connection is None:
             _connection = BloombergConnection()
         _connection.connect()
+        if _connection.connected:
+            _bloomberg_ever_connected = True
         return _connection
+
+
+def bloomberg_ever_connected() -> bool:
+    """True if Bloomberg has EVER connected in this process.
+
+    Once True, synthetic/fallback data must NEVER be returned — even if
+    the session drops temporarily. Use this to gate fallback paths.
+    """
+    return _bloomberg_ever_connected
 
 
 def is_connected() -> bool:
@@ -245,11 +261,14 @@ def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
     """Bloomberg Data Point — single-point reference data.
 
     When connected: returns real data or EMPTY DataFrame on failure.
-    Never mixes fake equity data into a live Bloomberg session.
-    When disconnected: returns synthetic fallback data.
+    If Bloomberg was ever connected, NEVER returns synthetic data.
     """
     conn = get_connection()
     if not conn.connected:
+        if _bloomberg_ever_connected:
+            logger.warning("BDP: Bloomberg disconnected but was previously connected "
+                           "— returning EMPTY (no synthetic data)")
+            return pd.DataFrame()
         return _fallback_bdp(securities, fields)
 
     try:
@@ -345,11 +364,14 @@ def bdh(security: str, fields: List[str], start_date: str, end_date: str = None,
         **overrides) -> pd.DataFrame:
     """Bloomberg Data History — historical time series.
 
-    When connected: returns real data or EMPTY DataFrame on failure.
-    When disconnected: returns synthetic fallback data.
+    If Bloomberg was ever connected, NEVER returns synthetic data.
     """
     conn = get_connection()
     if not conn.connected:
+        if _bloomberg_ever_connected:
+            logger.warning("BDH: Bloomberg disconnected but was previously connected "
+                           "— returning EMPTY (no synthetic data)")
+            return pd.DataFrame()
         return _fallback_bdh(security, fields, start_date, end_date)
 
     try:
