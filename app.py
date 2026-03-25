@@ -1309,12 +1309,16 @@ backtest.register_callbacks(app)
 # ═══════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    # Connect to Bloomberg FIRST — once connected, synthetic data is
+    # permanently blocked for this entire session.
+    print("  Connecting to Bloomberg Terminal...")
+    bbg_status = "BLOOMBERG LIVE" if is_connected() else "SYNTHETIC MODE"
     panels_total = sum(len(ws["tabs"]) for ws in WORKSPACES)
 
     print()
     print("=" * 64)
     print(f"  FX OPTIONS WORKSTATION v{VERSION} — CONSOLIDATED")
-    print(f"  Data : Bloomberg (connects on first request)")
+    print(f"  Data : {bbg_status}")
     print(f"  Model: Garman-Kohlhagen / SABR / Vanna-Volga / Monte Carlo")
     print(f"  Panels: {panels_total} across {len(WORKSPACES)} workspaces")
     print(f"  Workspaces: {' | '.join(w['label'] for w in WORKSPACES)}")
