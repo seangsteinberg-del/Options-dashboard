@@ -263,11 +263,13 @@ def _fx_vol_bbg(pair: str) -> str:
     return f"{pair.upper()}V Curncy"
 
 
-def _deposit_bbg(ccy: str, tenor: str) -> str:
-    """Deposit rate ticker, e.g., USDRC Index for 3M USD deposit.
-    Uses Bloomberg deposit rate tickers.
-    Format: {CCY_PREFIX}{TENOR_CODE} Index
-    Verified against cuemacro/findatapy base_depos_tickers_list.csv.
+def _deposit_bbg(ccy: str, tenor: str) -> list:
+    """Deposit rate ticker candidates for a currency+tenor.
+
+    Returns a list of tickers to try in order (first hit wins).
+    G10 currencies use standard deposit rate tickers (Curncy).
+    EM currencies include swap-rate and policy-rate fallbacks since
+    many terminals lack EM deposit rate data.
     """
     ccy_map = {
         "USD": "USD", "EUR": "EUD", "GBP": "BPD", "JPY": "JYD", "CHF": "SFD",
@@ -279,7 +281,19 @@ def _deposit_bbg(ccy: str, tenor: str) -> str:
     tenor_letter = {"1M": "RA", "2M": "RB", "3M": "RC", "6M": "RF",
                     "9M": "RI", "1Y": "R1", "2Y": "R2", "3Y": "R3", "5Y": "R5"}
     suffix = tenor_letter.get(tenor.upper(), "RC")
-    return f"{prefix}{suffix} Index"
+    primary = f"{prefix}{suffix} Curncy"
+
+    # EM fallback tickers: swap rates and policy rates that are widely available
+    _EM_SWAP_FALLBACKS = {
+        "BRL": ["BCSW3 Curncy", "BZSTSETA Index"],      # BRL 3M swap / SELIC target
+        "CNH": ["CCSWNI3 Curncy", "CCFIX3M Index"],      # CNH 3M NDF swap
+        "INR": ["IRSWNI3 Curncy", "RBIREPRT Index"],     # INR 3M NDF swap / RBI repo
+        "SGD": ["SDSW3 Curncy", "MASRRR Index"],          # SGD 3M swap / MAS rate
+        "KRW": ["KWSWNI3 Curncy", "KORP7DR Index"],      # KRW 3M NDF swap / BOK 7d repo
+    }
+    ccy_upper = ccy.upper()
+    fallbacks = _EM_SWAP_FALLBACKS.get(ccy_upper, [])
+    return [primary] + fallbacks
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -526,28 +540,44 @@ def get_fx_rates(pair: str) -> dict:
             # For EURUSD: domestic=USD (quote), foreign=EUR (base)
             ccy_dom = pair[3:]   # quote currency (pricing currency)
             ccy_for = pair[:3]   # base currency (underlying asset)
-            # Simplification: use 3M deposit rates
-            dom_tick = _deposit_bbg(ccy_dom, "3M")
-            for_tick = _deposit_bbg(ccy_for, "3M")
-            df = bdp([dom_tick, for_tick], ["PX_LAST", "PX_MID"])
-            # Case-insensitive lookup
-            idx_map = {iv.upper().strip(): iv for iv in df.index} if not df.empty else {}
-            dom_actual = dom_tick if dom_tick in df.index else idx_map.get(dom_tick.upper().strip())
-            for_actual = for_tick if for_tick in df.index else idx_map.get(for_tick.upper().strip())
-            if dom_actual is None or for_actual is None:
-                raise ValueError(f"Missing rate data: dom={dom_actual is not None}, for={for_actual is not None}")
 
-            def _rate_val(actual_idx):
-                """Extract rate from PX_LAST or PX_MID."""
-                for fld in ("PX_LAST", "PX_MID"):
-                    if fld in df.columns:
-                        v = df.loc[actual_idx, fld]
-                        if v is not None and not (isinstance(v, float) and np.isnan(v)):
-                            return float(v) / 100.0
-                raise ValueError(f"No rate data for {actual_idx}")
+            def _try_rate(ccy: str) -> Optional[float]:
+                """Try each ticker candidate for a currency until one works."""
+                candidates = _deposit_bbg(ccy, "3M")
+                for tick in candidates:
+                    try:
+                        df = bdp([tick], ["PX_LAST", "PX_MID"])
+                        if df.empty:
+                            continue
+                        idx_map = {iv.upper().strip(): iv for iv in df.index}
+                        actual = tick if tick in df.index else idx_map.get(tick.upper().strip())
+                        if actual is None:
+                            continue
+                        for fld in ("PX_LAST", "PX_MID"):
+                            if fld in df.columns:
+                                v = df.loc[actual, fld]
+                                if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                                    rate = float(v) / 100.0
+                                    logger.debug("Rate for %s via %s = %.4f", ccy, tick, rate)
+                                    return rate
+                    except Exception:
+                        continue
+                return None
 
-            r_dom = _rate_val(dom_actual)
-            r_for = _rate_val(for_actual)
+            r_dom = _try_rate(ccy_dom)
+            r_for = _try_rate(ccy_for)
+
+            if r_dom is None and r_for is None:
+                raise ValueError(f"No rate data for either {ccy_dom} or {ccy_for}")
+
+            # Use sensible defaults if only one side available
+            if r_dom is None:
+                r_dom = r_for  # approximate
+                logger.warning("Using foreign rate as proxy for %s domestic rate", pair)
+            if r_for is None:
+                r_for = r_dom
+                logger.warning("Using domestic rate as proxy for %s foreign rate", pair)
+
             res = {"r_dom": r_dom, "r_for": r_for,
                    "rate_diff": round(r_dom - r_for, 4)}
             _cache_set(ck, res, "rates")
@@ -578,14 +608,22 @@ def get_fx_rate_curve(ccy: str) -> Dict[str, float]:
     if _HAS_EQUITY_BBG and is_connected():
         try:
             tenors = ["1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y"]
-            tickers = [_deposit_bbg(ccy, t) for t in tenors]
-            df = bdp(tickers, ["PX_LAST", "PX_MID"])  # Single batched call
+            # _deposit_bbg now returns a list of candidates; collect all primaries
+            all_tickers = []
+            tenor_tick_map = {}  # tenor -> list of candidate tickers
+            for t in tenors:
+                candidates = _deposit_bbg(ccy, t)
+                tenor_tick_map[t] = candidates
+                all_tickers.extend(candidates)
+            # Batch BDP call with all candidates at once
+            df = bdp(all_tickers, ["PX_LAST", "PX_MID"])
             idx_map = {iv.upper().strip(): iv for iv in df.index} if not df.empty else {}
             curve = {}
-            for tenor, tick in zip(tenors, tickers):
-                actual = tick if tick in df.index else idx_map.get(tick.upper().strip())
-                if actual is not None:
-                    # Try PX_LAST then PX_MID
+            for tenor in tenors:
+                for tick in tenor_tick_map[tenor]:
+                    actual = tick if tick in df.index else idx_map.get(tick.upper().strip())
+                    if actual is None:
+                        continue
                     val = None
                     for fld in ("PX_LAST", "PX_MID"):
                         if fld in df.columns:
@@ -595,6 +633,7 @@ def get_fx_rate_curve(ccy: str) -> Dict[str, float]:
                                 break
                     if val is not None:
                         curve[tenor] = float(val) / 100.0
+                        break  # Got a value for this tenor, move on
             if curve:
                 _cache_set(ck, curve, "rates")
                 return curve

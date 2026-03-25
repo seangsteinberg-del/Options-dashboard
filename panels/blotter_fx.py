@@ -97,18 +97,18 @@ def _gk_vega(S, K, T, r_d, r_f, sigma):
 def _get_market_params(pair, tenor):
     """Fetch spot, rates, and ATM vol for a pair/tenor combination."""
     try:
-        spots = get_fx_spots([pair])
+        spots = get_fx_spots([pair]) or {}
         S = spots.get(pair, {}).get("mid", 1.0)
     except Exception:
         S = 1.0
     try:
-        rates = get_fx_rates(pair)
+        rates = get_fx_rates(pair) or {}
         r_d = rates.get("r_dom", 0.04)
         r_f = rates.get("r_for", 0.03)
     except Exception:
         r_d, r_f = 0.04, 0.03
     try:
-        vol_surf = get_fx_vol_surface(pair)
+        vol_surf = get_fx_vol_surface(pair) or {}
         atm_vol_raw = vol_surf.get(tenor, {}).get("atm", 8.0)
         atm_vol = atm_vol_raw / 100.0 if atm_vol_raw > 1.0 else atm_vol_raw
     except Exception:

@@ -156,9 +156,12 @@ def _generate_backtest_data(pair, lookback_years):
 
     # --- Spot path from Bloomberg ---
     spots = get_fx_historical_spot(pair, days=n_days)
-    if spots is None or len(spots) < n_days * 0.5:
+    if spots is None or spots.empty or len(spots) < n_days * 0.5:
         return None
-    spot_series = spots["close"].values[-n_days:]
+    col = "close" if "close" in spots.columns else ("Close" if "Close" in spots.columns else (spots.columns[-1] if len(spots.columns) > 0 else None))
+    if col is None:
+        return None
+    spot_series = spots[col].values[-n_days:]
     # If Bloomberg returned fewer days than requested, just use what we have
     actual_days = len(spot_series)
 

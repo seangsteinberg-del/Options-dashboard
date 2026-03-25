@@ -135,7 +135,7 @@ PRESET_BTN = {
 
 def _get_surface_data(pair):
     """Fetch vol surface and decompose into tenor x delta grid."""
-    surface = get_fx_vol_surface(pair)
+    surface = get_fx_vol_surface(pair) or {}
     tenors_avail = []
     atm_vals, rr25_vals, bf25_vals, rr10_vals, bf10_vals = [], [], [], [], []
 
@@ -222,10 +222,10 @@ def _filter_surface_data(sd, selected_tenors):
 
 def _get_spot_and_rates(pair):
     """Fetch spot mid, forward 1M, and interest rates."""
-    spots = get_fx_spots([pair])
+    spots = get_fx_spots([pair]) or {}
     spot_info = spots.get(pair, {})
     spot = spot_info.get("mid", spot_info.get("price", 1.0))
-    rates = get_fx_rates(pair)
+    rates = get_fx_rates(pair) or {}
     r_dom = rates.get("r_dom", 0.03)
     r_for = rates.get("r_for", 0.02)
     fwd_1m = spot * np.exp((r_dom - r_for) * tenor_to_years("1M"))

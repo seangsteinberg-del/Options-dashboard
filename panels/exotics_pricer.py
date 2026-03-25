@@ -397,16 +397,16 @@ def _stat_box(label, value_str, color=COLORS["accent_cyan"]):
 
 def _get_mkt(pair, tenor):
     """Fetch spot, rates, ATM vol for a pair/tenor."""
-    spots = get_fx_spots([pair])
+    spots = get_fx_spots([pair]) or {}
     spot_data = spots.get(pair, {})
     if isinstance(spot_data, dict):
         spot = spot_data.get("mid", 1.0)
     else:
         spot = float(spot_data) if spot_data else 1.0
-    rates = get_fx_rates(pair)
+    rates = get_fx_rates(pair) or {}
     r_d = rates.get("r_dom", 0.05) if isinstance(rates, dict) else 0.05
     r_f = rates.get("r_for", 0.03) if isinstance(rates, dict) else 0.03
-    vol_surf = get_fx_vol_surface(pair)
+    vol_surf = get_fx_vol_surface(pair) or {}
     T = tenor_to_years(tenor)
     atm_vol_raw = 8.0
     if isinstance(vol_surf, dict):
@@ -751,11 +751,11 @@ def register_callbacks(app):
                 extra_levels = {"strike": K_equiv}
 
             elif product == "best_of":
-                spot2_data = get_fx_spots([pair2])
+                spot2_data = get_fx_spots([pair2]) or {}
                 S2 = spot2_data.get(pair2, {}).get("mid", 1.0)
-                rates2 = get_fx_rates(pair2)
+                rates2 = get_fx_rates(pair2) or {}
                 rd2 = rates2.get("r_dom", 0.05)
-                vol_surf2 = get_fx_vol_surface(pair2)
+                vol_surf2 = get_fx_vol_surface(pair2) or {}
                 sigma2_raw = 8.0
                 if isinstance(vol_surf2, dict):
                     if tenor in vol_surf2 and isinstance(vol_surf2[tenor], dict):
@@ -1158,11 +1158,11 @@ def _price_at_spot(product, s, T, rd, rf, sigma, cp, K, B,
             return forward_start_price(s, T_start, T_end, rd, rf, sigma, cp, fwd_money)
         elif product == "best_of":
             # For spot sensitivity, vary S1 (primary pair) while keeping S2 fixed
-            spot2_data = get_fx_spots([pair2])
+            spot2_data = get_fx_spots([pair2]) or {}
             S2 = spot2_data.get(pair2, {}).get("mid", 1.0)
-            rates2 = get_fx_rates(pair2)
+            rates2 = get_fx_rates(pair2) or {}
             rd2 = rates2.get("r_dom", 0.05)
-            vol_surf2 = get_fx_vol_surface(pair2)
+            vol_surf2 = get_fx_vol_surface(pair2) or {}
             sigma2_raw = 8.0
             if vol_surf2 and tenor in vol_surf2:
                 sigma2_raw = vol_surf2[tenor].get("atm", 8.0)
@@ -1235,11 +1235,11 @@ def _price_at_vol(product, S, T, rd, rf, v, cp, K, B,
             return forward_start_price(S, T_start, T_end, rd, rf, v, cp, fwd_money)
         elif product == "best_of":
             # For vol sensitivity, vary sigma1 while keeping sigma2 proportionally scaled
-            spot2_data = get_fx_spots([pair2])
+            spot2_data = get_fx_spots([pair2]) or {}
             S2 = spot2_data.get(pair2, {}).get("mid", 1.0)
-            rates2 = get_fx_rates(pair2)
+            rates2 = get_fx_rates(pair2) or {}
             rd2 = rates2.get("r_dom", 0.05)
-            vol_surf2 = get_fx_vol_surface(pair2)
+            vol_surf2 = get_fx_vol_surface(pair2) or {}
             sigma2_raw = 8.0
             if vol_surf2 and tenor in vol_surf2:
                 sigma2_raw = vol_surf2[tenor].get("atm", 8.0)

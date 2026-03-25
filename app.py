@@ -252,7 +252,9 @@ def _build_ticker_items():
     spot = _fx_spot_data()
     items = []
     for pair in FX_PAIRS:
-        info = spot[pair]
+        info = spot.get(pair)
+        if info is None:
+            continue
         chg = info["change_pct"]
         color = COLORS["accent_green"] if chg >= 0 else COLORS["accent_red"]
         arrow = "\u25B2" if chg >= 0 else "\u25BC"
@@ -1284,12 +1286,17 @@ def _update_data_source_status(_n):
         # Group by function for a cleaner summary
         funcs = {}
         for e in errors:
-            fn = e["function"].replace("get_fx_", "")
+            if not isinstance(e, dict):
+                continue
+            fn = e.get("function", "unknown").replace("get_fx_", "")
             funcs[fn] = funcs.get(fn, 0) + 1
         summary_parts = [f"{fn}({n})" for fn, n in sorted(funcs.items(), key=lambda x: -x[1])]
         error_summary = f"{len(errors)} failures: {', '.join(summary_parts[:4])}"
         # Full detail on hover
-        detail = "\n".join(f"{e['function']}({e['pair']}): {e['error']}" for e in errors[-10:])
+        detail = "\n".join(
+            f"{e.get('function', '?')}({e.get('pair', '?')}): {e.get('error', '?')}"
+            for e in errors[-10:] if isinstance(e, dict)
+        )
         return html.Span([
             html.Span("\u26A0 DEGRADED: ", style={
                 "color": "#ff3333", "fontSize": "9px", "fontWeight": "700",

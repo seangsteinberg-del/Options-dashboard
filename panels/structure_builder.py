@@ -277,9 +277,11 @@ def _interp_vol_for_delta(vol_surface_data, tenor, delta_abs, cp_sign):
                            key=lambda t: abs(tenor_to_years(t) - tenor_to_years(tenor)))
         tenor = available[0] if available else list(vol_surface_data.keys())[0]
 
-    q = vol_surface_data[tenor]
+    q = vol_surface_data.get(tenor, {})
+    if not q:
+        return 0.08
     # bf_rr_to_smile expects vol-point inputs (e.g., 8.5, -0.3, 0.25)
-    atm = q["atm"]
+    atm = q.get("atm", 8.0)
     rr25 = q.get("rr25", 0)
     bf25 = q.get("bf25", 0)
     rr10 = q.get("rr10", 0)
@@ -1294,9 +1296,9 @@ def register_callbacks(app):
             })
 
         # Fetch market data
-        spots = get_fx_spots([pair])
-        vol_surface = get_fx_vol_surface(pair)
-        rates = get_fx_rates(pair)
+        spots = get_fx_spots([pair]) or {}
+        vol_surface = get_fx_vol_surface(pair) or {}
+        rates = get_fx_rates(pair) or {}
 
         # Guard: if Bloomberg returned no data, show NO DATA on all charts
         if not spots or not vol_surface:

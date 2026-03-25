@@ -177,7 +177,7 @@ def _safe_atm_vol(surface):
 def _load_market_data():
     """Load spots, rates, and vol surfaces for the whole portfolio."""
     pairs = list(FX_PAIR_REGISTRY.keys())
-    spots_raw = get_fx_spots(pairs)
+    spots_raw = get_fx_spots(pairs) or {}
     spots = {}
     for p, data in spots_raw.items():
         if isinstance(data, dict):

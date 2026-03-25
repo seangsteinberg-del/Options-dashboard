@@ -603,7 +603,7 @@ def _study_implied_pdf(pair, tenor, timeframe):
                                   name="Implied PDF", fill="tozeroy",
                                   line=dict(color="#ff8800", width=2),
                                   fillcolor="rgba(255,136,0,0.15)"))
-        spots = get_fx_spots([pair])
+        spots = get_fx_spots([pair]) or {}
         spot = spots.get(pair, {}).get("mid")
         if spot:
             fig.add_vline(x=spot, line_dash="dash", line_color="#d4d4d4", annotation_text=f"Spot {spot:.4f}")
