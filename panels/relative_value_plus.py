@@ -332,7 +332,8 @@ def _build_corr_heatmap(window):
     if corr is None:
         return no_data_fig(msg="NO CORRELATION DATA")
     labels = [f"{p[:3]}/{p[3:]}" for p in MONITOR_PAIRS]
-    text = [[f"{corr[i][j]:.2f}" for j in range(len(MONITOR_PAIRS))]
+    text = [[f"{corr[i][j]:.2f}" if corr[i][j] is not None and not np.isnan(corr[i][j]) else ""
+             for j in range(len(MONITOR_PAIRS))]
             for i in range(len(MONITOR_PAIRS))]
 
     fig = go.Figure(go.Heatmap(

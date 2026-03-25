@@ -1099,10 +1099,10 @@ def _build_deep_study(study_type, pairs, tenor):
                     fig.add_trace(go.Scatter(x=list(range(len(ivr))), y=ivr["rv"].tolist(), mode="lines",
                                   name="RV", line=dict(color="#d4d4d4", dash="dash")), row=2, col=1)
             # Panel 4: Stats as annotations
-            r = vol_regime_detect(pair)
-            z = vol_zscore(pair, tenor, "ATM")
-            stats_text = (f"Regime: {r['regime']}<br>Trend: {r['trend']}<br>"
-                         f"ATM IV: {r['atm_iv']:.2f}<br>Z-Score: {z.get('zscore', 0):+.2f}<br>"
+            r = vol_regime_detect(pair) or {}
+            z = vol_zscore(pair, tenor, "ATM") or {}
+            stats_text = (f"Regime: {r.get('regime', 'N/A')}<br>Trend: {r.get('trend', 'N/A')}<br>"
+                         f"ATM IV: {r.get('atm_iv', 0):.2f}<br>Z-Score: {z.get('zscore', 0):+.2f}<br>"
                          f"Percentile: {z.get('percentile', 50):.0f}th")
             fig.add_annotation(text=stats_text, xref="x4", yref="y4", x=0.5, y=0.5,
                                showarrow=False, font=dict(color="#d4d4d4", size=11, family=_FONT),
