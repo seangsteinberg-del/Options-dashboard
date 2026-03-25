@@ -445,11 +445,12 @@ def _compute_aggregates(processed_legs, S, T, r_d, r_f, notional, pip_size):
     mu_T = (r_d - r_f - 0.5 * atm_vol ** 2) * T
     log_spots = np.log(spot_range / S)
     pdf_vals = np.exp(-0.5 * ((log_spots - mu_T) / sigma_T) ** 2) / (sigma_T * np.sqrt(2 * np.pi) * spot_range)
-    total_area = np.trapezoid(pdf_vals, spot_range)
+    _trapz = np.trapezoid if hasattr(np, 'trapezoid') else np.trapz
+    total_area = _trapz(pdf_vals, spot_range)
     if total_area > 0:
         pdf_vals /= total_area
     profitable_mask = expiry_pnl > 0
-    pop = float(np.trapezoid(pdf_vals * profitable_mask, spot_range) * 100.0)
+    pop = float(_trapz(pdf_vals * profitable_mask, spot_range) * 100.0)
     pop = max(0.0, min(100.0, pop))
 
     return {
@@ -1414,8 +1415,8 @@ def register_callbacks(app):
         vol_surface = get_fx_vol_surface(pair) or {}
         rates = get_fx_rates(pair) or {}
 
-        # Guard: if Bloomberg returned no data, show NO DATA on all charts
-        if not spots or not vol_surface:
+        # Guard: only block if we have no spot data at all (vol/rates have fallbacks)
+        if not spots or pair not in spots:
             ndf = no_data_fig(height=380, msg="NO MARKET DATA")
             empty_table = html.Div("No market data", style={"color": COLORS["text_muted"],
                                    "fontSize": "11px", "padding": "8px"})
@@ -1423,68 +1424,79 @@ def register_callbacks(app):
             return ([empty_stats, ndf, ndf, ndf, ndf, empty_table, ndf, ndf]
                     + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 
-        spot_data = spots.get(pair, {"mid": 1.0, "bid": 1.0, "ask": 1.0})
+        try:
+            spot_data = spots.get(pair, {"mid": 1.0, "bid": 1.0, "ask": 1.0})
 
-        S = spot_data.get("mid", spot_data.get("bid", 1.0))
-        r_d = rates.get("r_dom", 0.03)
-        r_f = rates.get("r_for", 0.01)
-        T = tenor_to_years(tenor)
+            S = spot_data.get("mid", spot_data.get("bid", 1.0))
+            r_d = rates.get("r_dom", 0.03)
+            r_f = rates.get("r_for", 0.01)
+            T = tenor_to_years(tenor)
 
-        pip_size = 0.0001
-        if pair in FX_PAIR_REGISTRY:
-            pip_size = FX_PAIR_REGISTRY[pair].pip
+            pip_size = 0.0001
+            if pair in FX_PAIR_REGISTRY:
+                pip_size = FX_PAIR_REGISTRY[pair].pip
 
-        # Process all legs
-        processed = _process_legs(legs_config, pair, tenor, notional,
-                                  spot_data, rates, vol_surface)
+            # Process all legs
+            processed = _process_legs(legs_config, pair, tenor, notional,
+                                      spot_data, rates, vol_surface)
 
-        # Aggregates
-        agg = _compute_aggregates(processed, S, T, r_d, r_f, notional, pip_size)
-        atm_vol = _get_atm_vol(vol_surface, tenor)
+            # Aggregates
+            agg = _compute_aggregates(processed, S, T, r_d, r_f, notional, pip_size)
+            atm_vol = _get_atm_vol(vol_surface, tenor)
 
-        # Build charts
-        payoff_fig = _build_payoff_chart(processed, agg, S, T, r_d, r_f, notional, atm_vol)
-        greeks_fig = _build_greeks_chart(processed, S, T, r_d, r_f, notional)
-        heatmap_fig = _build_pnl_heatmap(processed, S, T, r_d, r_f, notional)
-        surface_fig = _build_3d_surface(processed, S, T, r_d, r_f, notional)
-        premium_table = _build_premium_table(processed, pair, pip_size, notional)
-        scenario_fig = _build_scenario_chart(processed, S, T, r_d, r_f, notional)
-        smile_fig = _build_smile_chart(processed, vol_surface, tenor)
+            # Build charts
+            payoff_fig = _build_payoff_chart(processed, agg, S, T, r_d, r_f, notional, atm_vol)
+            greeks_fig = _build_greeks_chart(processed, S, T, r_d, r_f, notional)
+            heatmap_fig = _build_pnl_heatmap(processed, S, T, r_d, r_f, notional)
+            surface_fig = _build_3d_surface(processed, S, T, r_d, r_f, notional)
+            premium_table = _build_premium_table(processed, pair, pip_size, notional)
+            scenario_fig = _build_scenario_chart(processed, S, T, r_d, r_f, notional)
+            smile_fig = _build_smile_chart(processed, vol_surface, tenor)
 
-        # Summary stat boxes (8)
-        be_str = " / ".join(f"{b:.5f}" for b in agg["breakevens"]) if agg["breakevens"] else "--"
-        prem_color = COLORS["pnl_profit"] if agg["net_premium"] < 0 else COLORS["pnl_loss"]
-        pop_color = COLORS["accent_green"] if agg["pop"] > 50 else COLORS["accent_red"]
+            # Summary stat boxes (8)
+            be_str = " / ".join(f"{b:.5f}" for b in agg["breakevens"]) if agg["breakevens"] else "--"
+            prem_color = COLORS["pnl_profit"] if agg["net_premium"] < 0 else COLORS["pnl_loss"]
+            pop_color = COLORS["accent_green"] if agg["pop"] > 50 else COLORS["accent_red"]
 
-        stats = [
-            _stat_box("NET PREMIUM (CCY2)", f"{agg['net_premium']:,.0f}", prem_color),
-            _stat_box("NET PREMIUM (PIPS)", f"{agg['net_premium_pips']:.1f}", prem_color),
-            _stat_box("NET DELTA", f"{agg['net_delta']:.4f}", COLORS["accent_cyan"]),
-            _stat_box("NET VEGA", f"{agg['net_vega'] * notional:.0f}", COLORS["accent_purple"]),
-            _stat_box("DAILY THETA", f"{agg['net_theta'] * notional:.0f}", COLORS["accent_orange"]),
-            _stat_box("BREAK-EVEN", be_str, COLORS["accent_blue"]),
-            _stat_box("PROB OF PROFIT", f"{agg['pop']:.1f}%", pop_color),
-            _stat_box("MAX LOSS", f"{agg['max_loss']:,.0f}", COLORS["accent_red"]),
-        ]
+            stats = [
+                _stat_box("NET PREMIUM (CCY2)", f"{agg['net_premium']:,.0f}", prem_color),
+                _stat_box("NET PREMIUM (PIPS)", f"{agg['net_premium_pips']:.1f}", prem_color),
+                _stat_box("NET DELTA", f"{agg['net_delta']:.4f}", COLORS["accent_cyan"]),
+                _stat_box("NET VEGA", f"{agg['net_vega'] * notional:.0f}", COLORS["accent_purple"]),
+                _stat_box("DAILY THETA", f"{agg['net_theta'] * notional:.0f}", COLORS["accent_orange"]),
+                _stat_box("BREAK-EVEN", be_str, COLORS["accent_blue"]),
+                _stat_box("PROB OF PROFIT", f"{agg['pop']:.1f}%", pop_color),
+                _stat_box("MAX LOSS", f"{agg['max_loss']:,.0f}", COLORS["accent_red"]),
+            ]
 
-        # Per-leg display fields
-        strike_disps = []
-        vol_disps = []
-        prem_disps = []
-        for i in range(MAX_LEGS):
-            if i < len(processed):
-                lg = processed[i]
-                strike_disps.append(f"{lg['strike']:.5f}")
-                vol_disps.append(f"{lg['vol']*100:.1f}%")
-                prem_disps.append(f"{lg['premium_pips']:.1f}p")
-            else:
-                strike_disps.append("")
-                vol_disps.append("")
-                prem_disps.append("")
+            # Per-leg display fields
+            strike_disps = []
+            vol_disps = []
+            prem_disps = []
+            for i in range(MAX_LEGS):
+                if i < len(processed):
+                    lg = processed[i]
+                    strike_disps.append(f"{lg['strike']:.5f}")
+                    vol_disps.append(f"{lg['vol']*100:.1f}%")
+                    prem_disps.append(f"{lg['premium_pips']:.1f}p")
+                else:
+                    strike_disps.append("")
+                    vol_disps.append("")
+                    prem_disps.append("")
 
-        return ([stats, payoff_fig, greeks_fig, heatmap_fig, surface_fig,
-                 premium_table, scenario_fig, smile_fig]
-                + strike_disps + vol_disps + prem_disps)
+            return ([stats, payoff_fig, greeks_fig, heatmap_fig, surface_fig,
+                     premium_table, scenario_fig, smile_fig]
+                    + strike_disps + vol_disps + prem_disps)
+
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error("Structure builder callback failed: %s", e, exc_info=True)
+            err_fig = no_data_fig(height=380, msg=f"Error: {type(e).__name__}: {e}")
+            empty_table = html.Div(f"Error: {e}", style={"color": COLORS["accent_red"],
+                                   "fontSize": "11px", "padding": "8px"})
+            empty_stats = [html.Div("ERR", style=STAT_BOX_STYLE)]
+            return ([empty_stats, err_fig, err_fig, err_fig, err_fig, empty_table, err_fig, err_fig]
+                    + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 
     # -- Historical cost context callback --
     @app.callback(

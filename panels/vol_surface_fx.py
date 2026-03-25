@@ -930,7 +930,7 @@ def chart_surface_change(pair, sd, spot, r_dom, r_for, **kw):
     deltas = diff_df.columns.tolist()
     z = diff_df.values
 
-    text_vals = [[f"{v:+.2f}" for v in row] for row in z]
+    text_vals = [[f"{v:+.2f}" if v is not None and not np.isnan(v) else "" for v in row] for row in z]
 
     fig = go.Figure()
     fig.add_trace(go.Heatmap(

@@ -314,7 +314,9 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
     if pairs != _ALL_PAIRS:
         all_cached = _cache_get(all_ck, "spot")
         if all_cached is not None and isinstance(all_cached, dict):
-            return {p: all_cached[p] for p in pairs if p in all_cached}
+            result = {p: all_cached[p] for p in pairs if p in all_cached}
+            if result:  # only use cache hit if we actually found the requested pairs
+                return result
 
     ck = "spots_" + ",".join(pairs)
     cached, should_fetch = _cache_wait_or_claim(ck, "spot")
