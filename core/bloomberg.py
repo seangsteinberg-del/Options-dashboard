@@ -86,33 +86,6 @@ class BloombergConnection:
             self.ref_data_service = self.session.getService("//blp/refdata")
             self.connected = True
             logger.info(f"Connected to Bloomberg Terminal at {self.host}:{self.port}")
-
-            # Quick health check: verify Bloomberg actually returns data
-            try:
-                request = self.ref_data_service.createRequest("ReferenceDataRequest")
-                request.append("securities", "EURUSD Curncy")
-                request.append("fields", "PX_LAST")
-                request.append("fields", "PX_MID")
-                responses = self._send_request(request)
-                has_data = False
-                for msg in responses:
-                    if msg.hasElement("securityData"):
-                        sd = msg.getElement("securityData")
-                        for i in range(sd.numValues()):
-                            sec = sd.getValueAsElement(i)
-                            if sec.hasElement("fieldData"):
-                                fd = sec.getElement("fieldData")
-                                for fld in ("PX_LAST", "PX_MID"):
-                                    if fd.hasElement(fld) and not fd.getElement(fld).isNull():
-                                        has_data = True
-                if has_data:
-                    logger.info("Bloomberg health check PASSED — EURUSD data available")
-                else:
-                    logger.warning("Bloomberg health check WARNING — connected but EURUSD "
-                                   "returned no price data. Terminal may not be logged in "
-                                   "or may lack FX data permissions.")
-            except Exception as hc_err:
-                logger.warning("Bloomberg health check failed: %s", hc_err)
             return True
 
         except Exception as e:
