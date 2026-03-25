@@ -12,8 +12,7 @@ Provides:
   - Dividend yields, risk-free rates
   - Corporate actions / earnings dates
 
-Falls back to synthetic data if Bloomberg is unavailable, so the
-dashboard always works even without a terminal connection.
+Returns empty DataFrames when Bloomberg is unavailable.
 """
 
 import logging
@@ -34,7 +33,7 @@ try:
     BLPAPI_AVAILABLE = True
 except ImportError:
     BLPAPI_AVAILABLE = False
-    logger.warning("blpapi not installed — running in synthetic/fallback mode. "
+    logger.warning("blpapi not installed — Bloomberg data will be unavailable. "
                    "Install with: pip install blpapi")
 
 
@@ -55,7 +54,7 @@ class BloombergConnection:
 
     def connect(self) -> bool:
         if not BLPAPI_AVAILABLE:
-            logger.info("blpapi not available, using fallback data")
+            logger.info("blpapi not available — cannot connect to Bloomberg")
             return False
 
         try:
@@ -285,7 +284,7 @@ def bdp(securities: List[str], fields: List[str]) -> pd.DataFrame:
             logger.warning("BDP: Bloomberg disconnected but was previously connected "
                            "— returning EMPTY (no synthetic data)")
             return pd.DataFrame()
-        return _fallback_bdp(securities, fields)
+        return pd.DataFrame()
 
     try:
         if not conn.ref_data_service:
@@ -388,7 +387,7 @@ def bdh(security: str, fields: List[str], start_date: str, end_date: str = None,
             logger.warning("BDH: Bloomberg disconnected but was previously connected "
                            "— returning EMPTY (no synthetic data)")
             return pd.DataFrame()
-        return _fallback_bdh(security, fields, start_date, end_date)
+        return pd.DataFrame()
 
     try:
         if end_date is None:
@@ -582,7 +581,7 @@ def get_options_chain(underlying: str, expiry: str = None,
     bbg = _to_bbg_ticker(underlying)
 
     if not conn.connected:
-        return _fallback_options_chain(underlying, expiry)
+        return pd.DataFrame()
 
     try:
         # Get chain tickers via OPT_CHAIN
@@ -636,9 +635,7 @@ def get_vol_surface(underlying: str, r: float = 0.05, q: float = 0.015) -> Tuple
     bbg = _to_bbg_ticker(underlying)
 
     if not conn.connected:
-        from core.pricing import generate_vol_surface
-        spot_data = _fallback_spot(underlying)
-        return generate_vol_surface(S=spot_data["price"])
+        return np.array([]), np.array([]), np.array([[]])
 
     try:
         # Pull OVDV surface via bulk data
@@ -784,89 +781,3 @@ def _build_vol_surface_from_chain(underlying, r, q):
     vol_matrix = np.clip(vol_matrix, 0.02, 5.0)
     return np.array(strikes), np.array(expiry_years), vol_matrix
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Fallback Data (when Bloomberg is not connected)
-# ═══════════════════════════════════════════════════════════════════════════
-
-_FALLBACK_TICKERS = {
-    "SPY":  {"price": 521.40, "vol": 0.16}, "QQQ":  {"price": 446.80, "vol": 0.20},
-    "AAPL": {"price": 178.50, "vol": 0.24}, "MSFT": {"price": 416.20, "vol": 0.22},
-    "NVDA": {"price": 882.30, "vol": 0.45}, "TSLA": {"price": 176.40, "vol": 0.55},
-    "AMZN": {"price": 186.50, "vol": 0.28}, "META": {"price": 506.70, "vol": 0.32},
-    "JPM":  {"price": 198.30, "vol": 0.20}, "GS":   {"price": 468.50, "vol": 0.25},
-    "XOM":  {"price": 118.40, "vol": 0.22}, "GLD":  {"price": 215.60, "vol": 0.15},
-}
-
-
-def _fallback_spot(ticker):
-    info = _FALLBACK_TICKERS.get(ticker.upper(), {"price": 100.0, "vol": 0.20})
-    rng = np.random.RandomState(hash(ticker) % 2**31)
-    change = info["price"] * rng.uniform(-0.02, 0.02)
-    return {
-        "price": round(info["price"] + change, 2),
-        "change": round(change, 2),
-        "change_pct": round(change / info["price"] * 100, 2),
-        "bid": round(info["price"] + change - 0.02, 2),
-        "ask": round(info["price"] + change + 0.02, 2),
-        "volume": int(rng.lognormal(16, 1)),
-        "high": round(info["price"] + abs(change) * 1.5, 2),
-        "low": round(info["price"] - abs(change) * 1.5, 2),
-        "open": round(info["price"] - change * 0.3, 2),
-        "mkt_cap": 0,
-        "rv30": round(info["vol"] * 100, 1),
-    }
-
-
-def _fallback_bdp(securities, fields):
-    rows = []
-    for sec in securities:
-        short = sec.replace(" US Equity", "").replace(" Govt", "")
-        info = _fallback_spot(short)
-        row = {"security": sec}
-        field_map = {
-            "PX_LAST": info["price"], "CHG_NET_1D": info["change"],
-            "CHG_PCT_1D": info["change_pct"], "PX_BID": info["bid"],
-            "PX_ASK": info["ask"], "VOLUME": info["volume"],
-            "PX_HIGH": info["high"], "PX_LOW": info["low"],
-            "PX_OPEN": info["open"], "CUR_MKT_CAP": info["mkt_cap"],
-            "VOLATILITY_30D": info["rv30"], "EQY_DVD_YLD_IND": 1.5,
-        }
-        for fld in fields:
-            row[fld] = field_map.get(fld, None)
-        rows.append(row)
-    return pd.DataFrame(rows).set_index("security")
-
-
-def _fallback_bdh(security, fields, start_date, end_date):
-    short = security.replace(" US Equity", "").replace(" Govt", "")
-    return _fallback_historical(short, 252)
-
-
-def _fallback_historical(ticker, days=252):
-    from core.pricing import generate_price_history
-    info = _FALLBACK_TICKERS.get(ticker.upper(), {"price": 100.0, "vol": 0.20})
-    prices = generate_price_history(S=info["price"], sigma=info["vol"], days=days,
-                                     seed=hash(ticker) % 2**31)
-    rng = np.random.RandomState(hash(ticker) % 2**31)
-    n = len(prices)
-    dates = pd.date_range(end=datetime.now(), periods=n, freq="B")
-    return pd.DataFrame({
-        "open": prices * (1 + rng.uniform(-0.005, 0.005, n)),
-        "high": prices * (1 + rng.uniform(0, 0.015, n)),
-        "low": prices * (1 - rng.uniform(0, 0.015, n)),
-        "close": prices,
-        "volume": rng.lognormal(16, 1, n).astype(int),
-    }, index=dates)
-
-
-def _fallback_options_chain(underlying, expiry=None):
-    from core.pricing import generate_options_chain
-    info = _FALLBACK_TICKERS.get(underlying.upper(), {"price": 100.0, "vol": 0.20})
-    chain = generate_options_chain(
-        S=info["price"], r=0.05, q=0.015,
-        base_vol=info["vol"], expiry_days=30,
-        strike_step=max(1, round(info["price"] / 40)),
-        num_strikes=25,
-    )
-    return pd.DataFrame(chain)

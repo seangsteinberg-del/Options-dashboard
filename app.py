@@ -107,13 +107,6 @@ DEFAULT_WATCHLIST = [
     "EURGBP", "EURJPY", "USDMXN", "USDZAR", "USDCNH",
 ]
 
-# Synthetic mid-market rates (used when Bloomberg is not connected)
-_FX_SEED_RATES = {
-    "EURUSD": 1.0842, "USDJPY": 149.72, "GBPUSD": 1.2715,
-    "USDCHF": 0.8794, "AUDUSD": 0.6538, "NZDUSD": 0.6127,
-    "USDCAD": 1.3562, "EURGBP": 0.8527, "EURJPY": 162.34,
-    "GBPJPY": 190.31, "USDMXN": 17.142, "USDZAR": 18.695,
-}
 
 # ── Workspace Definition (4 workspaces, 10 panels) ──────────────────────
 WORKSPACES = [
@@ -225,14 +218,23 @@ server = app.server
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _fx_spot_data():
-    """Generate synthetic FX spot data with small random perturbation."""
-    rng = np.random.RandomState(int(time.time()))
+    """Fetch real FX spot data from Bloomberg. Returns empty dict if unavailable."""
+    try:
+        from core.bloomberg_fx import get_fx_spots
+        raw = get_fx_spots(FX_PAIRS)
+    except Exception:
+        return {}
+    if not raw:
+        return {}
     data = {}
     for pair in FX_PAIRS:
-        base = _FX_SEED_RATES.get(pair, 1.0)
-        jitter = base * rng.uniform(-0.004, 0.004)
-        price = base + jitter
-        change_pct = (jitter / base) * 100.0
+        info = raw.get(pair)
+        if info is None or not isinstance(info, dict):
+            continue
+        price = info.get("mid")
+        if price is None:
+            continue
+        change_pct = info.get("change_pct", 0.0)
         is_jpy = "JPY" in pair
         is_em = pair in ("USDMXN", "USDZAR")
         if is_jpy:
@@ -1106,46 +1108,46 @@ def handle_metric_popup(metric_clicks, close_clicks):
         from core.bloomberg_fx import get_fx_historical_vol
         hist = get_fx_historical_vol(pair, tenor, metric, 252)
         if hist is None or len(hist) < 10:
-            from core.fx_analytics import _synth_vol_history
-            hist = _synth_vol_history(pair, tenor, metric, 252)
+            hist = []
 
         # Build chart
         fig = go.Figure()
-        x_days = list(range(len(hist)))
+        x_days = list(range(len(hist))) if hist is not None and len(hist) > 0 else []
 
-        # ±1σ band
-        fig.add_trace(go.Scatter(
-            x=x_days, y=[mean_val + std_val] * len(x_days),
-            mode="lines", line=dict(color="#222240", width=1, dash="dot"),
-            showlegend=False,
-        ))
-        fig.add_trace(go.Scatter(
-            x=x_days, y=[mean_val - std_val] * len(x_days),
-            mode="lines", line=dict(color="#222240", width=1, dash="dot"),
-            fill="tonexty", fillcolor="rgba(26,26,46,0.3)",
-            showlegend=False,
-        ))
+        if x_days:
+            # ±1σ band
+            fig.add_trace(go.Scatter(
+                x=x_days, y=[mean_val + std_val] * len(x_days),
+                mode="lines", line=dict(color="#222240", width=1, dash="dot"),
+                showlegend=False,
+            ))
+            fig.add_trace(go.Scatter(
+                x=x_days, y=[mean_val - std_val] * len(x_days),
+                mode="lines", line=dict(color="#222240", width=1, dash="dot"),
+                fill="tonexty", fillcolor="rgba(26,26,46,0.3)",
+                showlegend=False,
+            ))
 
-        # Mean line
-        fig.add_trace(go.Scatter(
-            x=x_days, y=[mean_val] * len(x_days),
-            mode="lines", line=dict(color="#808080", width=1, dash="dash"),
-            showlegend=False,
-        ))
+            # Mean line
+            fig.add_trace(go.Scatter(
+                x=x_days, y=[mean_val] * len(x_days),
+                mode="lines", line=dict(color="#808080", width=1, dash="dash"),
+                showlegend=False,
+            ))
 
-        # History line
-        fig.add_trace(go.Scatter(
-            x=x_days, y=hist.tolist() if hasattr(hist, 'tolist') else list(hist),
-            mode="lines", line=dict(color="#ff8800", width=1.5),
-            name=f"{metric} {tenor}",
-        ))
+            # History line
+            fig.add_trace(go.Scatter(
+                x=x_days, y=hist.tolist() if hasattr(hist, 'tolist') else list(hist),
+                mode="lines", line=dict(color="#ff8800", width=1.5),
+                name=f"{metric} {tenor}",
+            ))
 
-        # Current dot
-        fig.add_trace(go.Scatter(
-            x=[len(hist) - 1], y=[current],
-            mode="markers", marker=dict(color="#ff8800", size=8),
-            showlegend=False,
-        ))
+            # Current dot
+            fig.add_trace(go.Scatter(
+                x=[len(hist) - 1], y=[current],
+                mode="markers", marker=dict(color="#ff8800", size=8),
+                showlegend=False,
+            ))
 
         fig.update_layout(
             **CHART_TEMPLATE["layout"],

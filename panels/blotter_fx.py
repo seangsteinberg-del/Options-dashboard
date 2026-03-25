@@ -118,106 +118,6 @@ def _get_market_params(pair, tenor):
 
 
 # ============================================================================
-# Sample Trade Generator
-# ============================================================================
-
-def _safe_vol_from_surface(pair, tenor):
-    """Try to fetch ATM vol from the vol surface; fall back to a sensible default."""
-    try:
-        surf = get_fx_vol_surface(pair)
-        if isinstance(surf, dict):
-            for t in (tenor, "3M", "1M", "6M", "1Y"):
-                if t in surf and isinstance(surf[t], dict):
-                    v = surf[t].get("atm", None)
-                    if v is not None:
-                        return v / 100.0 if v > 1.0 else v
-            # Surface dict exists but may be flat (scalar values per tenor)
-            if tenor in surf and isinstance(surf[tenor], (int, float)):
-                v = surf[tenor]
-                return v / 100.0 if v > 1.0 else v
-        if isinstance(surf, (int, float)):
-            return surf if surf < 1.0 else surf / 100.0
-    except Exception:
-        pass
-    return None  # signals caller to use random fallback
-
-
-def _generate_sample_trades():
-    """Generate ~20 realistic FX option trades for pre-populating the log."""
-    np.random.seed(42)
-    now = datetime(2026, 3, 20, 15, 30)
-    sample_pairs = ["EURUSD", "USDJPY", "GBPUSD", "AUDUSD", "USDCHF",
-                    "USDCAD", "EURJPY", "GBPJPY", "EURGBP", "NZDUSD",
-                    "USDMXN", "USDCNH", "EURNOK", "AUDJPY"]
-    sample_spots = {
-        "EURUSD": 1.0835, "USDJPY": 149.50, "GBPUSD": 1.2710,
-        "AUDUSD": 0.6580, "USDCHF": 0.8820, "USDCAD": 1.3620,
-        "EURJPY": 161.90, "GBPJPY": 190.05, "EURGBP": 0.8525,
-        "NZDUSD": 0.6120, "USDMXN": 16.85, "USDCNH": 7.2250,
-        "EURNOK": 11.42, "AUDJPY": 98.35,
-    }
-    trades = []
-    for i in range(22):
-        try:
-            pair = str(np.random.choice(sample_pairs))
-            S = sample_spots.get(pair, 1.0)
-            is_call = np.random.random() > 0.45
-            is_buy = np.random.random() > 0.45
-            cp = 1 if is_call else -1
-            delta_val = float(np.random.choice([0.10, 0.15, 0.25, 0.35, 0.50]))
-            tenor = str(np.random.choice(TENORS))
-            T = tenor_to_years(tenor)
-            r_d, r_f = 0.04, 0.03
-
-            # Try to use live vol surface; fall back to random
-            live_vol = _safe_vol_from_surface(pair, tenor)
-            sigma = live_vol if live_vol is not None else np.random.uniform(0.06, 0.18)
-
-            F = S * np.exp((r_d - r_f) * T)
-            K = F * np.exp((-cp * 0.5 + np.random.uniform(-0.3, 0.3)) * sigma * np.sqrt(max(T, 1e-6)))
-            K = round(K, 4 if S < 10 else 2)
-            expiry = now + timedelta(days=tenor_to_days(tenor))
-            notional = int(np.random.choice([1_000_000, 5_000_000, 10_000_000,
-                                          25_000_000, 50_000_000]))
-            premium_per_unit = max(_gk_price(S, K, T, r_d, r_f, sigma, cp), 0.0001)
-            premium = round(float(premium_per_unit * notional), 2)
-            actual_delta = round(float(_gk_delta(S, K, T, r_d, r_f, sigma, cp)), 4)
-            vega = round(float(_gk_vega(S, K, T, r_d, r_f, sigma) * notional), 2)
-            book = str(np.random.choice(BOOKS))
-            strategy = str(np.random.choice(STRATEGIES))
-            cpty = str(np.random.choice(["JPM", "GS", "CITI", "BARC", "MS", "UBS",
-                                      "HSBC", "DB", "BNP", "SG", "RBC", "TD"]))
-            ts = now - timedelta(minutes=float(np.random.uniform(5, 600)))
-            trades.append({
-                "id": f"FX-{20000 + i:05d}",
-                "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
-                "pair": pair,
-                "type": "CALL" if is_call else "PUT",
-                "side": "BUY" if is_buy else "SELL",
-                "strike": float(K),
-                "delta": actual_delta,
-                "tenor": tenor,
-                "expiry": expiry.strftime("%Y-%m-%d"),
-                "notional": notional,
-                "premium": premium,
-                "premium_per_unit": round(float(premium_per_unit), 6),
-                "vol": round(float(sigma * 100), 2),
-                "vega": vega,
-                "book": book,
-                "strategy": strategy,
-                "counterparty": cpty,
-                "cut": str(np.random.choice(CUT_OPTIONS)),
-                "notes": "",
-                "status": "FILLED",
-            })
-        except Exception:
-            # Skip any trade that fails to generate rather than
-            # crashing the entire sample population.
-            continue
-    return sorted(trades, key=lambda x: x["timestamp"], reverse=True)
-
-
-# ============================================================================
 # Layout
 # ============================================================================
 
@@ -432,7 +332,7 @@ def layout():
                         "marginBottom": "16px"}),
 
         # Hidden stores
-        dcc.Store(id="fxb-trade-store", data=json.dumps(_generate_sample_trades())),
+        dcc.Store(id="fxb-trade-store", data=json.dumps([])),
         dcc.Store(id="fxb-market-cache", data="{}"),
     ])
 
@@ -546,7 +446,7 @@ def register_callbacks(app):
         ctx = dash.callback_context
         triggered = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
 
-        trades = json.loads(store_data) if store_data else _generate_sample_trades()
+        trades = json.loads(store_data) if store_data else []
         new_store = no_update
         exec_msg = ""
         exec_style = {"marginTop": "8px", "fontSize": "11px",

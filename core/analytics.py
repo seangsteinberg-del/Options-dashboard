@@ -12,7 +12,6 @@ from typing import Dict, List, Tuple
 
 from core.pricing import (
     bs_price, compute_all_greeks, realized_vol_close_to_close,
-    generate_price_history,
 )
 
 
@@ -143,21 +142,6 @@ def compute_correlation_matrix(price_dict: Dict[str, np.ndarray],
     return corr, pd.DataFrame({"ticker": rv.index, "rv_ann": rv.values})
 
 
-def generate_multi_asset_prices(tickers: List[str], days: int = 252) -> Dict[str, np.ndarray]:
-    """Generate correlated synthetic price histories for multiple assets."""
-    # Correlation structure
-    from core.bloomberg import _FALLBACK_TICKERS
-    n = len(tickers)
-    prices = {}
-    for i, tk in enumerate(tickers):
-        info = _FALLBACK_TICKERS.get(tk, {"price": 100, "vol": 0.20})
-        prices[tk] = generate_price_history(
-            S=info["price"], sigma=info["vol"],
-            days=days, seed=hash(tk) % 2**31,
-        )
-    return prices
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Margin Estimation (SPAN-like)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -222,55 +206,6 @@ def estimate_margin(positions: List[dict], spot_prices: Dict[str, float],
         "margin_utilization": initial_margin / max(abs(current_val), 1) * 100,
         "scenario_count": len(scenario_results),
     }
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Earnings / Events Calendar
-# ═══════════════════════════════════════════════════════════════════════════
-
-def get_upcoming_events(tickers: List[str]) -> List[dict]:
-    """Generate synthetic earnings/events calendar."""
-    np.random.seed(42)
-    events = []
-    from datetime import datetime, timedelta
-
-    event_types = ["Earnings", "Ex-Div", "FOMC", "CPI", "NFP", "Opex"]
-    base = datetime(2026, 3, 20)
-
-    for ticker in tickers:
-        # Next earnings
-        days_to_earn = np.random.randint(5, 60)
-        events.append({
-            "ticker": ticker,
-            "event": "Earnings",
-            "date": (base + timedelta(days=days_to_earn)).strftime("%Y-%m-%d"),
-            "days_away": days_to_earn,
-            "expected_move": round(np.random.uniform(3, 12), 1),
-            "impact": "HIGH",
-        })
-        # Ex-div
-        if ticker not in ["TSLA", "GLD"]:
-            events.append({
-                "ticker": ticker,
-                "event": "Ex-Div",
-                "date": (base + timedelta(days=np.random.randint(10, 90))).strftime("%Y-%m-%d"),
-                "days_away": np.random.randint(10, 90),
-                "expected_move": 0,
-                "impact": "LOW",
-            })
-
-    # Macro events
-    for ev, days in [("FOMC", 12), ("CPI", 5), ("NFP", 18), ("Opex", 28)]:
-        events.append({
-            "ticker": "MACRO",
-            "event": ev,
-            "date": (base + timedelta(days=days)).strftime("%Y-%m-%d"),
-            "days_away": days,
-            "expected_move": round(np.random.uniform(0.5, 2.5), 1),
-            "impact": "HIGH" if ev in ["FOMC", "CPI"] else "MEDIUM",
-        })
-
-    return sorted(events, key=lambda x: x["days_away"])
 
 
 # ═══════════════════════════════════════════════════════════════════════════
