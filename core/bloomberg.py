@@ -18,6 +18,7 @@ dashboard always works even without a terminal connection.
 
 import logging
 import threading
+import time as _time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from functools import lru_cache
@@ -71,6 +72,7 @@ class BloombergConnection:
             opts.setServerHost(self.host)
             opts.setServerPort(self.port)
             opts.setAutoRestartOnDisconnection(True)
+            opts.setConnectTimeout(5000)  # 5s connection timeout
 
             self.session = blpapi.Session(opts)
             if not self.session.start():
@@ -150,10 +152,10 @@ class BloombergConnection:
                 return []
 
             data = []
-            max_attempts = 6  # 6 × 10s = 60s max
+            max_attempts = 3  # 3 × 5s = 15s max per request
             for _ in range(max_attempts):
                 try:
-                    event = self.session.nextEvent(timeout=10000)
+                    event = self.session.nextEvent(timeout=5000)
                 except Exception as e:
                     logger.error("Bloomberg nextEvent failed: %s", e)
                     self.connected = False
@@ -181,12 +183,24 @@ _conn_lock = threading.Lock()
 # and NEVER reset. This prevents ANY synthetic/fallback data from leaking
 # through if the session temporarily drops.
 _bloomberg_ever_connected = False
+_last_connect_attempt = 0.0  # monotonic time of last failed connection attempt
+_RECONNECT_COOLDOWN = 30.0   # seconds before retrying a failed connection
 
 
 def get_connection() -> BloombergConnection:
-    """Return the singleton BloombergConnection, creating it on first call."""
-    global _connection, _bloomberg_ever_connected
+    """Return the singleton BloombergConnection, creating it on first call.
+
+    Uses a cooldown to avoid blocking all callbacks with repeated failed
+    connection attempts.
+    """
+    global _connection, _bloomberg_ever_connected, _last_connect_attempt
+    # Fast path — already connected, no lock needed
     if _connection is not None and _connection.connected:
+        return _connection
+    # If we recently failed to connect, don't retry yet (avoid blocking)
+    if _last_connect_attempt and (_time.monotonic() - _last_connect_attempt < _RECONNECT_COOLDOWN):
+        if _connection is None:
+            _connection = BloombergConnection()
         return _connection
     with _conn_lock:
         # Double-check inside the lock
@@ -197,6 +211,9 @@ def get_connection() -> BloombergConnection:
         _connection.connect()
         if _connection.connected:
             _bloomberg_ever_connected = True
+            _last_connect_attempt = 0.0
+        else:
+            _last_connect_attempt = _time.monotonic()
         return _connection
 
 
@@ -210,22 +227,23 @@ def bloomberg_ever_connected() -> bool:
 
 
 def is_connected() -> bool:
-    """Check if Bloomberg session is alive. Attempts reconnect if dead."""
+    """Check if Bloomberg session is alive.
+
+    Does NOT aggressively reconnect — relies on get_connection() cooldown
+    to avoid blocking all callbacks with repeated failed attempts.
+    """
+    global _last_connect_attempt
     conn = get_connection()
     if not conn.connected:
-        # Try one reconnect
-        logger.info("Bloomberg not connected — attempting reconnect")
-        if conn.reconnect():
-            return True
         return False
     if conn.session and conn.ref_data_service:
         try:
             _ = conn.ref_data_service.name()
             return True
         except Exception:
-            logger.warning("Bloomberg health check failed — attempting reconnect")
-            if conn.reconnect():
-                return True
+            logger.warning("Bloomberg health check failed — marking disconnected")
+            conn.connected = False
+            _last_connect_attempt = _time.monotonic()
             return False
     return False
 
