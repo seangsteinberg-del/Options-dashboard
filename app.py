@@ -1322,8 +1322,22 @@ if __name__ == "__main__":
     # Connect to Bloomberg FIRST — once connected, synthetic data is
     # permanently blocked for this entire session.
     print("  Connecting to Bloomberg Terminal...")
-    bbg_status = "BLOOMBERG LIVE" if is_connected() else "SYNTHETIC MODE"
+    bbg_connected = is_connected()
+    bbg_status = "BLOOMBERG LIVE" if bbg_connected else "SYNTHETIC MODE"
     panels_total = sum(len(ws["tabs"]) for ws in WORKSPACES)
+
+    # Start background fetcher if Bloomberg is available.
+    # This thread pre-populates the cache so Dash callbacks never block.
+    _bg_fetcher = None
+    if bbg_connected:
+        from core.bg_fetcher import BloombergFetcher
+        from core.bloomberg_fx import set_cache_only_mode
+        print("  Starting background data fetcher...")
+        _bg_fetcher = BloombergFetcher(interval=120, historical_interval=3600)
+        _bg_fetcher.start()
+        _bg_fetcher.wait_for_first_cycle(timeout=180)
+        set_cache_only_mode(True)
+        print("  Background fetcher running — dashboard reads from cache only")
 
     print()
     print("=" * 64)

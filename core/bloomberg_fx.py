@@ -48,6 +48,34 @@ except ImportError:
     BLPAPI_AVAILABLE = False
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Cache-Only Mode: when enabled, Dash callbacks never touch Bloomberg.
+# Only the background fetcher thread is allowed to call Bloomberg.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_CACHE_ONLY_MODE = False
+_fetch_thread_local = threading.local()
+
+
+def set_cache_only_mode(enabled: bool):
+    """Enable/disable cache-only mode for Dash callback threads."""
+    global _CACHE_ONLY_MODE
+    _CACHE_ONLY_MODE = enabled
+    logger.info("Cache-only mode %s", "ENABLED" if enabled else "DISABLED")
+
+
+def mark_thread_as_fetcher():
+    """Mark the current thread as the background fetcher (allowed to call Bloomberg)."""
+    _fetch_thread_local.is_fetcher = True
+
+
+def _may_fetch() -> bool:
+    """True if the current thread is allowed to call Bloomberg."""
+    if getattr(_fetch_thread_local, 'is_fetcher', False):
+        return True  # Background fetcher always allowed
+    return not _CACHE_ONLY_MODE  # Dash threads blocked when cache-only
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Cache Layer (thread-safe, with request deduplication)
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -172,6 +200,12 @@ def _cache_done(key: str):
         evt = _inflight.pop(key, None)
     if evt:
         evt.set()
+
+
+def _cache_invalidate(key: str):
+    """Remove a specific key from cache, forcing a re-fetch."""
+    with _cache_lock:
+        _cache.pop(key, None)
 
 
 def cache_clear():
@@ -630,7 +664,10 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
     if cached is not None:
         return cached
     if not should_fetch:
-        return {}  # another thread tried and failed
+        return {}
+    if not _may_fetch():
+        _cache_done(ck)
+        return {}  # cache-only mode: background thread will populate
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
@@ -709,6 +746,9 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
     if cached is not None:
         return cached
     if not should_fetch:
+        return {}
+    if not _may_fetch():
+        _cache_done(ck)
         return {}
 
     if _HAS_EQUITY_BBG and is_connected():
@@ -846,6 +886,9 @@ def get_fx_rates(pair: str) -> dict:
     if cached is not None:
         return cached
     if not should_fetch:
+        return {}
+    if not _may_fetch():
+        _cache_done(ck)
         return {}
 
     if _HAS_EQUITY_BBG and is_connected():
@@ -1025,6 +1068,9 @@ def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
     cached, should_fetch = _cache_wait_or_claim(ck, "historical")
     if cached is not None:
         return cached
+    if not _may_fetch() and should_fetch:
+        _cache_done(ck)
+        return pd.DataFrame()
     if not should_fetch:
         return pd.DataFrame()
 
@@ -1067,6 +1113,9 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
     cached, should_fetch = _cache_wait_or_claim(ck, "historical")
     if cached is not None:
         return cached
+    if not _may_fetch() and should_fetch:
+        _cache_done(ck)
+        return pd.Series(dtype=float)
     if not should_fetch:
         return pd.Series(dtype=float)
 
