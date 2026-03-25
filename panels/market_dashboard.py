@@ -74,6 +74,8 @@ SORT_OPTIONS = [
     {"label": "|VOL Δ|",  "value": "vol"},
     {"label": "ATM LVL",  "value": "atm"},
     {"label": "PAIR",     "value": "pair"},
+    {"label": "VOL %ILE", "value": "pctile"},
+    {"label": "IV-RV",    "value": "ivrv"},
 ]
 
 
@@ -146,13 +148,59 @@ def _build_movers(pairs):
                 except Exception:
                     vol_chg = 0.0
 
+            # 3M ATM vol
+            atm_3m = _sf(surf.get("3M", {}).get("atm", 0))
+
+            # Vol percentile (3M ATM, 252-day lookback)
+            try:
+                from core.fx_analytics import vol_percentile
+                vp = vol_percentile(pair, "3M", "ATM", 252)
+                if isinstance(vp, dict):
+                    pctile = _sf(vp.get("percentile", 50), 50)
+                elif vp is not None:
+                    pctile = _sf(vp, 50)
+                else:
+                    pctile = 50.0
+            except Exception:
+                pctile = 50.0
+
+            # Term spread: 1M ATM - 1Y ATM
+            atm_1y = _sf(surf.get("1Y", {}).get("atm", 0))
+            if atm_1m > 0 and atm_1y > 0:
+                term_spread = atm_1m - atm_1y
+            else:
+                term_spread = 0.0
+
+            # Breakeven pips: daily implied move = (ATM_1M / 100 / sqrt(252)) * spot
+            from math import sqrt
+            if atm_1m > 0 and spot > 0:
+                breakeven_pips = (atm_1m / 100.0 / sqrt(252)) * spot
+            else:
+                breakeven_pips = 0.0
+
+            # IV-RV spread
+            try:
+                from core.fx_analytics import iv_rv_spread
+                df = iv_rv_spread(pair, "3M", 20, 60)
+                if df is not None and not df.empty and "spread" in df.columns:
+                    iv_rv = _sf(float(df["spread"].iloc[-1]))
+                else:
+                    iv_rv = 0.0
+            except Exception:
+                iv_rv = 0.0
+
             rows.append({
                 "pair": pair, "spot": spot, "chg_pct": chg,
                 "atm_1m": atm_1m, "vol_chg": vol_chg, "rr25": rr25,
+                "atm_3m": atm_3m, "pctile": pctile,
+                "term_spread": term_spread, "breakeven_pips": breakeven_pips,
+                "iv_rv": iv_rv,
             })
         except Exception:
             rows.append({"pair": pair, "spot": 0, "chg_pct": 0,
-                         "atm_1m": 0, "vol_chg": 0, "rr25": 0})
+                         "atm_1m": 0, "vol_chg": 0, "rr25": 0,
+                         "atm_3m": 0, "pctile": 50, "term_spread": 0,
+                         "breakeven_pips": 0, "iv_rv": 0})
     return rows
 
 
@@ -200,17 +248,13 @@ def _build_kpi_data(rows):
     kpis["g10_vol"] = round(np.mean(g10_vols), 2) if g10_vols else 0
     kpis["em_vol"]  = round(np.mean(em_vols), 2) if em_vols else 0
 
-    # Risk sentiment (simplified composite)
-    try:
-        risk_score = 50.0
-        if kpis["g10_vol"] > 0:
-            risk_score += (kpis["g10_vol"] - 8.0) * 3
-        if kpis["em_vol"] > kpis["g10_vol"]:
-            risk_score += (kpis["em_vol"] - kpis["g10_vol"]) * 2
-        risk_score = max(0, min(100, risk_score))
-        kpis["risk"] = round(risk_score, 0)
-    except Exception:
-        kpis["risk"] = 50
+    # G10 average vol percentile
+    g10_pctiles = [r.get("pctile", 50) for r in rows if r["pair"] in G10_PAIRS and r.get("pctile") is not None]
+    kpis["g10_pctile"] = round(np.mean(g10_pctiles), 1) if g10_pctiles else 50.0
+
+    # IV-RV aggregate (average G10 IV-RV spread)
+    g10_ivrv = [r.get("iv_rv", 0) for r in rows if r["pair"] in G10_PAIRS and r.get("iv_rv", 0) != 0]
+    kpis["ivrv_agg"] = round(np.mean(g10_ivrv), 2) if g10_ivrv else 0.0
 
     # Biggest mover
     if rows:
@@ -332,13 +376,13 @@ def _build_vol_index_chart(pairs):
         for pair in G10_PAIRS[:8]:
             try:
                 h = get_fx_historical_vol(pair, "1M", "ATM", 60)
-                if h is not None and len(h) >= 30:
+                if h is not None and len(h) >= 5:
                     arr = np.array(h, dtype=float) if not isinstance(h, np.ndarray) else h
                     hist_vols.append(arr[-60:])
             except Exception:
                 continue
 
-        if len(hist_vols) < 3:
+        if len(hist_vols) < 1:
             return no_data_fig(height=_CHART_H, msg="INSUFFICIENT VOL DATA")
         else:
             min_len = min(len(v) for v in hist_vols)
@@ -452,6 +496,58 @@ def _build_term_chart(pairs):
         return fig
     except Exception:
         return _empty_fig("TERM SHAPE")
+
+
+def _build_vol_richness_heatmap(pairs):
+    """Compact vol percentile heatmap: pairs x tenors."""
+    try:
+        from core.bloomberg_fx import get_fx_vol_surface
+        from core.fx_analytics import vol_percentile
+
+        tenors = ["1M", "3M", "6M", "1Y"]
+        pair_list = [p for p in pairs if p in G10_PAIRS][:12]
+
+        z_vals = []
+        text_vals = []
+        for pair in pair_list:
+            row_z = []
+            row_t = []
+            surf = get_fx_vol_surface(pair) or {}
+            for t in tenors:
+                atm = _sf(surf.get(t, {}).get("atm", 0))
+                pct = 50.0
+                try:
+                    info = vol_percentile(pair, t, "ATM", 252)
+                    if isinstance(info, dict) and info:
+                        pct = _sf(info.get("percentile", 50))
+                except Exception:
+                    pass
+                row_z.append(pct)
+                row_t.append(f"{atm:.1f}\n{pct:.0f}%")
+            z_vals.append(row_z)
+            text_vals.append(row_t)
+
+        if not z_vals:
+            return _empty_fig("VOL RICHNESS")
+
+        fig = go.Figure(go.Heatmap(
+            z=z_vals, x=tenors, y=pair_list, text=text_vals,
+            texttemplate="%{text}", textfont=dict(size=9, color="#d4d4d4"),
+            colorscale=[[0, "#1e40af"], [0.2, "#1e40af"], [0.4, "#1a1a2e"],
+                        [0.5, "#1a1a2e"], [0.6, "#1a1a2e"], [0.8, "#dc2626"], [1, "#dc2626"]],
+            zmin=0, zmax=100, showscale=False,
+            hovertemplate="<b>%{y}</b> %{x}<br>Percentile: %{z:.0f}<extra></extra>",
+        ))
+        fig.update_layout(**_chart_layout(
+            height=CHART_SM,
+            margin=dict(l=65, r=10, t=30, b=25), showlegend=False,
+            title=dict(text="VOL RICHNESS (% ILE)", font=dict(size=10, color="#808080")),
+            xaxis=dict(tickfont=dict(size=9, color="#808080")),
+            yaxis=dict(tickfont=dict(size=9, color="#d4d4d4"), autorange="reversed"),
+        ))
+        return fig
+    except Exception:
+        return _empty_fig("VOL RICHNESS")
 
 
 def _build_delta_bars():
@@ -569,18 +665,14 @@ def layout():
 
         # ── Bottom Row: Book Summary (left) + Events & Positioning (right) ──
         html.Div([
-            # Left: book delta bars
+            # Left: vol richness heatmap
             html.Div([
-                html.Div("BOOK SUMMARY", style={
+                html.Div("VOL RICHNESS", style={
                     "color": "#808080", "fontSize": "10px", "fontWeight": "700",
                     "letterSpacing": "1.5px", "padding": f"{GAP} 10px",
                     "fontFamily": _MONO, "borderBottom": "1px solid #222240",
                 }),
-                html.Div(id=f"{_P}-book-greeks", style={
-                    "display": "flex", "gap": GAP, "padding": "6px 8px",
-                }),
-                html.Button("CSV", id=f"{_P}-csv-delta", n_clicks=0, style=CSV_BTN_STYLE),
-                dcc.Graph(id=f"{_P}-delta-bars", config={"displayModeBar": False, "responsive": True},
+                dcc.Graph(id=f"{_P}-vol-richness", config={"displayModeBar": False, "responsive": True},
                           style={"height": f"{CHART_SM}px"}),
             ], style={"flex": "1", "border": "1px solid #222240"}),
 
@@ -603,14 +695,16 @@ def layout():
 
 def _render_kpis(kpis):
     """Render 8 KPI stat boxes."""
+    g10_pctile = kpis.get("g10_pctile", 50)
+    ivrv_agg = kpis.get("ivrv_agg", 0)
     items = [
         ("DXY PROXY",      str(kpis.get("dxy", "—")),          "#ff8800"),
         ("G10 AVG VOL",    f"{kpis.get('g10_vol', 0):.1f}v",   "#ff8800"),
         ("EM AVG VOL",     f"{kpis.get('em_vol', 0):.1f}v",    "#ff8800"),
-        ("RISK SCORE",     f"{kpis.get('risk', 50):.0f}",      "#ff3333" if kpis.get("risk", 50) > 65 else "#00cc66"),
+        ("G10 %ILE",       f"{g10_pctile:.0f}th",              _pct_color(g10_pctile)),
         ("BIGGEST MOVER",  kpis.get("biggest", "—"),            "#d4d4d4"),
+        ("IV-RV AGG",      f"{ivrv_agg:+.1f}",                 "#00cc66" if ivrv_agg > 0 else "#ff3333" if ivrv_agg < 0 else "#808080"),
         ("BOOK VEGA",      kpis.get("book_vega", "—"),          "#ff8800"),
-        ("BOOK THETA",     kpis.get("book_theta", "—"),         "#ff3333"),
         ("EVENTS 48H",     str(kpis.get("events_48h", 0)),      "#ff8800" if kpis.get("events_48h", 0) > 0 else "#808080"),
     ]
     boxes = []
@@ -634,18 +728,43 @@ def _render_movers_table(rows, sort_key):
         rows.sort(key=lambda r: abs(r.get("vol_chg", 0)), reverse=True)
     elif sort_key == "atm":
         rows.sort(key=lambda r: r.get("atm_1m", 0), reverse=True)
+    elif sort_key == "pctile":
+        rows.sort(key=lambda r: r.get("pctile", 50), reverse=True)
+    elif sort_key == "ivrv":
+        rows.sort(key=lambda r: abs(r.get("iv_rv", 0)), reverse=True)
     else:
         rows.sort(key=lambda r: r.get("pair", ""))
 
     header = html.Tr([
         html.Th(h, style=TABLE_HEADER_STYLE)
-        for h in ["PAIR", "SPOT", "Δ%", "ATM 1M", "ΔVol", "RR25"]
+        for h in ["PAIR", "SPOT", "\u0394%", "ATM 1M", "ATM 3M", "\u0394Vol", "RR25", "%ILE", "TERM", "IV-RV", "BEV"]
     ])
 
     body_rows = []
     for r in rows:
         chg_color = _color_chg(r["chg_pct"])
         vol_color = _color_chg(-r["vol_chg"])  # inverted: vol up = bad
+        pctile = r.get("pctile", 50)
+        term_spread = r.get("term_spread", 0)
+        iv_rv = r.get("iv_rv", 0)
+        breakeven_pips = r.get("breakeven_pips", 0)
+
+        # Term spread color: red if backwardation (>0.5), green if contango (<-0.5)
+        if term_spread > 0.5:
+            term_color = COLORS["accent_red"]
+        elif term_spread < -0.5:
+            term_color = COLORS["accent_green"]
+        else:
+            term_color = "#808080"
+
+        # IV-RV color: green if sell vol (>1), red if buy vol (<-1)
+        if iv_rv > 1:
+            ivrv_color = COLORS["accent_green"]
+        elif iv_rv < -1:
+            ivrv_color = COLORS["accent_red"]
+        else:
+            ivrv_color = "#808080"
+
         body_rows.append(html.Tr([
             html.Td(r["pair"], style={**TABLE_CELL_STYLE, "fontWeight": "700",
                                        "color": "#d4d4d4", "cursor": "pointer"},
@@ -654,8 +773,16 @@ def _render_movers_table(rows, sort_key):
                     style=TABLE_CELL_STYLE),
             html.Td(f"{r['chg_pct']:+.2f}%", style={**TABLE_CELL_STYLE, "color": chg_color}),
             html.Td(f"{r['atm_1m']:.1f}v", style=TABLE_CELL_STYLE),
+            html.Td(f"{r.get('atm_3m', 0):.1f}v", style=TABLE_CELL_STYLE),
             html.Td(f"{r['vol_chg']:+.2f}", style={**TABLE_CELL_STYLE, "color": vol_color}),
             html.Td(f"{r['rr25']:+.1f}", style=TABLE_CELL_STYLE),
+            html.Td([
+                html.Span(f"{pctile:.0f}", style={"color": _pct_color(pctile)}),
+                html.Span("th", style={"fontSize": "8px", "color": _pct_color(pctile)}),
+            ], style=TABLE_CELL_STYLE),
+            html.Td(f"{term_spread:+.1f}", style={**TABLE_CELL_STYLE, "color": term_color}),
+            html.Td(f"{iv_rv:+.1f}", style={**TABLE_CELL_STYLE, "color": ivrv_color}),
+            html.Td(f"{breakeven_pips:.0f}p", style={**TABLE_CELL_STYLE, "color": "#60a5fa"}),
         ]))
 
     return html.Table([html.Thead(header), html.Tbody(body_rows)],
@@ -772,7 +899,7 @@ def register_callbacks(app):
             Output(f"{_P}-vol-index", "figure"),
             Output(f"{_P}-skew", "figure"),
             Output(f"{_P}-term", "figure"),
-            Output(f"{_P}-delta-bars", "figure"),
+            Output(f"{_P}-vol-richness", "figure"),
         ],
         [
             Input(f"{_P}-interval", "n_intervals"),
@@ -782,12 +909,11 @@ def register_callbacks(app):
     def update_charts(n, group):
         pairs = _pairs_for(group or "ALL")
         return (_build_vol_index_chart(pairs), _build_skew_chart(pairs),
-                _build_term_chart(pairs), _build_delta_bars())
+                _build_term_chart(pairs), _build_vol_richness_heatmap(pairs))
 
     # ── Slow callback: book greeks + events + positioning ──
     @app.callback(
         [
-            Output(f"{_P}-book-greeks", "children"),
             Output(f"{_P}-events", "children"),
             Output(f"{_P}-positioning", "children"),
         ],
@@ -800,7 +926,7 @@ def register_callbacks(app):
         pairs = _pairs_for(group or "ALL")
         events = _gather_events()
         positioning = _build_positioning(pairs)
-        return _render_book_greeks(), _render_events(events), _render_positioning(positioning)
+        return _render_events(events), _render_positioning(positioning)
 
     # ── Row click → update store (which app.py propagates to global-pair) ──
     @app.callback(
@@ -825,15 +951,13 @@ def register_callbacks(app):
         Output(f"{_P}-csv-download", "data"),
         [Input(f"{_P}-csv-vol", "n_clicks"),
          Input(f"{_P}-csv-skew", "n_clicks"),
-         Input(f"{_P}-csv-term", "n_clicks"),
-         Input(f"{_P}-csv-delta", "n_clicks")],
+         Input(f"{_P}-csv-term", "n_clicks")],
         [State(f"{_P}-vol-index", "figure"),
          State(f"{_P}-skew", "figure"),
-         State(f"{_P}-term", "figure"),
-         State(f"{_P}-delta-bars", "figure")],
+         State(f"{_P}-term", "figure")],
         prevent_initial_call=True,
     )
-    def mdash_csv_export(n1, n2, n3, n4, fig1, fig2, fig3, fig4):
+    def mdash_csv_export(n1, n2, n3, fig1, fig2, fig3):
         ctx = callback_context
         if not ctx.triggered:
             return no_update
@@ -842,7 +966,6 @@ def register_callbacks(app):
             f"{_P}-csv-vol": (fig1, "MarketDash", "VolIndex"),
             f"{_P}-csv-skew": (fig2, "MarketDash", "Skew"),
             f"{_P}-csv-term": (fig3, "MarketDash", "TermShape"),
-            f"{_P}-csv-delta": (fig4, "MarketDash", "DeltaBars"),
         }
         if btn not in mapping:
             return no_update
