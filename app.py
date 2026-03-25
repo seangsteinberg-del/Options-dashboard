@@ -163,6 +163,22 @@ for ws in WORKSPACES:
     for tab in ws["tabs"]:
         _TAB_MODULE_MAP[tab["id"]] = tab["module"]
 
+_ALL_TAB_IDS = list(_TAB_MODULE_MAP.keys())
+
+
+def _safe_panel_layout(tab_id, module):
+    """Render a panel layout, catching errors."""
+    try:
+        return module.layout()
+    except Exception as exc:
+        import traceback
+        return html.Div([
+            html.Div(f"PANEL LOAD ERROR: {tab_id}", style={
+                "color": "#ff3333", "fontWeight": "700", "fontSize": "13px"}),
+            html.Pre(traceback.format_exc(), style={
+                "color": "#808080", "fontSize": "10px", "whiteSpace": "pre-wrap"}),
+        ], style={"padding": "40px"})
+
 # Workspace presets
 WORKSPACE_PRESETS = {
     "Desk":  ("desk",           "market-dashboard"),
@@ -752,7 +768,17 @@ def serve_layout():
             make_workspace_tabs(),
             make_sub_tabs_container(),
 
-            html.Div(id="panel-content", style={"marginTop": "4px"}),
+            # All panels pre-rendered in the DOM — tab switch just toggles
+            # display:none instead of destroying/recreating components.
+            # This makes switching tabs instant.
+            html.Div([
+                html.Div(
+                    _safe_panel_layout(tab_id, mod),
+                    id=f"panel-wrap-{tab_id}",
+                    style={"display": "none"},
+                )
+                for tab_id, mod in _TAB_MODULE_MAP.items()
+            ], id="panel-content", style={"marginTop": "4px"}),
         ], style={
             "padding": "8px 16px",
             "maxWidth": "1920px",
@@ -814,35 +840,19 @@ def render_subtabs(workspace_id):
 # ---------------------------------------------------------------------------
 # 2. Sub-tabs -> render panel content
 # ---------------------------------------------------------------------------
+# Tab switching: toggle CSS display instead of destroying/recreating panels.
+# All panels are pre-rendered in the DOM — this makes switching instant.
 @app.callback(
-    Output("panel-content", "children"),
+    [Output(f"panel-wrap-{tid}", "style") for tid in _ALL_TAB_IDS],
     Input("sub-tabs", "value"),
 )
 def render_panel(tab_id):
     if tab_id is None:
         raise PreventUpdate
-
-    module = _TAB_MODULE_MAP.get(tab_id)
-    if module is None:
-        return html.Div(
-            "Panel not found.",
-            style={"color": "#808080", "padding": "40px",
-                   "textAlign": "center", "fontSize": "11px"},
-        )
-    try:
-        return module.layout()
-    except Exception as exc:
-        import traceback
-        return html.Div([
-            html.Div("PANEL LOAD ERROR", style={
-                "color": "#ff3333", "fontWeight": "700",
-                "fontSize": "13px", "marginBottom": "8px",
-            }),
-            html.Pre(traceback.format_exc(), style={
-                "color": "#808080", "fontSize": "10px",
-                "whiteSpace": "pre-wrap",
-            }),
-        ], style={"padding": "40px"})
+    return [
+        {"display": "block"} if tid == tab_id else {"display": "none"}
+        for tid in _ALL_TAB_IDS
+    ]
 
 
 # ---------------------------------------------------------------------------
