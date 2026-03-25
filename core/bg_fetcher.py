@@ -30,16 +30,21 @@ class BloombergFetcher(threading.Thread):
         self.historical_interval = historical_interval
         self._stop_event = threading.Event()
         self._first_cycle_done = threading.Event()
+        self._first_cycle_ok = False
         self._last_historical = 0.0
 
     def wait_for_first_cycle(self, timeout: float = 180):
         """Block until the first fetch cycle completes."""
         logger.info("Waiting for first Bloomberg fetch cycle (max %ds)...", timeout)
         self._first_cycle_done.wait(timeout=timeout)
-        if self._first_cycle_done.is_set():
+        if self._first_cycle_ok:
             logger.info("First fetch cycle complete — cache is warm")
         else:
-            logger.warning("First fetch cycle timed out after %ds", timeout)
+            logger.warning("First fetch cycle did not fully succeed")
+
+    @property
+    def first_cycle_ok(self) -> bool:
+        return self._first_cycle_ok
 
     def stop(self):
         """Signal the thread to stop."""
@@ -47,9 +52,10 @@ class BloombergFetcher(threading.Thread):
 
     def run(self):
         from core.bloomberg_fx import (
-            mark_thread_as_fetcher, get_all_pairs, _cache_invalidate,
+            mark_thread_as_fetcher, get_all_pairs,
             get_fx_spots, get_fx_vol_surface, get_fx_rates,
             get_fx_historical_spot, get_fx_historical_vol,
+            _cache_set,
         )
         from core.bloomberg import is_connected
 
@@ -62,12 +68,17 @@ class BloombergFetcher(threading.Thread):
         while not self._stop_event.is_set():
             if not is_connected():
                 logger.warning("BG fetcher: Bloomberg not connected, skipping cycle")
+                if first_cycle:
+                    self._first_cycle_done.set()
+                    first_cycle = False
                 self._sleep(10)
                 continue
 
             try:
                 include_hist = first_cycle or self._historical_due()
-                self._fetch_cycle(pairs, include_hist)
+                ok = self._fetch_cycle(pairs, include_hist)
+                if first_cycle and ok:
+                    self._first_cycle_ok = True
             except Exception as e:
                 logger.error("BG fetcher cycle failed: %s", e, exc_info=True)
 
@@ -89,20 +100,27 @@ class BloombergFetcher(threading.Thread):
                 return
             self._stop_event.wait(1.0)
 
-    def _fetch_cycle(self, pairs, include_historical=False):
+    def _fetch_cycle(self, pairs, include_historical=False) -> bool:
+        """Run one fetch cycle. Returns True if at least spots succeeded."""
         from core.bloomberg_fx import (
-            _cache_invalidate, get_fx_spots, get_fx_vol_surface,
-            get_fx_rates, get_fx_historical_spot, get_fx_historical_vol,
+            get_fx_spots, get_fx_vol_surface, get_fx_rates,
+            get_fx_historical_spot, get_fx_historical_vol,
+            cache_clear,
         )
 
         t0 = time.monotonic()
+        spots_ok = False
 
         # 1. Spots — single BDP call for all 30 pairs
+        # No need to invalidate — the data function checks cache TTL,
+        # and if expired, fetches fresh data and overwrites the cache.
         try:
-            ck = "spots_" + ",".join(pairs)
-            _cache_invalidate(ck)
             result = get_fx_spots(pairs)
-            logger.info("BG: spots OK (%d pairs)", len(result))
+            if result:
+                spots_ok = True
+                logger.info("BG: spots OK (%d pairs)", len(result))
+            else:
+                logger.warning("BG: spots returned empty")
         except Exception as e:
             logger.error("BG: spots failed: %s", e)
 
@@ -110,7 +128,6 @@ class BloombergFetcher(threading.Thread):
         ok, fail = 0, 0
         for pair in pairs:
             try:
-                _cache_invalidate(f"volsurf_{pair}")
                 surface = get_fx_vol_surface(pair)
                 if surface:
                     ok += 1
@@ -124,7 +141,6 @@ class BloombergFetcher(threading.Thread):
         ok, fail = 0, 0
         for pair in pairs:
             try:
-                _cache_invalidate(f"rates_{pair}")
                 result = get_fx_rates(pair)
                 if result:
                     ok += 1
@@ -139,7 +155,6 @@ class BloombergFetcher(threading.Thread):
             ok = 0
             for pair in pairs:
                 try:
-                    _cache_invalidate(f"histspot_{pair}_252")
                     df = get_fx_historical_spot(pair, days=252)
                     if not df.empty:
                         ok += 1
@@ -150,7 +165,6 @@ class BloombergFetcher(threading.Thread):
             ok = 0
             for pair in pairs:
                 try:
-                    _cache_invalidate(f"histvol_{pair}_1M_atm_252")
                     series = get_fx_historical_vol(pair, "1M", "atm", 252)
                     if len(series) > 0:
                         ok += 1
@@ -161,3 +175,4 @@ class BloombergFetcher(threading.Thread):
 
         elapsed = time.monotonic() - t0
         logger.info("BG: fetch cycle complete in %.1fs", elapsed)
+        return spots_ok

@@ -88,6 +88,16 @@ _CACHE_TTL = {
     "positioning": 86400,
 }
 
+# Longer TTLs when background fetcher is active (must outlast fetch interval)
+_CACHE_TTL_BG = {
+    "spot": 180,        # 3 min (fetcher runs every 2 min)
+    "vol_surface": 300,  # 5 min
+    "rates": 3600,       # 1 hr
+    "forwards": 600,     # 10 min
+    "historical": 7200,  # 2 hr
+    "positioning": 86400,
+}
+
 _cache: Dict[str, Tuple[float, object]] = {}
 _cache_lock = threading.Lock()
 
@@ -147,10 +157,11 @@ def clear_errors():
 
 def _cache_get(key: str, category: str = "spot"):
     """Return cached value if not expired, else None."""
+    ttl_table = _CACHE_TTL_BG if _CACHE_ONLY_MODE else _CACHE_TTL
     with _cache_lock:
         if key in _cache:
             ts, val = _cache[key]
-            if time.time() - ts < _CACHE_TTL.get(category, 60):
+            if time.time() - ts < ttl_table.get(category, 60):
                 return val
     return None
 
@@ -729,10 +740,11 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
             return {}
 
     # No Bloomberg — return empty if it was ever connected (no synthetic leak)
+    _cache_done(ck)
     if bloomberg_ever_connected():
         return {}
     result = {p: _fallback_spot(p) for p in pairs}
-    _cache_set("spots_" + ",".join(pairs), result, "spot")
+    _cache_set(ck, result, "spot")
     return result
 
 
@@ -947,6 +959,8 @@ def get_fx_rate_curve(ccy: str) -> Dict[str, float]:
     cached = _cache_get(ck, "rates")
     if cached is not None:
         return cached
+    if not _may_fetch():
+        return {}
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
@@ -994,6 +1008,8 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
     cached = _cache_get(ck, "forwards")
     if cached is not None:
         return cached
+    if not _may_fetch():
+        return {}
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
@@ -1179,6 +1195,8 @@ def get_fx_option_chain(pair: str, tenor: str = "1M") -> pd.DataFrame:
     cached = _cache_get(ck, "vol_surface")
     if cached is not None:
         return cached
+    if not _may_fetch():
+        return pd.DataFrame()
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
@@ -1230,6 +1248,8 @@ def get_cftc_positioning(pair: str) -> dict:
     cached = _cache_get(ck, "positioning")
     if cached is not None:
         return cached
+    if not _may_fetch():
+        return {}
 
     if _HAS_EQUITY_BBG and is_connected():
         # CFTC data not available via Bloomberg real-time — return empty

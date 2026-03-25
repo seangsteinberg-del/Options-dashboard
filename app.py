@@ -738,8 +738,13 @@ def make_footer():
 # App Layout
 # ═══════════════════════════════════════════════════════════════════════════
 
+_cached_layout = None
+
 def serve_layout():
-    return html.Div([
+    global _cached_layout
+    if _cached_layout is not None:
+        return _cached_layout
+    _cached_layout = html.Div([
 
         # ── Global State Stores ──
         dcc.Store(id="global-pair",  data="EURUSD"),
@@ -793,6 +798,7 @@ def serve_layout():
         "minHeight": "100vh",
         "fontFamily": "'JetBrains Mono', monospace",
     })
+    return _cached_layout
 
 
 app.layout = serve_layout
@@ -1336,8 +1342,11 @@ if __name__ == "__main__":
         _bg_fetcher = BloombergFetcher(interval=120, historical_interval=3600)
         _bg_fetcher.start()
         _bg_fetcher.wait_for_first_cycle(timeout=180)
-        set_cache_only_mode(True)
-        print("  Background fetcher running — dashboard reads from cache only")
+        if _bg_fetcher.first_cycle_ok:
+            set_cache_only_mode(True)
+            print("  Background fetcher running — dashboard reads from cache only")
+        else:
+            print("  WARNING: First fetch cycle failed — callbacks will fetch directly")
 
     print()
     print("=" * 64)
