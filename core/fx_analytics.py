@@ -36,6 +36,8 @@ def _to_close_array(data):
     if data is None:
         return None
     if isinstance(data, pd.DataFrame):
+        if data.empty:
+            return None
         if "close" in data.columns:
             return data["close"].values
         elif "Close" in data.columns:
@@ -336,7 +338,9 @@ def vol_cone(pair: str,
         windows = [5, 10, 20, 60, 90, 120, 252]
 
     spot_hist_raw = get_fx_historical_spot(pair, lookback + max(windows) + 10)
-    spot_hist = _to_close_array(spot_hist_raw) if spot_hist_raw is not None else None
+    if spot_hist_raw is None or (isinstance(spot_hist_raw, pd.DataFrame) and spot_hist_raw.empty):
+        return pd.DataFrame()
+    spot_hist = _to_close_array(spot_hist_raw)
     if spot_hist is None or len(spot_hist) < max(windows) + 20:
         return pd.DataFrame()
 

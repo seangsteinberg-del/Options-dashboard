@@ -1387,6 +1387,8 @@ def register_callbacks(app):
 
         try:
             vp = vol_percentile(pair, tenor, "ATM", 252)
+            if vp is None:
+                raise ValueError("No data")
         except Exception:
             return html.Div(
                 "Historical cost data unavailable",
