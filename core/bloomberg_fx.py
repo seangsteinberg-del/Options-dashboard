@@ -588,11 +588,14 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
             fields = ["PX_BID", "PX_ASK", "PX_LAST", "PX_MID", "CHG_NET_1D",
                        "CHG_PCT_1D", "PX_HIGH", "PX_LOW", "PX_OPEN", "VOLUME"]
             df = bdp(tickers, fields)
-            logger.info("FX spots: BDP returned %d rows for %d pairs. Index: %s",
-                        len(df), len(tickers), list(df.index[:5]) if not df.empty else "EMPTY")
-            if df.empty:
-                logger.warning("FX spots: Bloomberg returned EMPTY — terminal may not "
-                               "be logged in or authenticated")
+            if not df.empty:
+                logger.warning("FX spots: BDP returned %d rows for %d pairs. "
+                               "Index: %s | First row data: %s",
+                               len(df), len(tickers),
+                               list(df.index[:5]),
+                               {c: df.iloc[0][c] for c in df.columns[:4]} if len(df) > 0 else "N/A")
+            else:
+                logger.warning("FX spots: Bloomberg returned EMPTY DataFrame")
             def _sf(v):
                 """Safe float — handles None from Bloomberg null fields."""
                 try:
@@ -694,19 +697,22 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
             # Single batched bdp call — request PX_LAST and PX_MID
             # Some Bloomberg terminals only populate PX_MID for FX vol
             vol_fields = ["PX_LAST", "PX_MID"]
-            logger.info("Vol surface %s: requesting %d tickers, first 3: %s",
+            logger.warning("Vol surface %s: requesting %d tickers, first 3: %s",
                         pair, len(all_tickers), all_tickers[:3])
             df = bdp(all_tickers, vol_fields)
-            logger.info("Vol surface %s: BDP returned %d rows. Index values: %s",
-                        pair, len(df),
-                        list(df.index[:10]) if not df.empty else "EMPTY")
             if not df.empty:
-                # Log actual values for first few tickers so we can see what BBG sends
-                sample = df.head(5)
+                # CRITICAL DIAGNOSTIC — log what Bloomberg ACTUALLY returned
+                logger.warning("Vol surface %s: BDP returned %d rows. "
+                               "Index sample: %s | Columns: %s",
+                               pair, len(df),
+                               list(df.index[:5]),
+                               list(df.columns))
+                sample = df.head(3)
                 for idx_val in sample.index:
-                    px_last = sample.loc[idx_val, "PX_LAST"] if "PX_LAST" in sample.columns else "N/A"
-                    px_mid = sample.loc[idx_val, "PX_MID"] if "PX_MID" in sample.columns else "N/A"
-                    logger.info("  BDP row: %r -> PX_LAST=%r, PX_MID=%r", idx_val, px_last, px_mid)
+                    row_data = {c: sample.loc[idx_val, c] for c in sample.columns}
+                    logger.warning("  BDP row: %r -> %s", idx_val, row_data)
+            else:
+                logger.warning("Vol surface %s: BDP returned EMPTY DataFrame", pair)
 
             # Build a case-insensitive lookup from whatever Bloomberg returned
             idx_map = {}
