@@ -758,7 +758,8 @@ def _build_premium_table(processed_legs, pair, pip_size, notional):
     sell_color = COLORS["accent_red"]
 
     headers = ["Leg", "C/P", "Side", "Delta", "Strike", "Vol (%)",
-               "Prem (pips)", "Prem (%)", "Ratio", "Net Prem"]
+               "Prem (pips)", "Prem (%)", "Ratio", "Net Prem",
+               "Delta", "Vega", "Theta"]
     header_row = html.Tr([html.Th(h, style=header_style) for h in headers])
 
     rows = []
@@ -781,6 +782,9 @@ def _build_premium_table(processed_legs, pair, pip_size, notional):
                 **cell_style,
                 "color": buy_color if lg["premium_total"] < 0 else sell_color,
             }),
+            html.Td(f"{lg['delta']:.4f}", style=cell_style),
+            html.Td(f"{lg['vega'] * notional:.0f}", style=cell_style),
+            html.Td(f"{lg['theta'] * notional:.0f}", style=cell_style),
         ]))
         net_pips += lg["premium_pips"]
         net_pct += lg["premium_pct"]
@@ -793,6 +797,9 @@ def _build_premium_table(processed_legs, pair, pip_size, notional):
         "backgroundColor": COLORS["bg_secondary"],
         "color": COLORS["accent_cyan"],
     }
+    net_delta = sum(lg["delta"] for lg in processed_legs)
+    net_vega = sum(lg["vega"] for lg in processed_legs)
+    net_theta = sum(lg["theta"] for lg in processed_legs)
     rows.append(html.Tr([
         html.Td("NET", style=total_style),
         html.Td("", style=total_style),
@@ -807,6 +814,9 @@ def _build_premium_table(processed_legs, pair, pip_size, notional):
             **total_style,
             "color": COLORS["pnl_profit"] if net_total < 0 else COLORS["pnl_loss"],
         }),
+        html.Td(f"{net_delta:.4f}", style=total_style),
+        html.Td(f"{net_vega * notional:.0f}", style=total_style),
+        html.Td(f"{net_theta * notional:.0f}", style=total_style),
     ]))
 
     table = html.Table(
@@ -821,6 +831,104 @@ def _build_premium_table(processed_legs, pair, pip_size, notional):
                         "textTransform": "uppercase"}),
         table,
     ], style={"overflowX": "auto"})
+
+
+def _build_smile_chart(processed_legs, vol_surface, tenor):
+    """Chart 7: Vol smile for current tenor with leg vols marked."""
+    tpl = CHART_TEMPLATE["layout"]
+    fig = go.Figure()
+
+    delta_labels = ["10P", "25P", "ATM", "25C", "10C"]
+
+    def _extract_smile(vs_data, tnr):
+        """Extract 5-point smile from vol surface for a given tenor."""
+        if not vs_data or tnr not in vs_data:
+            return None
+        q = vs_data.get(tnr, {})
+        if not q:
+            return None
+        atm = q.get("atm", 0)
+        rr25 = q.get("rr25", 0)
+        bf25 = q.get("bf25", 0)
+        rr10 = q.get("rr10", 0)
+        bf10 = q.get("bf10", 0)
+        return [
+            atm + bf10 - rr10 / 2.0,   # 10P
+            atm + bf25 - rr25 / 2.0,   # 25P
+            atm,                         # ATM
+            atm + bf25 + rr25 / 2.0,   # 25C
+            atm + bf10 + rr10 / 2.0,   # 10C
+        ]
+
+    # Overlay tenors: 1M (dotted), current (solid), 1Y (dotted)
+    overlay_tenors = []
+    if "1M" in vol_surface and "1M" != tenor:
+        overlay_tenors.append(("1M", "dot", 1.5, "rgba(148,163,184,0.5)"))
+    if "1Y" in vol_surface and "1Y" != tenor:
+        overlay_tenors.append(("1Y", "dot", 1.0, "rgba(148,163,184,0.35)"))
+
+    for ot, dash_style, width, color in overlay_tenors:
+        smile_pts = _extract_smile(vol_surface, ot)
+        if smile_pts:
+            fig.add_trace(go.Scatter(
+                x=delta_labels, y=smile_pts, mode="lines+markers",
+                line=dict(color=color, width=width, dash=dash_style),
+                marker=dict(size=4, color=color),
+                name=ot, showlegend=True,
+            ))
+
+    # Current tenor smile (solid orange)
+    current_smile = _extract_smile(vol_surface, tenor)
+    if current_smile:
+        fig.add_trace(go.Scatter(
+            x=delta_labels, y=current_smile, mode="lines+markers",
+            line=dict(color=COLORS["accent_orange"], width=3),
+            marker=dict(size=7, color=COLORS["accent_orange"]),
+            name=tenor,
+        ))
+        # Horizontal ATM reference line
+        atm_val = current_smile[2]
+        fig.add_hline(y=atm_val, line=dict(color=COLORS["text_muted"], width=1, dash="dash"),
+                      annotation_text=f"ATM {atm_val:.2f}",
+                      annotation_font=dict(color=COLORS["text_muted"], size=9))
+
+    # Mark each leg's vol on the smile
+    for lg in processed_legs:
+        vol_pct = lg["vol"] * 100.0
+        delta_abs = lg["delta_input"]
+        cp_str = lg["cp"]
+        # Map leg delta to nearest smile label
+        if abs(delta_abs - 0.50) < 0.02:
+            x_label = "ATM"
+        elif abs(delta_abs - 0.25) < 0.03:
+            x_label = "25C" if cp_str == "call" else "25P"
+        elif delta_abs <= 0.12:
+            x_label = "10C" if cp_str == "call" else "10P"
+        else:
+            x_label = "25C" if cp_str == "call" else "25P"
+
+        dot_color = COLORS["accent_cyan"] if cp_str == "call" else COLORS["accent_purple"]
+        fig.add_trace(go.Scatter(
+            x=[x_label], y=[vol_pct], mode="markers",
+            marker=dict(size=12, color=dot_color, symbol="circle",
+                        line=dict(width=2, color="white")),
+            name=f"L{lg['leg_num']} {cp_str[0].upper()} {delta_abs:.0%}",
+            showlegend=True,
+        ))
+
+    fig.update_layout(
+        title=dict(text="VOL SMILE", font=dict(color=COLORS["text_primary"], size=13)),
+        xaxis_title="Delta", yaxis_title="Implied Vol (%)",
+        paper_bgcolor=tpl["paper_bgcolor"], plot_bgcolor=tpl["plot_bgcolor"],
+        font=tpl["font"], margin=dict(l=55, r=15, t=40, b=35),
+        legend=dict(font=dict(color=COLORS["text_secondary"], size=10),
+                    bgcolor="rgba(0,0,0,0)", x=0.01, y=0.99),
+        hoverlabel=tpl["hoverlabel"],
+        xaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+        yaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+        height=380,
+    )
+    return fig
 
 
 def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
@@ -1123,8 +1231,13 @@ def layout():
                 ], style={"display": "flex", "gap": "12px", "flexWrap": "wrap",
                           "marginBottom": "12px"}),
 
-                # Chart grid row 2 (3 charts)
+                # Chart grid row 2 (4 charts: smile, 3D, premium table, scenario)
                 html.Div([
+                    html.Div([
+                        dcc.Graph(id="struct-smile-chart", style={"height": "380px"},
+                                  config={"displayModeBar": True, "scrollZoom": False}),
+                    ], style={**CARD_STYLE, "flex": "1", "minWidth": "340px",
+                              "padding": "12px"}, className="dashboard-card"),
                     html.Div([
                         html.Button("CSV", id="stb-csv-3d", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="stb-3d-chart", style={"height": "380px"},
@@ -1257,7 +1370,8 @@ def register_callbacks(app):
          Output("stb-heatmap-chart", "figure"),
          Output("stb-3d-chart", "figure"),
          Output("stb-premium-table-container", "children"),
-         Output("stb-scenario-chart", "figure")] +
+         Output("stb-scenario-chart", "figure"),
+         Output("struct-smile-chart", "figure")] +
         [Output({"type": "stb-strike-disp", "index": i}, "children") for i in range(MAX_LEGS)] +
         [Output({"type": "stb-vol-disp", "index": i}, "children") for i in range(MAX_LEGS)] +
         [Output({"type": "stb-prem-disp", "index": i}, "children") for i in range(MAX_LEGS)],
@@ -1306,7 +1420,7 @@ def register_callbacks(app):
             empty_table = html.Div("No market data", style={"color": COLORS["text_muted"],
                                    "fontSize": "11px", "padding": "8px"})
             empty_stats = [html.Div("--", style=STAT_BOX_STYLE)]
-            return ([empty_stats, ndf, ndf, ndf, ndf, empty_table, ndf]
+            return ([empty_stats, ndf, ndf, ndf, ndf, empty_table, ndf, ndf]
                     + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 
         spot_data = spots.get(pair, {"mid": 1.0, "bid": 1.0, "ask": 1.0})
@@ -1335,6 +1449,7 @@ def register_callbacks(app):
         surface_fig = _build_3d_surface(processed, S, T, r_d, r_f, notional)
         premium_table = _build_premium_table(processed, pair, pip_size, notional)
         scenario_fig = _build_scenario_chart(processed, S, T, r_d, r_f, notional)
+        smile_fig = _build_smile_chart(processed, vol_surface, tenor)
 
         # Summary stat boxes (8)
         be_str = " / ".join(f"{b:.5f}" for b in agg["breakevens"]) if agg["breakevens"] else "--"
@@ -1368,7 +1483,7 @@ def register_callbacks(app):
                 prem_disps.append("")
 
         return ([stats, payoff_fig, greeks_fig, heatmap_fig, surface_fig,
-                 premium_table, scenario_fig]
+                 premium_table, scenario_fig, smile_fig]
                 + strike_disps + vol_disps + prem_disps)
 
     # -- Historical cost context callback --
