@@ -8,6 +8,9 @@ and risk metrics that power the FX options workstation dashboard.
 """
 
 import logging
+import threading
+import time as _time
+from functools import wraps
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -15,6 +18,40 @@ import pandas as pd
 from scipy.stats import norm, percentileofscore, jarque_bera, linregress
 from scipy.interpolate import CubicSpline
 from scipy.integrate import quad
+
+# ── Simple TTL memo for expensive analytics functions ──
+_memo_cache = {}
+_memo_lock = threading.Lock()
+
+def _ttl_memo(ttl_seconds=120):
+    """Decorator: cache result by args for ttl_seconds."""
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            # Make args hashable (convert lists to tuples)
+            def _hashable(x):
+                if isinstance(x, list):
+                    return tuple(x)
+                return x
+            key = (fn.__name__,) + tuple(_hashable(a) for a in args) + tuple(sorted(kwargs.items()))
+            with _memo_lock:
+                entry = _memo_cache.get(key)
+                if entry is not None:
+                    ts, val = entry
+                    if _time.time() - ts < ttl_seconds:
+                        return val
+            result = fn(*args, **kwargs)
+            with _memo_lock:
+                _memo_cache[key] = (_time.time(), result)
+                # Evict old entries if cache grows too large
+                if len(_memo_cache) > 500:
+                    cutoff = _time.time() - ttl_seconds * 2
+                    stale = [k for k, (t, _) in _memo_cache.items() if t < cutoff]
+                    for k in stale:
+                        _memo_cache.pop(k, None)
+            return result
+        return wrapper
+    return decorator
 
 from core.fx_conventions import (
     tenor_to_years, tenor_to_days, spot_delta,
@@ -60,6 +97,7 @@ DELTA_LABELS = ["10P", "25P", "ATM", "25C", "10C"]
 #  Vol Surface Analytics
 # =========================================================================
 
+@_ttl_memo(ttl_seconds=120)
 def vol_percentile(pair: str, tenor: str, metric: str = "ATM",
                    lookback_days: int = 252) -> dict:
     """
@@ -97,6 +135,7 @@ def vol_percentile(pair: str, tenor: str, metric: str = "ATM",
     }
 
 
+@_ttl_memo(ttl_seconds=120)
 def vol_zscore(pair: str, tenor: str, metric: str = "ATM",
                lookback_days: int = 252) -> dict:
     """
@@ -393,6 +432,7 @@ def vol_cone(pair: str,
     return pd.DataFrame(records)
 
 
+@_ttl_memo(ttl_seconds=120)
 def iv_rv_spread(pair: str, tenor: str = "3M", rv_window: int = 20,
                  lookback: int = 252) -> pd.DataFrame:
     """
@@ -1352,6 +1392,7 @@ def correlation_richness(pair_a: str, pair_b: str, cross_pair: str,
 #  Correlation Analytics
 # =========================================================================
 
+@_ttl_memo(ttl_seconds=180)
 def spot_correlation_matrix(pairs: List[str] = None,
                             window: int = 60) -> pd.DataFrame:
     """

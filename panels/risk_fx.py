@@ -217,7 +217,7 @@ def layout():
         # Hidden stores
         dcc.Store(id="fxrisk-init-flag", data=False),
         dcc.Store(id="fxrisk-selected-pair", data=None),
-        dcc.Interval(id="fxrisk-interval", interval=180_000, n_intervals=0),
+        dcc.Interval(id="fxrisk-interval", interval=210_000, n_intervals=0),
 
         # ---- 8 KPI Stat Boxes ----
         html.Div(id="fxrisk-stat-boxes", className="stat-row", style={
@@ -621,10 +621,10 @@ def register_callbacks(app):
         var_result = parametric_var(avg_vol, total_notional, 0.95, 1)
         var_95 = var_result.get("var", 0.0)
 
-        # Generate 10k scenarios for CVaR
+        # Generate scenarios for CVaR
         rng = np.random.RandomState(seed=42)
         daily_vol = avg_vol / np.sqrt(252)
-        sim_returns = rng.normal(0, daily_vol, 10_000)
+        sim_returns = rng.normal(0, daily_vol, 2_000)
         sim_pnl = sim_returns * total_notional
         sorted_pnl = np.sort(sim_pnl)
         cvar_idx = max(int(0.05 * len(sorted_pnl)), 1)
@@ -1017,10 +1017,10 @@ def register_callbacks(app):
                 for p in positions
             ])
 
-            # Generate 10k normal P&L scenarios
+            # Generate normal P&L scenarios
             rng = np.random.RandomState(seed=42)
             daily_vol = avg_vol / np.sqrt(252)
-            sim_returns = rng.normal(0, daily_vol, 10_000)
+            sim_returns = rng.normal(0, daily_vol, 2_000)
             sim_pnl = sim_returns * total_notional
 
             # VaR lines
