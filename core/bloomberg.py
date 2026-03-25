@@ -153,11 +153,14 @@ class BloombergConnection:
             BloombergConnection._next_cid += 1
             cid = blpapi.CorrelationId(cid_val)
 
-            # Drain any stale events sitting in the queue before sending
-            while True:
-                stale = self.session.nextEvent(timeout=0)
-                if stale.eventType() == blpapi.Event.TIMEOUT:
-                    break  # queue is empty
+            # Drain stale events (max 50 to avoid infinite loop)
+            for _ in range(50):
+                try:
+                    stale = self.session.nextEvent(timeout=1)  # 1ms
+                    if stale.eventType() == blpapi.Event.TIMEOUT:
+                        break
+                except Exception:
+                    break
 
             try:
                 self.session.sendRequest(request, correlationId=cid)
