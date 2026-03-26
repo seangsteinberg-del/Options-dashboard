@@ -78,6 +78,8 @@ SORT_OPTIONS = [
     {"label": "IV-RV",    "value": "ivrv"},
 ]
 
+_previous_movers = {}  # Cache previous movers data for crossing detection
+
 
 # ── Safe helpers ─────────────────────────────────────────────────────────────
 
@@ -387,6 +389,53 @@ def _build_positioning(pairs):
     return extremes[:10]
 
 
+def _detect_crossings(current_rows, previous):
+    """Compare current movers to previous snapshot, flag threshold crossings."""
+    if not previous:
+        return []
+    alerts = []
+    for row in current_rows:
+        pair = row["pair"]
+        prev = previous.get(pair, {})
+        if not prev:
+            continue
+        pctile = row.get("pctile", 50)
+        prev_pctile = prev.get("pctile", 50)
+        iv_rv = row.get("iv_rv", 0)
+        prev_iv_rv = prev.get("iv_rv", 0)
+        term = row.get("term_spread", 0)
+        prev_term = prev.get("term_spread", 0)
+        vol_chg = row.get("vol_chg", 0)
+
+        # Percentile crossed below 25th (became cheap)
+        if prev_pctile >= 25 and pctile < 25:
+            alerts.append({"msg": f"{pair} vol dropped to {_ordinal(pctile)} %ile — crossed below 25th (CHEAP)",
+                           "color": COLORS.get("accent_green", "#00cc66")})
+        # Percentile crossed above 75th (became rich)
+        if prev_pctile <= 75 and pctile > 75:
+            alerts.append({"msg": f"{pair} vol rose to {_ordinal(pctile)} %ile — crossed above 75th (RICH)",
+                           "color": COLORS.get("accent_red", "#ff3333")})
+        # IV-RV flipped positive
+        if prev_iv_rv <= 0 and iv_rv > 0.5:
+            alerts.append({"msg": f"{pair} IV-RV flipped positive ({iv_rv:+.1f}v — IV now RICH vs RV)",
+                           "color": COLORS.get("accent_red", "#ff3333")})
+        # IV-RV flipped negative
+        if prev_iv_rv >= 0 and iv_rv < -0.5:
+            alerts.append({"msg": f"{pair} IV-RV flipped negative ({iv_rv:+.1f}v — IV now CHEAP vs RV)",
+                           "color": COLORS.get("accent_green", "#00cc66")})
+        # Term structure inverted
+        if prev_term <= 0.3 and term > 0.5:
+            alerts.append({"msg": f"{pair} term structure inverted (1M-1Y: {term:+.1f}v)",
+                           "color": COLORS.get("accent_orange", "#ff8800")})
+        # Big vol move
+        if abs(vol_chg) > 0.5:
+            alerts.append({"msg": f"{pair} ATM vol moved {vol_chg:+.2f}v in 1 day",
+                           "color": COLORS.get("accent_orange", "#ff8800")})
+    # Sort by severity (bigger moves first), cap at 8
+    alerts.sort(key=lambda a: a["color"] == COLORS.get("accent_red", "#ff3333"), reverse=True)
+    return alerts[:8]
+
+
 def _build_vol_index_chart(pairs):
     """60-day G10 vol index line chart."""
     try:
@@ -627,6 +676,16 @@ def layout():
             "padding": "8px 0",
         }),
 
+        html.Div(id=f"{_P}-alerts", style={
+            "padding": "6px 12px",
+            "marginBottom": "8px",
+            "maxHeight": "100px",
+            "overflowY": "auto",
+            "borderLeft": f"3px solid #ff8800",
+            "backgroundColor": "#0a0a12",
+            "borderRadius": "2px",
+        }),
+
         # ── Main Grid: Movers (left) + Charts (right) ──
         html.Div([
             # Left column: movers table
@@ -825,6 +884,7 @@ def register_callbacks(app):
             Output(f"{_P}-timestamp", "children"),
             Output(f"{_P}-kpis", "children"),
             Output(f"{_P}-movers", "children"),
+            Output(f"{_P}-alerts", "children"),
         ],
         [
             Input(f"{_P}-interval", "n_intervals"),
@@ -833,12 +893,30 @@ def register_callbacks(app):
         ],
     )
     def update_kpis_movers(n, group, sort_key):
+        global _previous_movers
         from datetime import datetime
         ts = datetime.now().strftime("%H:%M:%S  %d-%b-%Y")
         pairs = _pairs_for(group or "ALL")
         rows = _build_movers(pairs)
         kpis = _build_kpi_data(rows)
-        return ts, _render_kpis(kpis), _render_movers_table(rows, sort_key or "spot")
+
+        alerts = _detect_crossings(rows, _previous_movers)
+        _previous_movers = {r["pair"]: r for r in rows}
+
+        alert_children = []
+        if alerts:
+            for a in alerts:
+                alert_children.append(html.Div(a["msg"], style={
+                    "color": a["color"], "fontSize": "10px",
+                    "fontFamily": "'JetBrains Mono', monospace",
+                    "marginBottom": "2px",
+                }))
+        else:
+            alert_children = [html.Div("No threshold crossings detected",
+                                       style={"color": "#808080", "fontSize": "10px",
+                                              "fontFamily": "'JetBrains Mono', monospace"})]
+
+        return ts, _render_kpis(kpis), _render_movers_table(rows, sort_key or "spot"), alert_children
 
     # ── Charts callback (vol index, skew, term, delta bars) ──
     @app.callback(

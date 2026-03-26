@@ -143,33 +143,35 @@ def _empty_fig(title=""):
 # TABLE VIEW — Data & signal logic (from vol_scanner.py)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _compute_signal(atm_pct, rr_pct, ivrv_z, term_z):
+def _compute_signal(composite_score, rr_pct, term_z):
+    """Generate tiered signals from weighted composite score + skew/term inputs."""
     signals = []
-    # Safe defaults for None values
-    atm_pct = atm_pct if atm_pct is not None else 50
+    composite_score = composite_score if composite_score is not None else 0
     rr_pct = rr_pct if rr_pct is not None else 50
-    ivrv_z = ivrv_z if ivrv_z is not None else 0
     term_z = term_z if term_z is not None else 0
-    # Directional vol signals: require both percentile AND IV-RV confirmation
-    if atm_pct > 85 and ivrv_z > 1:
+
+    # Vol signals from composite (-100 to +100)
+    if composite_score > 50:
+        signals.append("STRONG SELL VOL")
+    elif composite_score > 30:
         signals.append("SELL VOL")
-    if atm_pct < 15 and ivrv_z < -1:
+    elif composite_score < -50:
+        signals.append("STRONG BUY VOL")
+    elif composite_score < -30:
         signals.append("BUY VOL")
-    # Skew signals: extreme RR percentile
-    if rr_pct > 90:
+
+    # Skew signals
+    if rr_pct > 85:
         signals.append("SELL SKEW")
-    if rr_pct < 10:
+    elif rr_pct < 15:
         signals.append("BUY SKEW")
-    # Term structure signals: z-score of 1M-1Y spread
+
+    # Term structure signals
     if term_z > 1.5:
         signals.append("TERM STEEP")
-    if term_z < -1.5:
+    elif term_z < -1.5:
         signals.append("TERM FLAT")
-    # IV-RV extremes (standalone)
-    if ivrv_z > 2:
-        signals.append("RV RICH")
-    if ivrv_z < -2:
-        signals.append("RV CHEAP")
+
     return " | ".join(signals) if signals else "—"
 
 
@@ -177,7 +179,7 @@ def _build_scanner_rows(pairs, lookback):
     """Build table rows for vol scanner."""
     try:
         from core.bloomberg_fx import get_fx_spots, get_fx_vol_surface
-        from core.fx_analytics import vol_percentile, vol_zscore, iv_rv_spread
+        from core.fx_analytics import vol_percentile, vol_zscore, iv_rv_spread, rv_signal_composite
     except Exception as exc:
         logger.warning("Scanner imports failed: %s", exc)
         return []
@@ -233,7 +235,15 @@ def _build_scanner_rows(pairs, lookback):
             term_spread = atm_1m - atm_1y if (atm_1m > 0 and atm_1y > 0) else 0
             # Normalize term spread to approximate z-score (typical std ~2 vol pts)
             term_z = term_spread / 2.0 if term_spread != 0 else 0
-            signal = _compute_signal(atm3m_pct, rr3m_pct, ivrv_3m, term_z)
+
+            # Replace the old signal generation
+            composite_data = None
+            try:
+                composite_data = rv_signal_composite(pair, lookback)
+            except Exception:
+                pass
+            composite_score = composite_data["composite_score"] if composite_data else 0
+            signal = _compute_signal(composite_score, rr3m_pct, term_z)
 
             # Group label
             spec = FX_PAIR_REGISTRY.get(pair)
@@ -254,6 +264,7 @@ def _build_scanner_rows(pairs, lookback):
                 "rr3m_pct": round(rr3m_pct, 0),
                 "z_atm3m": round(z_atm3m, 2),
                 "term_spread": round(term_spread, 2),
+                "composite": round(composite_score, 1),
                 "signal": signal,
             })
         except Exception as exc:
@@ -263,7 +274,7 @@ def _build_scanner_rows(pairs, lookback):
                 "atm_1m": 0, "atm_3m": 0, "atm_1y": 0,
                 "rr25_3m": 0, "bf25_3m": 0, "ivrv_3m": 0,
                 "atm3m_pct": 50, "rr3m_pct": 50, "z_atm3m": 0,
-                "term_spread": 0, "signal": "—",
+                "term_spread": 0, "composite": 0, "signal": "—",
             })
     return rows
 
@@ -276,7 +287,9 @@ def _build_top_movers(rows):
     richest = max(rows, key=lambda r: r.get("atm3m_pct", 50))
     biggest_skew = max(rows, key=lambda r: abs(r.get("rr25_3m", 0)))
     biggest_ivrv = max(rows, key=lambda r: abs(r.get("ivrv_3m", 0)))
-    n_signals = sum(1 for r in rows if r.get("signal", "—") != "—")
+    strongest = max(rows, key=lambda r: abs(r.get("composite", 0)))
+    strength_val = strongest.get("composite", 0)
+    strength_color = "#ff3333" if strength_val > 0 else "#00cc66" if strength_val < 0 else "#808080"
     n_inverted = sum(1 for r in rows if r.get("atm_1m", 0) > 0 and r.get("atm_1y", 0) > 0
                      and r.get("atm_1m", 0) > r.get("atm_1y", 0))
 
@@ -285,7 +298,7 @@ def _build_top_movers(rows):
         ("RICHEST VOL", f"{richest['pair']} {richest['atm3m_pct']:.0f}%ile", "#ff3333"),
         ("BIGGEST SKEW", f"{biggest_skew['pair']} {biggest_skew['rr25_3m']:+.1f}v", "#ff8800"),
         ("IV-RV GAP", f"{biggest_ivrv['pair']} {biggest_ivrv['ivrv_3m']:+.1f}v", "#ff8800"),
-        ("SIGNALS", f"{n_signals}/{len(rows)}", "#00cc66" if n_signals > 0 else "#808080"),
+        ("STRONGEST", f"{strongest['pair']} {strength_val:+.0f}", strength_color),
         ("TERM INVERSION", f"{n_inverted}/{len(rows)}", "#ff3333" if n_inverted > 0 else "#808080"),
     ]
     boxes = []
@@ -1050,6 +1063,7 @@ def register_callbacks(app):
             {"name": "RR %ILE", "id": "rr3m_pct", "type": "numeric"},
             {"name": "Z", "id": "z_atm3m", "type": "numeric"},
             {"name": "TERM", "id": "term_spread", "type": "numeric"},
+            {"name": "SCORE", "id": "composite", "type": "numeric"},
             {"name": "SIGNAL", "id": "signal"},
         ]
 
@@ -1106,16 +1120,30 @@ def register_callbacks(app):
                  "color": "#34d399", "fontWeight": "bold"},
                 {"if": {"filter_query": "{ivrv_3m} < -1.5", "column_id": "ivrv_3m"},
                  "color": "#f87171", "fontWeight": "bold"},
-                # Signal coloring — any signal present gets orange
-                {"if": {"filter_query": '{signal} != "—"', "column_id": "signal"},
-                 "color": "#ff8800", "borderLeft": "2px solid #ff8800"},
-                # Signal-specific overrides for key types
-                {"if": {"filter_query": '{signal} contains "BUY VOL"', "column_id": "signal"},
-                 "color": "#34d399", "borderLeft": "2px solid #34d399"},
+                # Composite score coloring
+                {"if": {"filter_query": "{composite} > 30", "column_id": "composite"},
+                 "color": "#f87171", "fontWeight": "bold"},
+                {"if": {"filter_query": "{composite} < -30", "column_id": "composite"},
+                 "color": "#34d399", "fontWeight": "bold"},
+                {"if": {"filter_query": "{composite} > 50", "column_id": "composite"},
+                 "color": "#f87171", "fontWeight": "bold", "backgroundColor": "#1a0000"},
+                {"if": {"filter_query": "{composite} < -50", "column_id": "composite"},
+                 "color": "#34d399", "fontWeight": "bold", "backgroundColor": "#001a00"},
+                # Signal coloring — STRONG tiers
+                {"if": {"filter_query": '{signal} contains "STRONG SELL VOL"', "column_id": "signal"},
+                 "color": "#f87171", "fontWeight": "900", "borderLeft": "2px solid #f87171"},
+                {"if": {"filter_query": '{signal} contains "STRONG BUY VOL"', "column_id": "signal"},
+                 "color": "#34d399", "fontWeight": "900", "borderLeft": "2px solid #34d399"},
+                # Signal coloring — normal vol tiers
                 {"if": {"filter_query": '{signal} contains "SELL VOL"', "column_id": "signal"},
-                 "color": "#f87171", "borderLeft": "2px solid #f87171"},
-                {"if": {"filter_query": '{signal} contains "SKEW"', "column_id": "signal"},
-                 "color": "#fbbf24", "borderLeft": "2px solid #fbbf24"},
+                 "color": "#f87171", "fontWeight": "bold", "borderLeft": "2px solid #f87171"},
+                {"if": {"filter_query": '{signal} contains "BUY VOL"', "column_id": "signal"},
+                 "color": "#34d399", "fontWeight": "bold", "borderLeft": "2px solid #34d399"},
+                # Skew signals — orange
+                {"if": {"filter_query": '{signal} contains "SELL SKEW"', "column_id": "signal"},
+                 "color": "#ff8800", "borderLeft": "2px solid #ff8800"},
+                {"if": {"filter_query": '{signal} contains "BUY SKEW"', "column_id": "signal"},
+                 "color": "#ff8800", "borderLeft": "2px solid #ff8800"},
             ],
         )
 

@@ -1073,26 +1073,68 @@ def register_callbacks(app):
 
             spots, rates, vol_surfaces = _load_market_data()
 
-            # Aggregate portfolio notional and vol
-            total_notional = sum(p["notional"] for p in positions)
-            avg_vol = np.mean([
-                _safe_atm_vol(vol_surfaces.get(p["pair"], 0.10))
-                for p in positions
-            ])
+            # ----------------------------------------------------------
+            # Delta-Gamma-Vega Monte Carlo VaR
+            # ----------------------------------------------------------
+            from core.fx_portfolio import compute_position_greeks, _get_rate
 
-            # Generate normal P&L scenarios
+            n_sims = 2_000
             rng = np.random.default_rng()
-            daily_vol = avg_vol / np.sqrt(252)
-            sim_returns = rng.normal(0, daily_vol, 2_000)
-            sim_pnl = sim_returns * total_notional
 
-            # VaR lines
+            # Unique pairs and their daily vols
+            unique_pairs = list({p["pair"] for p in positions})
+            pair_vols = {}
+            for pair in unique_pairs:
+                pair_vols[pair] = _safe_atm_vol(vol_surfaces.get(pair, 0.10)) / np.sqrt(252)
+
+            # Simulate independent spot returns per pair
+            spot_returns = {
+                pair: rng.normal(0, pair_vols.get(pair, 0.10 / np.sqrt(252)), n_sims)
+                for pair in unique_pairs
+            }
+
+            # Simulate vol shocks (negative spot-vol correlation ~-0.3 for FX)
+            vol_shocks = {}
+            for pair in unique_pairs:
+                vol_noise = rng.normal(0, 0.015, n_sims)  # ~1.5% daily vol-of-vol
+                vol_shocks[pair] = -0.3 * spot_returns[pair] + 0.95 * vol_noise
+
+            sim_pnl = np.zeros(n_sims)
+            pair_pnl = {pair: np.zeros(n_sims) for pair in unique_pairs}
+
+            # Compute per-position Greeks and run Taylor expansion
+            for pos in positions:
+                pair = pos["pair"]
+                S = spots.get(pair, 1.0)
+                r_d = _get_rate(pair, rates, "domestic")
+                r_f = _get_rate(pair, rates, "foreign")
+                pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces.get(pair, 0.10))
+
+                # Greeks are already scaled by notional and direction
+                delta_val = pg.get("delta", 0.0)
+                gamma_val = pg.get("gamma", 0.0)
+                vega_val = pg.get("vega", 0.0)
+
+                ds = spot_returns.get(pair, np.zeros(n_sims)) * S   # price change
+                dv = vol_shocks.get(pair, np.zeros(n_sims))         # vol change (decimal)
+
+                # Taylor expansion: dP ~ delta*dS + 0.5*gamma*dS^2 + vega*d_sigma
+                pos_pnl = (
+                    delta_val * ds
+                    + 0.5 * gamma_val * ds ** 2
+                    + vega_val * dv * 100   # vega is per 1% vol move
+                )
+
+                sim_pnl += pos_pnl
+                pair_pnl[pair] = pair_pnl.get(pair, np.zeros(n_sims)) + pos_pnl
+
+            # VaR / CVaR from sorted simulation P&L
             sorted_pnl = np.sort(sim_pnl)
-            var_95_idx = int(0.05 * len(sorted_pnl))
-            var_99_idx = int(0.01 * len(sorted_pnl))
-            var_95 = sorted_pnl[var_95_idx]
-            var_99 = sorted_pnl[var_99_idx]
-            cvar_95 = np.mean(sorted_pnl[:var_95_idx]) if var_95_idx > 0 else var_95
+            var_95_idx = int(0.05 * n_sims)
+            var_99_idx = max(int(0.01 * n_sims), 1)
+            var_95 = float(sorted_pnl[var_95_idx])
+            var_99 = float(sorted_pnl[var_99_idx])
+            cvar_95 = float(np.mean(sorted_pnl[:var_95_idx])) if var_95_idx > 0 else var_95
 
             # Distribution figure
             dist_fig = go.Figure()
@@ -1152,22 +1194,14 @@ def register_callbacks(app):
                 margin=dict(l=60, r=30, t=40, b=50),
             ))
 
-            # --- Component VaR by pair ---
-            pair_var = {}
-            for pos in positions:
-                pair = pos["pair"]
-                vol = _safe_atm_vol(vol_surfaces.get(pair, 0.10))
-                d_vol = vol / np.sqrt(252)
-                notional = pos["notional"]
-                sign = 1.0 if pos.get("direction", "buy") == "buy" else -1.0
-                # Parametric VaR per position
-                from scipy.stats import norm as scipy_norm
-                z95 = scipy_norm.ppf(0.95)
-                pos_var = z95 * d_vol * notional * abs(sign)
-                pair_var[pair] = pair_var.get(pair, 0.0) + pos_var
+            # --- Component VaR by pair (from simulation) ---
+            cv_data = {}
+            for pair, pnl_arr in pair_pnl.items():
+                if np.any(pnl_arr != 0):
+                    cv_data[pair] = float(np.percentile(pnl_arr, 5))  # 5th pctl = 95% VaR
 
-            cv_pairs = sorted(pair_var.keys(), key=lambda p: pair_var[p], reverse=True)
-            cv_vals = [pair_var[p] for p in cv_pairs]
+            cv_pairs = sorted(cv_data.keys(), key=lambda p: cv_data[p])
+            cv_vals = [cv_data[p] for p in cv_pairs]
 
             comp_fig = go.Figure(go.Bar(
                 x=cv_vals, y=cv_pairs, orientation="h",

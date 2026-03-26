@@ -27,7 +27,7 @@ from core.theme import (
     no_data_fig,
 )
 from core.csv_export import export_csv
-from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days
+from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days, tenor_to_years
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -719,8 +719,13 @@ def _build_carry_data():
             atm_1y = _extract_atm(surf, "1Y")
             term_spread = atm_1m - atm_1y if atm_1m > 0 and atm_1y > 0 else 0
 
-            # Forward vol estimate
-            fwd_3x3 = max(0, 2 * atm_3m - atm_1m) if atm_3m > 0 else 0
+            # Proper variance-based forward vol: σ_fwd = sqrt((σ₂²T₂ - σ₁²T₁) / (T₂ - T₁))
+            t1 = 1.0 / 12.0  # 1M in years
+            t3 = 3.0 / 12.0  # 3M in years
+            v1 = atm_1m / 100.0 if atm_1m > 0 else 0
+            v3 = atm_3m / 100.0 if atm_3m > 0 else 0
+            fwd_var = (v3 ** 2 * t3 - v1 ** 2 * t1) / max(t3 - t1, 1e-6)
+            fwd_3x3 = np.sqrt(max(fwd_var, 0)) * 100 if fwd_var > 0 else atm_3m
 
             # Carry (computed from term structure)
             carry_day = (atm_3m - fwd_3x3) / 90 if atm_3m > 0 else 0
@@ -784,11 +789,16 @@ def _build_fwd_vol(pair):
         if all(v == 0 or v is None for v in spot_vols):
             return no_data_fig(msg="NO VOL DATA")
 
-        # Calculate forward vols
+        # Calculate forward vols (variance-based)
         fwd_vols = [spot_vols[0]]
         for i in range(1, len(spot_vols)):
             if spot_vols[i] > 0 and spot_vols[i - 1] > 0:
-                fwd = max(0, 2 * spot_vols[i] - spot_vols[i - 1])
+                t_prev = tenor_to_years(tenors[i - 1])
+                t_curr = tenor_to_years(tenors[i])
+                var_prev = (spot_vols[i - 1] / 100.0) ** 2 * t_prev
+                var_curr = (spot_vols[i] / 100.0) ** 2 * t_curr
+                fwd_var = (var_curr - var_prev) / max(t_curr - t_prev, 1e-6)
+                fwd = np.sqrt(max(fwd_var, 0)) * 100
                 fwd_vols.append(fwd)
             else:
                 fwd_vols.append(0)

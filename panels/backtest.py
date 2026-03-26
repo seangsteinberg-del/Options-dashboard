@@ -11,6 +11,7 @@ spreads with mark-to-market tracking and full trade logging.
 
 import dash
 from dash import html, dcc, Input, Output, State, no_update, dash_table, callback_context
+from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
@@ -237,6 +238,89 @@ def _compute_regime(atm_vol):
     elif atm_vol > 6.0:
         return "NORMAL"
     return "LOW"
+
+
+def _compute_stats_from_trades(trades_list):
+    """Compute all backtest stats from a list of trade dicts. Reusable for filtering."""
+    if not trades_list:
+        return None
+    trades_df = pd.DataFrame(trades_list)
+    pnls = trades_df["pnl"].values
+    cum_pnl = np.cumsum(pnls)
+    total_pnl = float(cum_pnl[-1]) if len(cum_pnl) > 0 else 0
+    n_trades = len(trades_list)
+    wins = pnls[pnls > 0]
+    losses = pnls[pnls <= 0]
+    win_rate = len(wins) / max(n_trades, 1) * 100
+    avg_win = float(np.mean(wins)) if len(wins) > 0 else 0.0
+    avg_loss = float(np.mean(losses)) if len(losses) > 0 else 0.0
+
+    peak = np.maximum.accumulate(cum_pnl)
+    drawdown = cum_pnl - peak
+    max_dd = float(np.min(drawdown)) if len(drawdown) > 0 else 0.0
+    max_dd_idx = int(np.argmin(drawdown)) if len(drawdown) > 0 else 0
+
+    avg_hold = float(np.mean(trades_df["hold_days"])) if n_trades > 0 else 0.0
+
+    if len(pnls) > 1 and np.std(pnls) > 0:
+        trades_per_year = 252.0 / max(avg_hold, 1)
+        sharpe = float((np.mean(pnls) / np.std(pnls)) * np.sqrt(trades_per_year))
+    else:
+        sharpe = 0.0
+
+    if len(pnls) > 1:
+        neg_pnls = pnls[pnls < 0]
+        downside_std = np.std(neg_pnls) if len(neg_pnls) > 1 else np.std(pnls)
+        tpy = 252.0 / max(avg_hold, 1)
+        sortino = float((np.mean(pnls) / max(downside_std, 1e-6)) * np.sqrt(tpy))
+    else:
+        sortino = 0.0
+
+    gross_profit = float(np.sum(wins)) if len(wins) > 0 else 0.0
+    gross_loss = abs(float(np.sum(losses))) if len(losses) > 0 else 0.0
+    profit_factor = gross_profit / max(gross_loss, 1e-6)
+
+    calmar = total_pnl / abs(max_dd) if abs(max_dd) > 0 else 0.0
+    best_trade = float(np.max(pnls)) if len(pnls) > 0 else 0.0
+    worst_trade = float(np.min(pnls)) if len(pnls) > 0 else 0.0
+
+    # Monthly P&L
+    trades_df["entry_dt"] = pd.to_datetime(trades_df["entry_date"])
+    trades_df["month"] = trades_df["entry_dt"].dt.to_period("M").astype(str)
+    monthly_pnl = trades_df.groupby("month")["pnl"].sum().reset_index()
+
+    # Regime stats
+    regime_labels = ["LOW", "NORMAL", "ELEVATED", "HIGH"]
+    regime_stats = {}
+    for reg in regime_labels:
+        mask = trades_df["regime"] == reg
+        if mask.sum() > 0:
+            reg_wins = (trades_df.loc[mask, "pnl"] > 0).sum()
+            regime_stats[reg] = {"n": int(mask.sum()), "win_rate": float(reg_wins / mask.sum() * 100)}
+        else:
+            regime_stats[reg] = {"n": 0, "win_rate": 0.0}
+
+    return {
+        "trades": trades_df,
+        "cum_pnl": cum_pnl,
+        "drawdown": drawdown,
+        "max_dd": max_dd,
+        "max_dd_idx": max_dd_idx,
+        "total_pnl": total_pnl,
+        "n_trades": n_trades,
+        "win_rate": win_rate,
+        "avg_win": avg_win,
+        "avg_loss": avg_loss,
+        "sharpe": sharpe,
+        "calmar": calmar,
+        "avg_hold": avg_hold,
+        "best_trade": best_trade,
+        "worst_trade": worst_trade,
+        "monthly_pnl": monthly_pnl,
+        "regime_stats": regime_stats,
+        "sortino": sortino,
+        "profit_factor": profit_factor,
+    }
 
 
 def _build_strategy_legs(strategy, S, T, r_d, r_f, atm_vol, rr25, bf25, delta):
@@ -561,91 +645,8 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
         return None
 
     # --- Compile results ---
-    trades_df = pd.DataFrame(trades)
-    pnls = trades_df["pnl"].values
-    cum_pnl = np.cumsum(pnls)
-    total_pnl = float(cum_pnl[-1])
-    n_trades = len(trades)
-    wins = pnls[pnls > 0]
-    losses = pnls[pnls <= 0]
-    win_rate = len(wins) / max(n_trades, 1) * 100
-
-    avg_win = float(np.mean(wins)) if len(wins) > 0 else 0.0
-    avg_loss = float(np.mean(losses)) if len(losses) > 0 else 0.0
-
-    # Drawdown
-    peak = np.maximum.accumulate(cum_pnl)
-    drawdown = cum_pnl - peak
-    max_dd = float(np.min(drawdown)) if len(drawdown) > 0 else 0.0
-    max_dd_idx = int(np.argmin(drawdown)) if len(drawdown) > 0 else 0
-
-    # Sharpe (annualized from trade-level returns)
-    if len(pnls) > 1 and np.std(pnls) > 0:
-        avg_hold = float(np.mean(trades_df["hold_days"]))
-        trades_per_year = 252.0 / max(avg_hold, 1)
-        sharpe = (np.mean(pnls) / np.std(pnls)) * np.sqrt(trades_per_year)
-    else:
-        sharpe = 0.0
-        avg_hold = float(np.mean(trades_df["hold_days"])) if n_trades > 0 else 0.0
-
-    # Sortino (downside deviation only)
-    if len(pnls) > 1:
-        neg_pnls = pnls[pnls < 0]
-        downside_std = np.std(neg_pnls) if len(neg_pnls) > 1 else np.std(pnls)
-        avg_hold_sort = float(np.mean(trades_df["hold_days"]))
-        tpy = 252.0 / max(avg_hold_sort, 1)
-        sortino = (np.mean(pnls) / max(downside_std, 1e-6)) * np.sqrt(tpy) if downside_std > 0 else 0.0
-    else:
-        sortino = 0.0
-
-    # Profit factor
-    gross_profit = float(np.sum(wins)) if len(wins) > 0 else 0.0
-    gross_loss = abs(float(np.sum(losses))) if len(losses) > 0 else 0.0
-    profit_factor = gross_profit / max(gross_loss, 1e-6)
-
-    # Calmar
-    calmar = total_pnl / abs(max_dd) if abs(max_dd) > 0 else 0.0
-
-    # Monthly returns
-    monthly = trades_df.copy()
-    monthly["month"] = pd.to_datetime(monthly["exit_date"]).dt.to_period("M")
-    monthly_pnl = monthly.groupby("month")["pnl"].sum().reset_index()
-    monthly_pnl["month"] = monthly_pnl["month"].astype(str)
-
-    # Win rate by regime
-    regime_stats = {}
-    for reg in _REGIME_LABELS:
-        mask = trades_df["regime"] == reg
-        if mask.sum() > 0:
-            reg_wins = (trades_df.loc[mask, "pnl"] > 0).sum()
-            regime_stats[reg] = {
-                "n": int(mask.sum()),
-                "win_rate": float(reg_wins / mask.sum() * 100),
-            }
-        else:
-            regime_stats[reg] = {"n": 0, "win_rate": 0.0}
-
-    return {
-        "trades": trades_df,
-        "cum_pnl": cum_pnl,
-        "drawdown": drawdown,
-        "max_dd": max_dd,
-        "max_dd_idx": max_dd_idx,
-        "total_pnl": total_pnl,
-        "n_trades": n_trades,
-        "win_rate": win_rate,
-        "avg_win": avg_win,
-        "avg_loss": avg_loss,
-        "sharpe": sharpe,
-        "calmar": calmar,
-        "avg_hold": avg_hold,
-        "best_trade": float(np.max(pnls)),
-        "worst_trade": float(np.min(pnls)),
-        "monthly_pnl": monthly_pnl,
-        "regime_stats": regime_stats,
-        "sortino": sortino,
-        "profit_factor": profit_factor,
-    }
+    results = _compute_stats_from_trades(trades)
+    return results
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -767,6 +768,29 @@ def layout():
                         "boxShadow": f"0 6px 20px rgba(59,130,246,0.4)",
                     },
                 ),
+
+                html.Div([
+                    html.Div("FILTER BY VOL REGIME", style={
+                        "color": "#808080", "fontSize": "9px", "fontWeight": "600",
+                        "textTransform": "uppercase", "marginBottom": "4px",
+                        "fontFamily": "'JetBrains Mono', monospace",
+                    }),
+                    dcc.Dropdown(
+                        id="bt-regime-filter",
+                        options=[
+                            {"label": "ALL REGIMES", "value": "ALL"},
+                            {"label": "LOW vol only", "value": "LOW"},
+                            {"label": "NORMAL vol only", "value": "NORMAL"},
+                            {"label": "ELEVATED vol only", "value": "ELEVATED"},
+                            {"label": "HIGH vol only", "value": "HIGH"},
+                        ],
+                        value="ALL",
+                        clearable=False,
+                        style={"backgroundColor": "#0d1117", "color": "#d4d4d4"},
+                    ),
+                ], style={"marginTop": "12px"}),
+
+                dcc.Store(id="bt-trades-store", data=[]),
             ], style=_INPUT_PANEL_STYLE, className="dashboard-card"),
 
             # ── Right: Results Panel ──────────────────────────────────
@@ -1182,6 +1206,7 @@ def register_callbacks(app):
             Output("bt-monthly-returns", "figure"),
             Output("bt-regime-winrate", "figure"),
             Output("bt-trade-log", "children"),
+            Output("bt-trades-store", "data"),
         ],
         Input("bt-run-btn", "n_clicks"),
         [
@@ -1199,7 +1224,7 @@ def register_callbacks(app):
     def _run_backtest(n_clicks, strategy, pair, tenor, delta, lookback,
                       entry_signal, exit_rule, notional):
         if not n_clicks:
-            return (no_update,) * 6
+            return (no_update,) * 7
 
         # Validate inputs
         if not strategy or not pair or not tenor:
@@ -1210,6 +1235,7 @@ def register_callbacks(app):
                 empty, empty, empty, empty,
                 html.Div("No results yet.",
                          style={"color": COLORS["text_muted"], "padding": "20px"}),
+                [],
             )
 
         notional = notional or 1_000_000
@@ -1229,7 +1255,11 @@ def register_callbacks(app):
                 empty, empty, empty, empty,
                 html.Div("No trades to display.",
                          style={"color": COLORS["text_muted"], "padding": "20px"}),
+                [],
             )
+
+        # Serialize trades for the store (raw dicts for regime filtering)
+        trades_data = results["trades"].to_dict("records") if results and "trades" in results else []
 
         # Build all outputs
         stats = _build_stats_row(results)
@@ -1239,7 +1269,7 @@ def register_callbacks(app):
         regime_fig = _build_regime_winrate(results)
         trade_table = _build_trade_log(results)
 
-        return stats, eq_fig, dist_fig, monthly_fig, regime_fig, trade_table
+        return stats, eq_fig, dist_fig, monthly_fig, regime_fig, trade_table, trades_data
 
     # ── CSV Export ──────────────────────────────────────────────────────
     @app.callback(
@@ -1271,3 +1301,43 @@ def register_callbacks(app):
         if not fig:
             return no_update
         return export_csv(fig, panel, chart_type)
+
+    # ── Regime Filter ──────────────────────────────────────────────────
+    @app.callback(
+        [Output("bt-stats-row", "children", allow_duplicate=True),
+         Output("bt-equity-curve", "figure", allow_duplicate=True),
+         Output("bt-pnl-dist", "figure", allow_duplicate=True),
+         Output("bt-monthly-returns", "figure", allow_duplicate=True),
+         Output("bt-regime-winrate", "figure", allow_duplicate=True),
+         Output("bt-trade-log", "children", allow_duplicate=True)],
+        Input("bt-regime-filter", "value"),
+        State("bt-trades-store", "data"),
+        prevent_initial_call=True,
+    )
+    def _filter_by_regime(regime, trades_data):
+        if not trades_data:
+            raise PreventUpdate
+
+        trades = trades_data
+        if regime and regime != "ALL":
+            trades = [t for t in trades_data if t.get("regime") == regime]
+
+        if not trades:
+            empty_fig = go.Figure()
+            empty_fig.update_layout(paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                                    font=dict(color="#808080"))
+            return (
+                [html.Div("No trades in selected regime", style={"color": "#808080"})],
+                empty_fig, empty_fig, empty_fig, empty_fig,
+                html.Div("No trades", style={"color": "#808080"})
+            )
+
+        results = _compute_stats_from_trades(trades)
+        return (
+            _build_stats_row(results),
+            _build_equity_curve(results),
+            _build_pnl_distribution(results),
+            _build_monthly_returns(results),
+            _build_regime_winrate(results),
+            _build_trade_log(results),
+        )
