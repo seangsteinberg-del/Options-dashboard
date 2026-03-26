@@ -173,7 +173,7 @@ def _get_surface_data(pair):
         "bf10": np.array(bf10_vals),
         "vol_grid": vol_grid,
         "delta_labels": DELTA_LABELS,
-        "delta_numeric": np.array(sorted(DELTA_NUMERIC)),
+        "delta_numeric": np.array(DELTA_NUMERIC),
         "surface_raw": surface,
     }
 
@@ -625,8 +625,9 @@ def chart_smile_curve(pair, sd, spot, r_dom, r_for, **kw):
         delta_fine = np.linspace(-0.25, 0.25, 100)
         vol_fine = spline(delta_fine) * 100
     except Exception:
-        delta_fine = np.array(sorted([-0.10, -0.25, 0.0, 0.25, 0.10]))
-        vol_fine = np.array(sorted(pillar_vols))
+        delta_fine = np.array([-0.25, -0.10, 0.0, 0.10, 0.25])
+        vol_fine = np.array([pillar_vols[1], pillar_vols[0], pillar_vols[2],
+                             pillar_vols[4], pillar_vols[3]])
 
     fig = go.Figure()
 

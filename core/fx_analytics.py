@@ -568,7 +568,7 @@ def theta_gamma_ratio(pair: str, tenor: str) -> dict:
     r_dom = rates.get("r_dom", 0.03)
     r_for = rates.get("r_for", 0.02)
 
-    d1 = (np.log(1.0) + (r_dom - r_for + 0.5 * atm_vol ** 2) * T) / (atm_vol * np.sqrt(T))
+    d1 = (0.5 * atm_vol ** 2 * T) / (atm_vol * np.sqrt(T))
 
     gamma_val = norm.pdf(d1) / (spot * atm_vol * np.sqrt(T))
     theta_val = -0.5 * spot * atm_vol * norm.pdf(d1) / np.sqrt(T) / 365.0

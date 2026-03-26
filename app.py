@@ -758,7 +758,7 @@ def serve_layout():
         dcc.Store(id="watchlist-store", data=DEFAULT_WATCHLIST),
         dcc.Store(id="metric-popup-data", data=None),
 
-        # ── Data source status refresh (every 10s) ──
+        # ── Data source status refresh (every 2min) ──
         dcc.Interval(id="data-source-interval", interval=120_000, n_intervals=0),
 
         # ── Hidden keyboard listener for Ctrl+K ──
@@ -995,7 +995,7 @@ app.clientside_callback(
         var targets = ['vsfx-pair', 'stb-pair', 'fxb-pair', 'rvp-pair-a',
                         'bt-pair', 'fxrisk-wi-pair'];
         targets.forEach(function(id) {
-            dash_clientside.set_props(id, {value: pair});
+            window.dash_clientside.set_props(id, {value: pair});
         });
         return window.dash_clientside.no_update;
     }""",
@@ -1247,7 +1247,7 @@ app.clientside_callback(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Ticker Tape Live Refresh (every 30s)
+# Ticker Tape Live Refresh (every 2min)
 # ═══════════════════════════════════════════════════════════════════════════
 
 @app.callback(

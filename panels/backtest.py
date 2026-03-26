@@ -280,13 +280,15 @@ def _build_strategy_legs(strategy, S, T, r_d, r_f, atm_vol, rr25, bf25, delta):
     elif strategy == "Long BF":
         legs = [
             {"strike": K_call, "cp": +1, "qty": +1, "vol": vol_call, "T": T},
-            {"strike": K_atm,  "cp": +1, "qty": -2, "vol": vol_atm,  "T": T},
+            {"strike": K_atm,  "cp": +1, "qty": -1, "vol": vol_atm,  "T": T},
+            {"strike": K_atm,  "cp": -1, "qty": -1, "vol": vol_atm,  "T": T},
             {"strike": K_put,  "cp": -1, "qty": +1, "vol": vol_put,  "T": T},
         ]
     elif strategy == "Short BF":
         legs = [
             {"strike": K_call, "cp": +1, "qty": -1, "vol": vol_call, "T": T},
-            {"strike": K_atm,  "cp": +1, "qty": +2, "vol": vol_atm,  "T": T},
+            {"strike": K_atm,  "cp": +1, "qty": +1, "vol": vol_atm,  "T": T},
+            {"strike": K_atm,  "cp": -1, "qty": +1, "vol": vol_atm,  "T": T},
             {"strike": K_put,  "cp": -1, "qty": -1, "vol": vol_put,  "T": T},
         ]
     elif strategy == "Long Calendar (buy far sell near)":

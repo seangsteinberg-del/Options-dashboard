@@ -223,7 +223,9 @@ def _build_scanner_rows(pairs, lookback):
                 rr3m_pct = 50
 
             term_spread = atm_1m - atm_1y if (atm_1m > 0 and atm_1y > 0) else 0
-            signal = _compute_signal(atm3m_pct, rr3m_pct, ivrv_3m, term_spread)
+            # Normalize term spread to approximate z-score (typical std ~2 vol pts)
+            term_z = term_spread / 2.0 if term_spread != 0 else 0
+            signal = _compute_signal(atm3m_pct, rr3m_pct, ivrv_3m, term_z)
 
             # Group label
             spec = FX_PAIR_REGISTRY.get(pair)

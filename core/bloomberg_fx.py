@@ -946,7 +946,7 @@ def get_fx_implied_correlation(pair_a: str, pair_b: str, cross: str,
     va = get_fx_vol_point(pair_a, tenor, "atm")
     vb = get_fx_vol_point(pair_b, tenor, "atm")
     vc = get_fx_vol_point(cross, tenor, "atm")
-    if not va or not vb or not vc or va <= 0 or vb <= 0:
+    if not va or not vb or not vc or va <= 0 or vb <= 0 or vc <= 0:
         return 0.0
     rho = (va**2 + vb**2 - vc**2) / (2.0 * va * vb)
     return round(max(min(rho, 1.0), -1.0), 4)
