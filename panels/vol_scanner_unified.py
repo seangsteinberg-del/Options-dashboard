@@ -131,7 +131,7 @@ def _empty_fig(title=""):
     fig.update_layout(**_chart_layout(
         height=CHART_SM, margin=dict(l=20, r=10, t=30, b=10),
         title=dict(text=title, font=dict(size=10, color="#808080")),
-        annotations=[dict(text="No data", x=0.5, y=0.5, showarrow=False,
+        annotations=[dict(text="Awaiting data", x=0.5, y=0.5, showarrow=False,
                           font=dict(color="#808080", size=11), xref="paper", yref="paper")]))
     return fig
 
@@ -406,10 +406,12 @@ def _build_atm_history(pair, tenor, lookback):
                                  mode="lines", line=dict(color="#808080", width=1, dash="dash"),
                                  showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=arr.tolist(), mode="lines",
-                                 line=dict(color="#ff8800", width=2.5), name="ATM"))
+                                 line=dict(color="#ff8800", width=2.5), name="ATM",
+                                 hovertemplate="Day %{x}: %{y:.2f}%<extra></extra>"))
         fig.add_trace(go.Scatter(x=[len(arr)-1], y=[float(arr[-1])],
                                  mode="markers", marker=dict(color="#ff8800", size=7),
-                                 showlegend=False))
+                                 showlegend=False,
+                                 hovertemplate="Current: %{y:.2f}%<extra></extra>"))
         fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=False,
                           title=dict(text=f"{pair} ATM {tenor} HISTORY",

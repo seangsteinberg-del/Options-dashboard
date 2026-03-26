@@ -389,6 +389,7 @@ def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
         x=tenors, y=sd["atm"], mode="lines+markers",
         name="ATM (current)", line=dict(color=COLORS["accent_cyan"], width=3),
         marker=dict(size=6, color=COLORS["accent_cyan"]),
+        hovertemplate="%{x}: %{y:.2f}%<extra>ATM</extra>",
     ))
 
     # 1W ago overlay (dashed)
@@ -400,6 +401,7 @@ def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
         fig.add_trace(go.Scatter(
             x=tenors, y=hist_1w, mode="lines",
             name="1W ago", line=dict(color=COLORS["accent_blue"], width=1.5, dash="dash"),
+            hovertemplate="%{x}: %{y:.2f}%<extra>1W ago</extra>",
         ))
     except Exception:
         pass
@@ -413,6 +415,7 @@ def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
         fig.add_trace(go.Scatter(
             x=tenors, y=hist_1m, mode="lines",
             name="1M ago", line=dict(color=COLORS["accent_purple"], width=1.5, dash="dot"),
+            hovertemplate="%{x}: %{y:.2f}%<extra>1M ago</extra>",
         ))
     except Exception:
         pass
@@ -637,6 +640,7 @@ def chart_smile_curve(pair, sd, spot, r_dom, r_for, **kw):
         y=vol_fine,
         mode="lines", name="Spline Fit",
         line=dict(color=COLORS["accent_cyan"], width=2.5),
+        hovertemplate="Delta: %{x:.1f}<br>Vol: %{y:.2f}%<extra>Spline</extra>",
     ))
 
     # Market points
@@ -648,6 +652,7 @@ def chart_smile_curve(pair, sd, spot, r_dom, r_for, **kw):
         text=pillar_labels,
         textposition="top center",
         textfont=dict(size=9, color=COLORS["text_secondary"]),
+        hovertemplate="%{text}: %{y:.2f}%<extra>Market</extra>",
     ))
 
     # ── Model overlays (SABR / Vanna-Volga) ──
@@ -739,17 +744,21 @@ def chart_vol_ts(pair, sd, spot, r_dom, r_for, **kw):
 
     # Upper/lower bands
     fig.add_trace(go.Scatter(x=days, y=upper, mode="lines", name="BB Upper",
-        line=dict(color=COLORS["accent_cyan"], width=1, dash="dot"), showlegend=False))
+        line=dict(color=COLORS["accent_cyan"], width=1, dash="dot"), showlegend=False,
+        hovertemplate="Day %{x}: %{y:.2f}%<extra>BB Upper</extra>"))
     fig.add_trace(go.Scatter(x=days, y=lower, mode="lines", name="BB Lower",
-        line=dict(color=COLORS["accent_cyan"], width=1, dash="dot"), showlegend=False))
+        line=dict(color=COLORS["accent_cyan"], width=1, dash="dot"), showlegend=False,
+        hovertemplate="Day %{x}: %{y:.2f}%<extra>BB Lower</extra>"))
 
     # MA line
     fig.add_trace(go.Scatter(x=days, y=ma20, mode="lines", name="20d MA",
-        line=dict(color=COLORS["accent_blue"], width=1.5, dash="dash")))
+        line=dict(color=COLORS["accent_blue"], width=1.5, dash="dash"),
+        hovertemplate="Day %{x}: %{y:.2f}%<extra>20d MA</extra>"))
 
     # ATM vol line
     fig.add_trace(go.Scatter(x=days, y=hist, mode="lines", name=f"ATM {sel_tenor}",
-        line=dict(color=COLORS["accent_cyan"], width=2)))
+        line=dict(color=COLORS["accent_cyan"], width=2),
+        hovertemplate="Day %{x}: %{y:.2f}%<extra>ATM</extra>"))
 
     _apply_chart_template(fig, f"ATM Vol Time Series -- {pair} {sel_tenor}")
     fig.update_layout(xaxis=dict(title="Days"), yaxis=dict(title="Vol (%)"))
@@ -809,9 +818,11 @@ def chart_iv_rv(pair, sd, spot, r_dom, r_for, **kw):
     ))
 
     fig.add_trace(go.Scatter(x=days, y=iv_arr, mode="lines", name="ATM IV 3M",
-        line=dict(color=COLORS["accent_cyan"], width=2.5)))
+        line=dict(color=COLORS["accent_cyan"], width=2.5),
+        hovertemplate="Day %{x}: %{y:.2f}%<extra>IV</extra>"))
     fig.add_trace(go.Scatter(x=days, y=rv_arr, mode="lines", name="RV 20d",
-        line=dict(color=COLORS["accent_rose"], width=2)))
+        line=dict(color=COLORS["accent_rose"], width=2),
+        hovertemplate="Day %{x}: %{y:.2f}%<extra>RV</extra>"))
 
     # Spread bar on secondary y-axis
     spread_arr = iv_arr - rv_arr
@@ -868,18 +879,22 @@ def chart_vol_cone_chart(pair, sd, spot, r_dom, r_for, **kw):
 
     # Median line
     fig.add_trace(go.Scatter(x=windows, y=cone_df["median"], mode="lines",
-        name="Median", line=dict(color=COLORS["accent_blue"], width=1.5, dash="dash")))
+        name="Median", line=dict(color=COLORS["accent_blue"], width=1.5, dash="dash"),
+        hovertemplate="%{x}d: %{y:.2f}%<extra>Median</extra>"))
 
     # Min/Max
     fig.add_trace(go.Scatter(x=windows, y=cone_df["min"], mode="lines",
-        name="Min", line=dict(color=COLORS["accent_green"], width=1, dash="dot")))
+        name="Min", line=dict(color=COLORS["accent_green"], width=1, dash="dot"),
+        hovertemplate="%{x}d: %{y:.2f}%<extra>Min</extra>"))
     fig.add_trace(go.Scatter(x=windows, y=cone_df["max"], mode="lines",
-        name="Max", line=dict(color=COLORS["accent_red"], width=1, dash="dot")))
+        name="Max", line=dict(color=COLORS["accent_red"], width=1, dash="dot"),
+        hovertemplate="%{x}d: %{y:.2f}%<extra>Max</extra>"))
 
     # Current RV
     fig.add_trace(go.Scatter(x=windows, y=cone_df["current_c2c"], mode="lines+markers",
         name="Current RV", line=dict(color=COLORS["accent_cyan"], width=2.5),
-        marker=dict(size=7, color=COLORS["accent_cyan"])))
+        marker=dict(size=7, color=COLORS["accent_cyan"]),
+        hovertemplate="%{x}d: %{y:.2f}%<extra>Current RV</extra>"))
 
     _apply_chart_template(fig, f"Realized Vol Cone -- {pair}")
     fig.update_layout(xaxis=dict(title="Window (days)"), yaxis=dict(title="Vol (%)"))
@@ -902,12 +917,14 @@ def chart_fwd_vol(pair, sd, spot, r_dom, r_for, **kw):
         name="Forward Vol",
         line=dict(color=COLORS["accent_orange"], width=2.5),
         marker=dict(size=7, color=COLORS["accent_orange"]),
+        hovertemplate="%{x}: %{y:.2f}%<extra>Forward</extra>",
     ))
     fig.add_trace(go.Scatter(
         x=df["end_tenor"], y=df["spot_vol"], mode="lines+markers",
         name="Spot Vol",
         line=dict(color=COLORS["accent_cyan"], width=2, dash="dash"),
         marker=dict(size=5, color=COLORS["accent_cyan"]),
+        hovertemplate="%{x}: %{y:.2f}%<extra>Spot</extra>",
     ))
 
     _apply_chart_template(fig, f"Forward Vol Curve -- {pair}")
