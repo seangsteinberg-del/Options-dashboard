@@ -636,12 +636,13 @@ def register_callbacks(app):
             Input("fxrisk-limit-delta", "value"),
             Input("fxrisk-limit-vega", "value"),
             Input("fxrisk-limit-gamma", "value"),
+            Input("global-portfolio-version", "data"),
         ],
         [State("fxrisk-init-flag", "data")],
         prevent_initial_call=False,
     )
     def update_main_risk(n_intervals, tab, limit_delta_m, limit_vega_k,
-                         limit_gamma_k, init_flag):
+                         limit_gamma_k, portfolio_version, init_flag):
         # Initialize portfolio on first load
         if not init_flag:
             positions = get_all_positions()
@@ -1059,10 +1060,11 @@ def register_callbacks(app):
             Output("fxrisk-var-dist", "figure"),
             Output("fxrisk-component-var", "figure"),
         ],
-        Input("fxrisk-tabs", "value"),
+        [Input("fxrisk-tabs", "value"),
+         Input("global-portfolio-version", "data")],
         prevent_initial_call=True,
     )
-    def update_var_tab(tab):
+    def update_var_tab(tab, _portfolio_ver):
         if tab != "var":
             return no_update, no_update
 

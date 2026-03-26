@@ -763,6 +763,7 @@ def serve_layout():
         dcc.Store(id="global-tenor", data="3M"),
         dcc.Store(id="watchlist-store", data=DEFAULT_WATCHLIST),
         dcc.Store(id="metric-popup-data", data=None),
+        dcc.Store(id="global-portfolio-version", data=0),  # Incremented on trade execution
 
         # ── Data source status refresh (every 2min) ──
         dcc.Interval(id="data-source-interval", interval=120_000, n_intervals=0),

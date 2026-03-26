@@ -415,10 +415,12 @@ def register_callbacks(app):
          Output("fxb-day-stats", "children"),
          Output("fxb-trade-store", "data"),
          Output("fxb-exec-status", "children"),
-         Output("fxb-exec-status", "style")],
+         Output("fxb-exec-status", "style"),
+         Output("global-portfolio-version", "data")],
         [Input("fxb-execute-btn", "n_clicks"),
          Input("fxb-market-cache", "data")],
         [State("fxb-trade-store", "data"),
+         State("global-portfolio-version", "data"),
          State("fxb-pair", "value"),
          State("fxb-cp", "value"),
          State("fxb-side", "value"),
@@ -433,7 +435,8 @@ def register_callbacks(app):
          State("fxb-cpty", "value"),
          State("fxb-notes", "value")],
     )
-    def update_all(n_clicks, _cache, store_data, pair, cp_str, side, entry_mode,
+    def update_all(n_clicks, _cache, store_data, portfolio_version,
+                   pair, cp_str, side, entry_mode,
                    delta_in, strike_in, tenor, notional, cut, strategy,
                    book, cpty, notes):
         tpl = CHART_TEMPLATE["layout"]
@@ -442,6 +445,7 @@ def register_callbacks(app):
 
         trades = json.loads(store_data) if store_data else []
         new_store = no_update
+        trade_executed = False
         exec_msg = ""
         exec_style = {"marginTop": "8px", "fontSize": "11px",
                       "fontFamily": "monospace", "textAlign": "center"}
@@ -516,6 +520,7 @@ def register_callbacks(app):
 
                 trades = [new_trade] + trades
                 new_store = json.dumps(trades)
+                trade_executed = True
                 exec_msg = f"FILLED  {pair} {tenor} {K:.5g} {side.upper()}"
                 exec_style = {**exec_style, "color": COLORS["accent_green"]}
             except Exception as exc:
@@ -791,8 +796,9 @@ def register_callbacks(app):
                                   style={"color": COLORS["accent_red"],
                                          "fontFamily": "monospace"})]
 
+        new_version = (portfolio_version or 0) + 1 if trade_executed else no_update
         return (exec_table, notional_fig, prem_fig, activity_fig,
-                day_stats, new_store, exec_msg, exec_style)
+                day_stats, new_store, exec_msg, exec_style, new_version)
 
     # ── CSV Export ──────────────────────────────────────────────────────
     @app.callback(
