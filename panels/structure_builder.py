@@ -373,6 +373,16 @@ def _interp_vol_for_delta(vol_surface_data, tenor, delta_abs, cp_sign):
             return (smile["p25"] * (1 - t) + smile["atm"] * t) / 100.0
 
 
+def _fmt_strike(K, pair):
+    """Format strike with correct decimal places per FX pair convention."""
+    if pair.endswith("JPY") or pair.startswith("JPY"):
+        return f"{K:.2f}"
+    if pair in ("USDMXN", "USDZAR", "USDTRY", "USDBRL", "USDCNH",
+                "USDINR", "USDKRW", "EURNOK", "EURSEK", "USDNOK", "USDSEK"):
+        return f"{K:.3f}"
+    return f"{K:.5f}"
+
+
 def _get_atm_vol(vol_surface_data, tenor):
     """Get ATM vol for a tenor in decimal form."""
     if not vol_surface_data:
@@ -544,58 +554,97 @@ def _compute_aggregates(processed_legs, S, T, r_d, r_f, notional, pip_size):
 
 
 # ============================================================================
-# Expected Value Calculator (Breeden-Litzenberger implied density)
+# Expected Value Calculator
 # ============================================================================
+
+_trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
+
 
 def _compute_expected_value(processed_legs, S, T, r_d, r_f, pair, tenor,
                             notional, pip_size, vol_surface):
-    """Probability-weighted expected P&L using vol-smile-implied density."""
+    """Compute EV using BOTH implied (risk-neutral) and historical densities.
+
+    - Implied EV uses Breeden-Litzenberger PDF from vol smile (should be ~0).
+    - Historical EV uses log-normal with realised vol parameters.
+    The historical EV is the meaningful number — "if the future looks like
+    the past, what's my expected P&L?"
+    """
     try:
-        pdf_data = smile_implied_pdf(pair, tenor)
-        if pdf_data is None or pdf_data.empty:
-            return None
+        # Structure payoff at a grid of spot levels
+        spot_lo = S * 0.70
+        spot_hi = S * 1.30
+        n_pts = 400
+        spot_grid = np.linspace(spot_lo, spot_hi, n_pts)
 
-        strikes = pdf_data["strike"].values
-        pdf_vals = pdf_data["pdf"].values
-
-        _trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
-        total_prob = _trapz(pdf_vals, strikes)
-        if total_prob <= 0:
-            return None
-        pdf_norm = pdf_vals / total_prob
-
-        # Structure payoff at each strike
         net_prem = sum(lg["price_unit"] * lg["side_sign"] * lg["ratio"]
                        for lg in processed_legs)
-        payoff = np.zeros_like(strikes)
+        payoff = np.zeros(n_pts)
         for lg in processed_legs:
             cp = lg["cp_sign"]
             K = lg["strike"]
             qty = lg["side_sign"] * lg["ratio"]
-            payoff += np.maximum(cp * (strikes - K), 0.0) * qty
+            payoff += np.maximum(cp * (spot_grid - K), 0.0) * qty
         pnl = (payoff - net_prem) * notional
 
-        ev = float(_trapz(pnl * pdf_norm, strikes))
-        profit_mask = pnl > 0
-        loss_mask = pnl < 0
-        prob_profit = float(_trapz(pdf_norm * profit_mask, strikes) * 100)
-        expected_profit = float(_trapz(pnl * pdf_norm * profit_mask, strikes))
-        expected_loss = float(_trapz(pnl * pdf_norm * loss_mask, strikes))
+        # ── Historical density (physical measure) ──
+        # Use the first leg's vol as proxy for realised vol.
+        # A more accurate approach would use actual RV, but this is fast
+        # and available even without Bloomberg historical data.
+        atm_vol = max(processed_legs[0].get("vol", 0.08), 0.01) if processed_legs else 0.08
+        # Try to get actual realised vol from iv_rv
+        try:
+            ivrv = iv_rv_percentile(pair, tenor)
+            rv = ivrv.get("current_rv", 0) / 100.0 if ivrv else 0
+            if rv > 0.005:
+                hist_vol = rv
+            else:
+                hist_vol = atm_vol  # fallback to implied
+        except Exception:
+            hist_vol = atm_vol
+
+        mu_T = (r_d - r_f - 0.5 * hist_vol ** 2) * T
+        sigma_T = hist_vol * np.sqrt(max(T, 1e-6))
+
+        # Log-normal PDF: f(S_T) = (1/(S_T*sigma_T*sqrt(2pi))) * exp(-(ln(S_T/S)-mu_T)^2/(2*sigma_T^2))
+        log_s = np.log(np.maximum(spot_grid, 1e-10) / max(S, 1e-10))
+        hist_pdf = np.exp(-0.5 * ((log_s - mu_T) / max(sigma_T, 1e-8)) ** 2) / (
+            max(sigma_T, 1e-8) * np.sqrt(2 * np.pi) * np.maximum(spot_grid, 1e-10))
+        hist_total = _trapz(hist_pdf, spot_grid)
+        if hist_total > 0:
+            hist_pdf = hist_pdf / hist_total
+
+        hist_ev = float(_trapz(pnl * hist_pdf, spot_grid))
+        hist_pop = float(_trapz(hist_pdf * (pnl > 0), spot_grid) * 100)
 
         premium_abs = abs(net_prem * notional)
-        ev_pct = (ev / premium_abs * 100) if premium_abs > 1 else 0.0
+        hist_ev_pct = (hist_ev / premium_abs * 100) if premium_abs > 1 else 0.0
+
+        # ── Implied density (for probability overlay on payoff chart) ──
+        impl_pdf = None
+        impl_strikes = None
+        try:
+            pdf_data = smile_implied_pdf(pair, tenor)
+            if pdf_data is not None and not pdf_data.empty:
+                impl_strikes = pdf_data["strike"].values
+                impl_pdf_raw = pdf_data["pdf"].values
+                impl_total = _trapz(impl_pdf_raw, impl_strikes)
+                if impl_total > 0:
+                    impl_pdf = impl_pdf_raw / impl_total
+        except Exception:
+            pass
 
         return {
-            "ev": ev,
-            "ev_pips": ev / (notional * pip_size) if (notional * pip_size) > 0 else 0,
-            "ev_pct": ev_pct,
-            "prob_profit": prob_profit,
-            "expected_profit": expected_profit,
-            "expected_loss": expected_loss,
-            "edge": "POSITIVE" if ev > 0 else "NEGATIVE",
-            "edge_color": COLORS["accent_green"] if ev > 0 else COLORS["accent_red"],
-            "pdf_strikes": strikes,
-            "pdf_vals": pdf_norm,
+            "ev": hist_ev,
+            "ev_pips": hist_ev / (notional * pip_size) if (notional * pip_size) > 0 else 0,
+            "ev_pct": hist_ev_pct,
+            "prob_profit": hist_pop,
+            "expected_profit": float(_trapz(pnl * hist_pdf * (pnl > 0), spot_grid)),
+            "expected_loss": float(_trapz(pnl * hist_pdf * (pnl < 0), spot_grid)),
+            "edge": "POSITIVE" if hist_ev > 0 else "NEGATIVE",
+            "edge_color": COLORS["accent_green"] if hist_ev > 0 else COLORS["accent_red"],
+            "hist_vol_used": hist_vol,
+            "pdf_strikes": impl_strikes if impl_strikes is not None else spot_grid,
+            "pdf_vals": impl_pdf if impl_pdf is not None else hist_pdf,
         }
     except Exception as exc:
         logger.debug("EV calculation failed: %s", exc)
@@ -1268,8 +1317,31 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
     return fig
 
 
+def _vectorized_greeks(spot_arr, K, T, r_d, r_f, sigma, cp):
+    """Vectorised Greeks over a spot array. Returns dict of arrays."""
+    T_s = max(float(T), 1e-10)
+    sig = max(float(sigma), 1e-6)
+    K_f = max(float(K), 1e-10)
+    cp_f = float(cp)
+    sqrt_T = np.sqrt(T_s)
+    d1 = (np.log(spot_arr / K_f) + (r_d - r_f + 0.5 * sig ** 2) * T_s) / (sig * sqrt_T)
+    d2 = d1 - sig * sqrt_T
+    nd1 = _norm_cdf(cp_f * d1)
+    npd1 = _norm_pdf(d1)
+    exp_rf = np.exp(-r_f * T_s)
+    exp_rd = np.exp(-r_d * T_s)
+    return {
+        "delta": cp_f * exp_rf * nd1,
+        "gamma": exp_rf * npd1 / (spot_arr * sig * sqrt_T),
+        "vega": spot_arr * exp_rf * npd1 * sqrt_T / 100.0,
+        "theta": (-spot_arr * exp_rf * npd1 * sig / (2.0 * sqrt_T)
+                  + cp_f * r_f * spot_arr * exp_rf * nd1
+                  - cp_f * r_d * K_f * exp_rd * _norm_cdf(cp_f * d2)) / 365.0,
+    }
+
+
 def _build_greeks_chart(processed_legs, S, T, r_d, r_f, notional):
-    """Chart 2: 2x2 subplot of Delta, Gamma, Vega, Theta vs spot."""
+    """Chart 2: 2x2 subplot of Delta, Gamma, Vega, Theta vs spot. Vectorised."""
     tpl = CHART_TEMPLATE["layout"]
     fig = make_subplots(rows=2, cols=2,
                         subplot_titles=("Delta", "Gamma", "Vega", "Theta"),
@@ -1285,26 +1357,18 @@ def _build_greeks_chart(processed_legs, S, T, r_d, r_f, notional):
         total_vals = np.zeros(len(spot_grid))
 
         for li, lg in enumerate(processed_legs):
-            cp = lg["cp_sign"]
-            K = lg["strike"]
-            vol = lg["vol"]
             qty = lg["side_sign"] * lg["ratio"]
-            leg_vals = np.zeros(len(spot_grid))
-
-            for j, s in enumerate(spot_grid):
-                g = _gk_greeks(s, K, T, r_d, r_f, vol, cp)
-                leg_vals[j] = g[gname] * qty
-
+            greeks_arr = _vectorized_greeks(spot_grid, lg["strike"], T,
+                                            r_d, r_f, lg["vol"], lg["cp_sign"])
+            leg_vals = greeks_arr[gname] * qty
             total_vals += leg_vals
 
-            # Individual leg traces (thin dotted)
             fig.add_trace(go.Scatter(
                 x=spot_grid, y=leg_vals * notional, mode="lines",
                 line=dict(color=color, width=1, dash="dot"),
                 name=f"L{li+1} {gname}", showlegend=False, opacity=0.4,
             ), row=row, col=col)
 
-        # Structure total (bold)
         fig.add_trace(go.Scatter(
             x=spot_grid, y=total_vals * notional, mode="lines",
             line=dict(color=color, width=2.5),
@@ -1328,28 +1392,28 @@ def _build_greeks_chart(processed_legs, S, T, r_d, r_f, notional):
 
 
 def _build_pnl_heatmap(processed_legs, S, T, r_d, r_f, notional):
-    """Chart 3: P&L heatmap -- spot shock x vol shock."""
+    """Chart 3: P&L heatmap -- spot shock x vol shock. Vectorised."""
     tpl = CHART_TEMPLATE["layout"]
     spot_shocks = np.linspace(-0.15, 0.15, 25)
     vol_shocks = np.linspace(-0.50, 0.50, 25)
-    pnl_matrix = np.zeros((len(vol_shocks), len(spot_shocks)))
 
     net_prem_per_unit = sum(
         lg["price_unit"] * lg["side_sign"] * lg["ratio"]
         for lg in processed_legs
     )
 
+    spot_arr = S * (1.0 + spot_shocks)  # shape (25,)
+    pnl_matrix = np.zeros((len(vol_shocks), len(spot_shocks)))
+
     for vi, dv in enumerate(vol_shocks):
-        for si, ds in enumerate(spot_shocks):
-            s_shocked = S * (1.0 + ds)
-            pnl = 0.0
-            for lg in processed_legs:
-                cp = lg["cp_sign"]
-                K = lg["strike"]
-                vol_shocked = max(lg["vol"] * (1.0 + dv), 0.005)
-                qty = lg["side_sign"] * lg["ratio"]
-                pnl += float(_gk_price(s_shocked, K, T, r_d, r_f, vol_shocked, cp)) * qty
-            pnl_matrix[vi, si] = (pnl - net_prem_per_unit) * notional
+        row_pnl = np.zeros(len(spot_shocks))
+        for lg in processed_legs:
+            vol_shocked = max(lg["vol"] * (1.0 + dv), 0.005)
+            qty = lg["side_sign"] * lg["ratio"]
+            # _gk_price is vectorised over S (spot_arr)
+            row_pnl += _gk_price(spot_arr, lg["strike"], T, r_d, r_f,
+                                 vol_shocked, lg["cp_sign"]) * qty
+        pnl_matrix[vi, :] = (row_pnl - net_prem_per_unit) * notional
 
     fig = go.Figure(go.Heatmap(
         x=[f"{ds:+.0%}" for ds in spot_shocks],
@@ -1403,15 +1467,13 @@ def _build_3d_surface(processed_legs, S, T, r_d, r_f, notional):
 
     pnl_surface = np.zeros((n_time, n_spot))
     for ti, t_val in enumerate(time_grid):
-        for si, s_val in enumerate(spot_grid):
-            pnl = 0.0
-            for lg in processed_legs:
-                cp = lg["cp_sign"]
-                K = lg["strike"]
-                vol = lg["vol"]
-                qty = lg["side_sign"] * lg["ratio"]
-                pnl += float(_gk_price(s_val, K, max(t_val, 1e-6), r_d, r_f, vol, cp)) * qty
-            pnl_surface[ti, si] = (pnl - net_prem_per_unit) * notional
+        row_pnl = np.zeros(n_spot)
+        for lg in processed_legs:
+            qty = lg["side_sign"] * lg["ratio"]
+            # _gk_price vectorised over spot_grid
+            row_pnl += _gk_price(spot_grid, lg["strike"], max(t_val, 1e-6),
+                                 r_d, r_f, lg["vol"], lg["cp_sign"]) * qty
+        pnl_surface[ti, :] = (row_pnl - net_prem_per_unit) * notional
 
     fig = go.Figure(go.Surface(
         x=spot_grid,
@@ -1481,7 +1543,7 @@ def _build_premium_table(processed_legs, pair, pip_size, notional):
             html.Td(lg["cp"].upper(), style=cell_style),
             html.Td(lg["side"].upper(), style={**cell_style, "color": side_col, "fontWeight": "600"}),
             html.Td(f"{lg['delta_input']:.0%}", style=cell_style),
-            html.Td(f"{lg['strike']:.5f}", style=cell_style),
+            html.Td(_fmt_strike(lg['strike'], pair), style=cell_style),
             html.Td(f"{lg['vol']*100:.2f}", style=cell_style),
             html.Td(f"{lg['premium_pips']:.1f}", style=cell_style),
             html.Td(f"{lg['premium_pct']:.3f}", style=cell_style),
@@ -1832,6 +1894,8 @@ def layout():
         dcc.Store(id="stb-solver-store", data=None),
         dcc.Store(id="stb-compare-a", data=None),
         dcc.Store(id="stb-compare-b", data=None),
+        dcc.Store(id="stb-suggestions-store", data=[]),
+        dcc.Store(id="stb-saved-structures", storage_type="local", data=[]),
 
         html.Div([
             # ── Left: Input Panel ──────────────────────────────────────
@@ -2189,6 +2253,7 @@ def register_callbacks(app):
     # -- Main computation callback --
     @app.callback(
         [Output("stb-suggestions-bar", "children"),
+         Output("stb-suggestions-store", "data"),
          Output("stb-stats-row", "children"),
          Output("stb-payoff-chart", "figure"),
          Output("stb-greeks-chart", "figure"),
@@ -2256,7 +2321,7 @@ def register_callbacks(app):
             empty_table = html.Div("No market data", style={"color": COLORS["text_muted"],
                                    "fontSize": "11px", "padding": "8px"})
             empty_stats = [html.Div("--", style=STAT_BOX_STYLE) for _ in range(10)]
-            return ([empty_div, empty_stats, ndf, ndf, ndf, ndf, empty_table, ndf, ndf,
+            return ([empty_div, [], empty_stats, ndf, ndf, ndf, ndf, empty_table, ndf, ndf,
                      empty_div, empty_div]
                     + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 
@@ -2290,9 +2355,13 @@ def register_callbacks(app):
 
             # ── NEW: Suggestions + Regime ──
             suggestions_div = empty_div
+            sugg_store_data = []
             try:
                 sugg_list, regime, signal_pcts = _build_suggestions(
                     pair, tenor, vol_surface, spots, rates)
+                # Build store: list of best structure names per suggestion
+                sugg_store_data = [sg["structures"][0] for sg in sugg_list[:4]
+                                   if sg.get("structures")]
                 sugg_items = []
                 if regime:
                     sugg_items.append(html.Span(
@@ -2300,12 +2369,17 @@ def register_callbacks(app):
                         style={"color": regime["color"], "fontSize": "10px",
                                "fontWeight": "700", "fontFamily": "'JetBrains Mono', monospace",
                                "marginRight": "16px"}))
-                for sg in sugg_list[:4]:
-                    sugg_items.append(html.Span(
-                        f"\u2022 {sg['signal']}",
-                        style={"color": sg["color"], "fontSize": "9px",
+                for si, sg in enumerate(sugg_list[:4]):
+                    best_struct = sg["structures"][0] if sg["structures"] else None
+                    sugg_items.append(html.Button(
+                        f"\u2022 {sg['signal']}  \u2192 {best_struct or '?'}",
+                        id={"type": "stb-suggestion-btn", "index": si},
+                        n_clicks=0,
+                        style={"color": sg["color"], "fontSize": "9px", "background": "none",
+                               "border": f"1px solid {sg['color']}33", "borderRadius": "2px",
+                               "cursor": "pointer", "padding": "2px 8px",
                                "fontFamily": "'JetBrains Mono', monospace",
-                               "marginRight": "12px"}))
+                               "marginRight": "6px"}))
                 if sugg_items:
                     suggestions_div = html.Div(sugg_items, style={
                         "display": "flex", "flexWrap": "wrap", "alignItems": "center",
@@ -2418,7 +2492,7 @@ def register_callbacks(app):
             for i in range(MAX_LEGS):
                 if i < len(processed):
                     lg = processed[i]
-                    strike_disps.append(f"{lg['strike']:.5f}")
+                    strike_disps.append(_fmt_strike(lg['strike'], pair))
                     vol_disps.append(f"{lg['vol']*100:.1f}%")
                     prem_disps.append(f"{lg['premium_pips']:.1f}p")
                 else:
@@ -2426,8 +2500,8 @@ def register_callbacks(app):
                     vol_disps.append("")
                     prem_disps.append("")
 
-            return ([suggestions_div, stats, payoff_fig, greeks_fig, heatmap_fig,
-                     surface_fig, premium_table, scenario_fig, smile_fig,
+            return ([suggestions_div, sugg_store_data, stats, payoff_fig, greeks_fig,
+                     heatmap_fig, surface_fig, premium_table, scenario_fig, smile_fig,
                      tenor_scan_div, trade_analysis_div]
                     + strike_disps + vol_disps + prem_disps)
 
@@ -2437,7 +2511,7 @@ def register_callbacks(app):
             empty_table = html.Div(f"Error: {e}", style={"color": COLORS["accent_red"],
                                    "fontSize": "11px", "padding": "8px"})
             empty_stats = [html.Div("--", style=STAT_BOX_STYLE) for _ in range(10)]
-            return ([empty_div, empty_stats, err_fig, err_fig, err_fig, err_fig,
+            return ([empty_div, [], empty_stats, err_fig, err_fig, err_fig, err_fig,
                      empty_table, err_fig, err_fig, empty_div, empty_div]
                     + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 
@@ -2880,3 +2954,41 @@ def register_callbacks(app):
         if not n_clicks:
             raise PreventUpdate
         return None, None, {"display": "none"}, ""
+
+    # ══════════════════════════════════════════════════════════════════════
+    # SUGGESTION CLICK → LOAD PRESET
+    # ══════════════════════════════════════════════════════════════════════
+
+    @app.callback(
+        Output("stb-preset", "value", allow_duplicate=True),
+        Input({"type": "stb-suggestion-btn", "index": ALL}, "n_clicks"),
+        State("stb-suggestions-store", "data"),
+        prevent_initial_call=True,
+    )
+    def load_suggestion(n_clicks_list, sugg_names):
+        if not n_clicks_list or all(n == 0 or n is None for n in n_clicks_list):
+            raise PreventUpdate
+        ctx = callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+        # Find which button was clicked
+        import json as _json
+        prop_id = ctx.triggered[0]["prop_id"]
+        try:
+            idx = _json.loads(prop_id.split(".")[0])["index"]
+        except Exception:
+            raise PreventUpdate
+        if not sugg_names or idx >= len(sugg_names):
+            raise PreventUpdate
+        preset_name = sugg_names[idx]
+        if preset_name not in PRESETS:
+            raise PreventUpdate
+        return preset_name
+
+    # ══════════════════════════════════════════════════════════════════════
+    # SAVE / RECALL STRUCTURES (local storage)
+    # ══════════════════════════════════════════════════════════════════════
+
+    # Save is handled via a clientside callback writing to stb-saved-structures
+    # (dcc.Store with storage_type="local").  For now, the save/recall UI is
+    # deferred — the store is in place for future use.

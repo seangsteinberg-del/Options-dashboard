@@ -2095,6 +2095,20 @@ def layout():
                     style={"fontSize": "10px"}),
                 ], style=SIDEBAR_SECTION),
 
+                # Build Trade link → jumps to Trade Workshop with current pair
+                html.Div([
+                    html.Button("\u2192 BUILD TRADE", id="vsfx-build-trade-btn",
+                        n_clicks=0, style={
+                            "backgroundColor": COLORS["accent_orange"],
+                            "color": "#000", "border": "none", "borderRadius": "0px",
+                            "padding": "6px 12px", "width": "100%",
+                            "fontFamily": "'JetBrains Mono', monospace",
+                            "fontSize": "10px", "fontWeight": "700",
+                            "cursor": "pointer", "letterSpacing": "1px",
+                            "textTransform": "uppercase",
+                        }),
+                ], style=SIDEBAR_SECTION),
+
                 # ── Group divider: view → lab controls ──
                 html.Div(style={"borderBottom": "1px solid #333355", "margin": "8px 0 12px 0"}),
 

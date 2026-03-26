@@ -3,7 +3,7 @@
 FX Options Workstation v5 — Consolidated
 =========================================
 Institutional-grade FX options analytics platform.
-9 panels across 4 workspaces. Zero duplication.
+8 panels across 4 workspaces. Zero duplication.
 
 Run:  python app.py
 Open: http://localhost:8050
@@ -72,8 +72,7 @@ from panels import market_dashboard          # DESK
 from panels import vol_surface_fx            # VOL (includes Chart Lab features)
 from panels import vol_scanner_unified       # VOL
 from panels import relative_value_plus      # VOL
-from panels import structure_builder         # TRADE
-from panels import exotics_pricer            # TRADE
+from panels import structure_builder         # TRADE (Trade Workshop)
 from panels import blotter_fx               # TRADE
 from panels import risk_fx                   # RISK
 from panels import backtest                  # RISK
@@ -107,7 +106,7 @@ DEFAULT_WATCHLIST = [
 ]
 
 
-# ── Workspace Definition (4 workspaces, 9 panels) ───────────────────────
+# ── Workspace Definition (4 workspaces, 8 panels) ───────────────────────
 WORKSPACES = [
     {
         "id": "desk",
@@ -133,7 +132,6 @@ WORKSPACES = [
         "accent": COLORS["accent_orange"],
         "tabs": [
             {"id": "structure-builder", "label": "TRADE WORKSHOP", "module": structure_builder},
-            {"id": "exotics-pricer",    "label": "EXOTICS PRICER",    "module": exotics_pricer},
             {"id": "blotter-fx",        "label": "BLOTTER",           "module": blotter_fx},
         ],
     },
@@ -1228,6 +1226,23 @@ def send_to_lab(n_clicks):
 
 
 # ---------------------------------------------------------------------------
+# 9b. Build Trade button (vol surface → trade workshop with current pair)
+# ---------------------------------------------------------------------------
+@app.callback(
+    [Output("workspace-tabs", "value", allow_duplicate=True),
+     Output("sub-tabs", "value", allow_duplicate=True),
+     Output("stb-pair", "value", allow_duplicate=True)],
+    Input("vsfx-build-trade-btn", "n_clicks"),
+    State("vsfx-pair", "value"),
+    prevent_initial_call=True,
+)
+def build_trade_from_vol(n_clicks, pair):
+    if not n_clicks:
+        raise PreventUpdate
+    return "trade", "structure-builder", pair or "EURUSD"
+
+
+# ---------------------------------------------------------------------------
 # 10. Compare button (metric popup → adds to comparison, for now just closes)
 # ---------------------------------------------------------------------------
 app.clientside_callback(
@@ -1311,14 +1326,13 @@ def _update_data_source_status(_n):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Register All Panel Callbacks (9 panels)
+# Register All Panel Callbacks (8 panels)
 # ═══════════════════════════════════════════════════════════════════════════
 
 market_dashboard.register_callbacks(app)
 vol_surface_fx.register_callbacks(app)
 vol_scanner_unified.register_callbacks(app)
 structure_builder.register_callbacks(app)
-exotics_pricer.register_callbacks(app)
 blotter_fx.register_callbacks(app)
 risk_fx.register_callbacks(app)
 relative_value_plus.register_callbacks(app)
