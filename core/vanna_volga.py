@@ -60,7 +60,7 @@ def gk_vega(S, K, T, r_d, r_f, sigma):
 
 def gk_vanna(S, K, T, r_d, r_f, sigma):
     """Garman-Kohlhagen vanna: d(delta)/d(sigma) = d(vega)/d(spot)."""
-    if T <= 0:
+    if T <= 0 or sigma <= 0:
         return 0.0
     d1, d2 = _gk_d1_d2(S, K, T, r_d, r_f, sigma)
     return -np.exp(-r_f * T) * norm.pdf(d1) * d2 / sigma
@@ -68,7 +68,7 @@ def gk_vanna(S, K, T, r_d, r_f, sigma):
 
 def gk_volga(S, K, T, r_d, r_f, sigma):
     """Garman-Kohlhagen volga: d(vega)/d(sigma) = vega * d1 * d2 / sigma."""
-    if T <= 0:
+    if T <= 0 or sigma <= 0:
         return 0.0
     d1, d2 = _gk_d1_d2(S, K, T, r_d, r_f, sigma)
     v = gk_vega(S, K, T, r_d, r_f, sigma)

@@ -24,7 +24,9 @@ def figure_to_dataframe(fig_dict):
 
     # ── Heatmap / Surface → matrix format ──
     if trace_types & {"heatmap", "surface", "heatmapgl"}:
-        t = next(tr for tr in traces if tr.get("type") in ("heatmap", "surface", "heatmapgl"))
+        t = next((tr for tr in traces if tr.get("type") in ("heatmap", "surface", "heatmapgl")), None)
+        if t is None:
+            return pd.DataFrame()
         z = t.get("z", [])
         x = t.get("x", list(range(len(z[0]) if z else 0)))
         y = t.get("y", list(range(len(z))))
@@ -64,7 +66,7 @@ def figure_to_dataframe(fig_dict):
             continue
         name = t.get("name") or f"trace_{len(frames)}"
         # Deduplicate column names
-        existing = {f.columns[-1] for f in frames}
+        existing = {f.columns[-1] for f in frames if len(f.columns) > 0}
         if name in existing:
             name = f"{name}_{len(frames)}"
         s = pd.DataFrame({"x": x, name: y})

@@ -19,6 +19,8 @@ from typing import Tuple, Optional
 # ═══════════════════════════════════════════════════════════════════════════
 
 def bs_d1_d2(S, K, T, r, q, sigma):
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+        return 0.0, 0.0
     d1 = (np.log(S / K) + (r - q + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
     return d1, d2
@@ -404,6 +406,9 @@ def portfolio_var_cvar(positions, S, r, q, horizon_days=1,
     """
     rng = np.random.RandomState(seed)
     T_h = horizon_days / 365.0
+
+    if not positions:
+        return {"var": 0.0, "cvar": 0.0, "current_value": 0.0, "pnl_distribution": []}
 
     # Compute current portfolio value
     current_val = 0

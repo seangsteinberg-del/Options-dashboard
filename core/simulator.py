@@ -115,6 +115,7 @@ def generate_portfolio_history(positions, S_init, sigma, r, q, days=60, seed=42)
 
     daily_pnl = []
     cumulative = []
+    spot_path = []
     total = 0
     S = S_init
 
@@ -133,6 +134,7 @@ def generate_portfolio_history(positions, S_init, sigma, r, q, days=60, seed=42)
         daily_pnl.append(day_pnl)
         total += day_pnl
         cumulative.append(total)
+        spot_path.append(S_new)
         S = S_new
 
     dates = [datetime(2026, 1, 19) + timedelta(days=i) for i in range(days)]
@@ -140,9 +142,7 @@ def generate_portfolio_history(positions, S_init, sigma, r, q, days=60, seed=42)
         "date": dates,
         "daily_pnl": daily_pnl,
         "cumulative_pnl": cumulative,
-        "spot": [S_init * np.exp(sum(
-            [(r - q - 0.5 * sigma ** 2) / 252 + sigma / np.sqrt(252) * rng.standard_normal()]
-        )) for _ in range(days)],
+        "spot": spot_path,
     })
 
 
