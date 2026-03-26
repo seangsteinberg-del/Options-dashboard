@@ -155,7 +155,7 @@ class BloombergFetcher(threading.Thread):
             ok = 0
             for pair in pairs:
                 try:
-                    df = get_fx_historical_spot(pair, days=252)
+                    df = get_fx_historical_spot(pair, days=800)
                     if not df.empty:
                         ok += 1
                 except Exception:

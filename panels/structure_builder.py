@@ -1659,15 +1659,25 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
                       annotation_font=dict(color=COLORS["accent_orange"], size=8))
 
     # Probability density overlay: implied (risk-neutral) vs historical (physical)
+    # Clip density data to the payoff chart's spot range so it doesn't stretch the x-axis
+    spot_lo, spot_hi = spot_range[0], spot_range[-1]
     if ev_data and "pdf_strikes" in ev_data:
         pnl_range = max(abs(np.max(pnl_expiry)), abs(np.min(pnl_expiry)), 1)
 
-        # Compute shared scale factor from both PDFs
-        pdf_x_impl = ev_data["pdf_strikes"]
-        pdf_y_impl = ev_data["pdf_vals"]
+        # Clip both PDFs to the payoff chart's x-range
+        def _clip_pdf(x, y):
+            mask = (x >= spot_lo) & (x <= spot_hi)
+            return x[mask], y[mask]
+
+        pdf_x_impl, pdf_y_impl = _clip_pdf(
+            np.asarray(ev_data["pdf_strikes"]), np.asarray(ev_data["pdf_vals"]))
         pdf_x_hist = ev_data.get("hist_pdf_strikes")
         pdf_y_hist = ev_data.get("hist_pdf")
+        if pdf_x_hist is not None and pdf_y_hist is not None:
+            pdf_x_hist, pdf_y_hist = _clip_pdf(
+                np.asarray(pdf_x_hist), np.asarray(pdf_y_hist))
 
+        # Compute shared scale factor from both (clipped) PDFs
         all_peaks = [np.max(pdf_y_impl) if len(pdf_y_impl) > 0 else 1]
         if pdf_y_hist is not None and len(pdf_y_hist) > 0:
             all_peaks.append(np.max(pdf_y_hist))
@@ -1675,15 +1685,16 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
         scale = pnl_range * 0.30 / max(peak_max, 1e-12)
 
         # Implied density (orange)
-        fig.add_trace(go.Scatter(
-            x=pdf_x_impl, y=pdf_y_impl * scale, mode="lines", fill="tozeroy",
-            fillcolor="rgba(255,136,0,0.06)",
-            line=dict(color="rgba(255,136,0,0.35)", width=1.5),
-            name="Implied Density", showlegend=True, hoverinfo="skip",
-        ))
+        if len(pdf_x_impl) > 0:
+            fig.add_trace(go.Scatter(
+                x=pdf_x_impl, y=pdf_y_impl * scale, mode="lines", fill="tozeroy",
+                fillcolor="rgba(255,136,0,0.06)",
+                line=dict(color="rgba(255,136,0,0.35)", width=1.5),
+                name="Implied Density", showlegend=True, hoverinfo="skip",
+            ))
 
         # Historical density (purple) — gap between curves shows edge
-        if pdf_y_hist is not None and pdf_x_hist is not None:
+        if pdf_y_hist is not None and pdf_x_hist is not None and len(pdf_x_hist) > 0:
             fig.add_trace(go.Scatter(
                 x=pdf_x_hist, y=pdf_y_hist * scale, mode="lines",
                 line=dict(color="rgba(168,85,247,0.50)", width=1.5, dash="dash"),

@@ -769,15 +769,25 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
     return {}
 
 
+def _hist_bucket(days: int) -> int:
+    """Round up to a single standard fetch size so all consumers share one cache entry.
+
+    We always fetch 800 trading days (~3.2 years) which covers every consumer
+    (vol_cone needs ~766, realized vol needs ~272, direct lookups need 252).
+    """
+    return max(days, 800)
+
+
 def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
     """
     Historical OHLC spot data.
     Returns DataFrame with columns: open, high, low, close.
     """
-    ck = f"histspot_{pair}_{days}"
+    fetch_days = _hist_bucket(days)
+    ck = f"histspot_{pair}_{fetch_days}"
     cached, should_fetch = _cache_wait_or_claim(ck, "historical")
     if cached is not None:
-        return cached
+        return cached.tail(days) if len(cached) > days else cached
     if not _may_fetch() and should_fetch:
         _cache_done(ck)
         return pd.DataFrame()
@@ -786,7 +796,7 @@ def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
-            start = (datetime.now() - timedelta(days=int(days * 1.5))).strftime("%Y%m%d")
+            start = (datetime.now() - timedelta(days=int(fetch_days * 1.5))).strftime("%Y%m%d")
             ticker = _fx_bbg_ticker(pair)
             fields = ["PX_OPEN", "PX_HIGH", "PX_LOW", "PX_LAST"]
             df = bdh(ticker, fields, start)
@@ -795,10 +805,10 @@ def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
                     "PX_OPEN": "open", "PX_HIGH": "high",
                     "PX_LOW": "low", "PX_LAST": "close",
                 })
-                df = df.tail(days)
+                df = df.tail(fetch_days)
                 _cache_set(ck, df, "historical")
                 _cache_done(ck)
-                return df
+                return df.tail(days)
             _log_fetch_failure("get_fx_historical_spot", pair, "BDH returned empty dataframe")
             _cache_done(ck)
             return pd.DataFrame()
@@ -816,10 +826,11 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
                           metric: str = "atm", days: int = 252) -> pd.Series:
     """Historical vol time series for a given tenor/metric."""
     metric = metric.upper()  # normalize cache key
-    ck = f"histvol_{pair}_{tenor}_{metric}_{days}"
+    fetch_days = _hist_bucket(days)
+    ck = f"histvol_{pair}_{tenor}_{metric}_{fetch_days}"
     cached, should_fetch = _cache_wait_or_claim(ck, "historical")
     if cached is not None:
-        return cached
+        return cached.tail(days) if len(cached) > days else cached
     if not _may_fetch() and should_fetch:
         _cache_done(ck)
         return pd.Series(dtype=float)
@@ -849,17 +860,17 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
                 pfx = spec.bb_vol_prefix if spec else f"{pair_u}V"
             ticker = f"{pfx}{tc} Curncy"
 
-            start = (datetime.now() - timedelta(days=int(days * 1.5))).strftime("%Y%m%d")
+            start = (datetime.now() - timedelta(days=int(fetch_days * 1.5))).strftime("%Y%m%d")
             df = bdh(ticker, ["PX_LAST", "PX_MID"], start)
             if not df.empty:
                 # Use PX_LAST if available, else PX_MID
                 col = "PX_LAST" if "PX_LAST" in df.columns and df["PX_LAST"].notna().any() else "PX_MID"
                 if col in df.columns:
-                    series = df[col].tail(days)
+                    series = df[col].tail(fetch_days)
                     series.name = f"{pair}_{tenor}_{metric}"
                     _cache_set(ck, series, "historical")
                     _cache_done(ck)
-                    return series
+                    return series.tail(days)
             _log_fetch_failure("get_fx_historical_vol", f"{pair}/{tenor}/{metric}", "BDH returned empty")
             _cache_done(ck)
             return pd.Series(dtype=float)
