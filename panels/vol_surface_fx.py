@@ -1577,6 +1577,15 @@ def layout():
                                  style={"fontSize": "10px", "marginBottom": "6px"}),
                 ], style=SIDEBAR_SECTION),
 
+                # Smile / timeseries / PDF tenor
+                html.Div([
+                    html.Label("SMILE TENOR", style=SIDEBAR_LABEL),
+                    dcc.Dropdown(id="vsfx-smile-tenor", options=[
+                        {"label": t, "value": t} for t in TENORS_LIST
+                    ], value="3M", clearable=False,
+                    style={"fontSize": "10px"}),
+                ], style=SIDEBAR_SECTION),
+
                 # Auto-refresh
                 html.Div([
                     html.Label("AUTO REFRESH", style=SIDEBAR_LABEL),
@@ -1725,11 +1734,13 @@ def register_callbacks(app):
          Input("vsfx-cross-pair", "value"),
          Input("vsfx-tenors", "value"),
          Input("vsfx-delta-range", "value"),
+         Input("vsfx-smile-tenor", "value"),
          Input("vsfx-interval", "n_intervals")],
     )
     def update_workstation(pair, model, q1, q2, q3, q4,
                            compare, hist_offset, cross_pair,
-                           selected_tenors, delta_range, n_intervals):
+                           selected_tenors, delta_range, smile_tenor,
+                           n_intervals):
         pair = pair or "EURUSD"
         model = model or "market"
 
@@ -1745,9 +1756,9 @@ def register_callbacks(app):
         # Extra kwargs for chart functions
         extra = {
             "days_ago": hist_offset or 1,
-            "smile_tenor": "3M",
-            "ts_tenor": "3M",
-            "pdf_tenor": "3M",
+            "smile_tenor": smile_tenor or "3M",
+            "ts_tenor": smile_tenor or "3M",
+            "pdf_tenor": smile_tenor or "3M",
             "compare": compare,
             "cross_pair": cross_pair,
             "model": model,

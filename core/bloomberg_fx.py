@@ -220,6 +220,44 @@ def cache_clear():
         _cache.clear()
 
 
+def get_data_age_seconds(pair: str = None) -> dict:
+    """
+    Return age in seconds for cached data categories.
+    If pair is given, returns age for that pair's spot/vol/rates.
+    Otherwise returns the most recent spot cache age.
+    Returns dict: {"spot": seconds, "vol_surface": seconds, "rates": seconds}.
+    Missing entries have value -1.
+    """
+    now = time.time()
+    ages = {"spot": -1, "vol_surface": -1, "rates": -1}
+    with _cache_lock:
+        for k, (ts, _) in _cache.items():
+            if pair:
+                if pair in k:
+                    for cat in ages:
+                        if cat.replace("_", "") in k.replace("_", "") or (cat == "spot" and k.startswith("spots_")):
+                            age = int(now - ts)
+                            if ages[cat] < 0 or age < ages[cat]:
+                                ages[cat] = age
+            else:
+                if k.startswith("spots_"):
+                    age = int(now - ts)
+                    if ages["spot"] < 0 or age < ages["spot"]:
+                        ages["spot"] = age
+    return ages
+
+
+def format_data_age(pair: str = None) -> str:
+    """Human-readable data age string, e.g. '45s' or '3m12s'."""
+    ages = get_data_age_seconds(pair)
+    spot_age = ages.get("spot", -1)
+    if spot_age < 0:
+        return "N/A"
+    if spot_age < 60:
+        return f"{spot_age}s"
+    return f"{spot_age // 60}m{spot_age % 60:02d}s"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Tenor Utilities
 # ═══════════════════════════════════════════════════════════════════════════
@@ -483,10 +521,13 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
 
             # Only keep tenors that have at least ATM
             surface = {t: v for t, v in surface.items() if "atm" in v}
-            # Fill missing metrics with 0
+            # Fill missing metrics: ATM defaults to 0 (will trigger fallback),
+            # RR/BF default to NaN (propagates correctly through bf_rr_to_smile
+            # which treats NaN as 0.0 = flat smile assumption)
             for t in surface:
-                for m in ("atm", "rr25", "bf25", "rr10", "bf10"):
-                    surface[t].setdefault(m, 0.0)
+                surface[t].setdefault("atm", 0.0)
+                for m in ("rr25", "bf25", "rr10", "bf10"):
+                    surface[t].setdefault(m, float('nan'))
 
             if surface:
                 logger.info("Vol surface %s: %d tenors from %d/%d tickers",

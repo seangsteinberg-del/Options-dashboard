@@ -247,6 +247,8 @@ def _gk_greeks(S, K, T, r_d, r_f, sigma, cp):
     ) / 365.0
     rho_d = cp_f * K_f * T_safe * exp_rd * nd2 / 100.0
     rho_f = -cp_f * S_f * T_safe * exp_rf * nd1 / 100.0
+    vanna = -exp_rf * npd1 * d2 / sigma_safe
+    volga = S_f * exp_rf * npd1 * sqrt_T * d1 * d2 / sigma_safe
 
     return {
         "delta": delta,
@@ -255,6 +257,8 @@ def _gk_greeks(S, K, T, r_d, r_f, sigma, cp):
         "theta": theta_daily,
         "rho_d": rho_d,
         "rho_f": rho_f,
+        "vanna": vanna,
+        "volga": volga,
     }
 
 
@@ -396,6 +400,8 @@ def _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surf
             "theta": greeks["theta"] * side_sign * ratio,
             "rho_d": greeks["rho_d"] * side_sign * ratio,
             "rho_f": greeks["rho_f"] * side_sign * ratio,
+            "vanna": greeks["vanna"] * side_sign * ratio,
+            "volga": greeks["volga"] * side_sign * ratio,
             "S": S, "T": leg_T, "r_d": r_d, "r_f": r_f,
         })
 
@@ -414,6 +420,8 @@ def _compute_aggregates(processed_legs, S, T, r_d, r_f, notional, pip_size):
     net_gamma = sum(lg["gamma"] for lg in processed_legs)
     net_vega = sum(lg["vega"] for lg in processed_legs)
     net_theta = sum(lg["theta"] for lg in processed_legs)
+    net_vanna = sum(lg["vanna"] for lg in processed_legs)
+    net_volga = sum(lg["volga"] for lg in processed_legs)
 
     spot_range = np.linspace(S * 0.70, S * 1.30, 600)
     expiry_pnl = np.zeros_like(spot_range)
@@ -464,6 +472,8 @@ def _compute_aggregates(processed_legs, S, T, r_d, r_f, notional, pip_size):
         "net_gamma": net_gamma,
         "net_vega": net_vega,
         "net_theta": net_theta,
+        "net_vanna": net_vanna,
+        "net_volga": net_volga,
         "breakevens": breakevens,
         "max_profit": max_profit,
         "max_loss": max_loss,
@@ -764,7 +774,7 @@ def _build_premium_table(processed_legs, pair, pip_size, notional):
 
     headers = ["Leg", "C/P", "Side", "Delta", "Strike", "Vol (%)",
                "Prem (pips)", "Prem (%)", "Ratio", "Net Prem",
-               "Delta", "Vega", "Theta"]
+               "Delta", "Vega", "Theta", "Vanna", "Volga"]
     header_row = html.Tr([html.Th(h, style=header_style) for h in headers])
 
     rows = []
@@ -790,6 +800,8 @@ def _build_premium_table(processed_legs, pair, pip_size, notional):
             html.Td(f"{lg['delta']:.4f}", style=cell_style),
             html.Td(f"{lg['vega'] * notional:.0f}", style=cell_style),
             html.Td(f"{lg['theta'] * notional:.0f}", style=cell_style),
+            html.Td(f"{lg['vanna'] * notional:.4f}", style=cell_style),
+            html.Td(f"{lg['volga'] * notional:.0f}", style=cell_style),
         ]))
         net_pips += lg["premium_pips"]
         net_pct += lg["premium_pct"]
@@ -805,6 +817,8 @@ def _build_premium_table(processed_legs, pair, pip_size, notional):
     net_delta = sum(lg["delta"] for lg in processed_legs)
     net_vega = sum(lg["vega"] for lg in processed_legs)
     net_theta = sum(lg["theta"] for lg in processed_legs)
+    net_vanna = sum(lg["vanna"] for lg in processed_legs)
+    net_volga = sum(lg["volga"] for lg in processed_legs)
     rows.append(html.Tr([
         html.Td("NET", style=total_style),
         html.Td("", style=total_style),
@@ -822,6 +836,8 @@ def _build_premium_table(processed_legs, pair, pip_size, notional):
         html.Td(f"{net_delta:.4f}", style=total_style),
         html.Td(f"{net_vega * notional:.0f}", style=total_style),
         html.Td(f"{net_theta * notional:.0f}", style=total_style),
+        html.Td(f"{net_vanna * notional:.4f}", style=total_style),
+        html.Td(f"{net_volga * notional:.0f}", style=total_style),
     ]))
 
     table = html.Table(

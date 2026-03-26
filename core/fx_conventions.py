@@ -323,6 +323,19 @@ def atm_forward_strike(S, T, r_d, r_f):
 # Vol Quoting and Smile Construction
 # ============================================================================
 
+def _nan_to_zero(v):
+    """Treat None/NaN as 0.0 for vol surface metrics (missing = no skew/curvature)."""
+    if v is None:
+        return 0.0
+    try:
+        import math
+        if math.isnan(v):
+            return 0.0
+    except (TypeError, ValueError):
+        pass
+    return float(v)
+
+
 def bf_rr_to_smile(atm, rr25, bf25, rr10=None, bf10=None):
     """
     Convert butterfly/risk-reversal quotes to individual vol pillars.
@@ -332,12 +345,18 @@ def bf_rr_to_smile(atm, rr25, bf25, rr10=None, bf10=None):
         RR25 = C25 - P25
 
     Returns dict with keys: atm, c25, p25, c10, p10 (vols).
+    NaN/None inputs are treated as 0.0 (missing data = flat smile assumption).
     """
+    atm = _nan_to_zero(atm) or 8.0  # ATM must be positive; default 8 vol points
+    rr25 = _nan_to_zero(rr25)
+    bf25 = _nan_to_zero(bf25)
     c25 = atm + bf25 + 0.5 * rr25
     p25 = atm + bf25 - 0.5 * rr25
     result = {"atm": atm, "c25": c25, "p25": p25}
 
     if rr10 is not None and bf10 is not None:
+        rr10 = _nan_to_zero(rr10)
+        bf10 = _nan_to_zero(bf10)
         c10 = atm + bf10 + 0.5 * rr10
         p10 = atm + bf10 - 0.5 * rr10
         result["c10"] = c10

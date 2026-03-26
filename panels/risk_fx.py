@@ -18,6 +18,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
 import pandas as pd
+from datetime import datetime, date
 
 from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE, LABEL_STYLE,
@@ -2125,19 +2126,42 @@ def _build_position_table(positions, spots, rates, vol_surfaces):
         mtm = pg.get("price", 0)
         pnl = mtm - entry_prem if direction == "buy" else entry_prem - mtm
 
+        # Compute DTE, entry date display, and trade age
+        today = date.today()
+        try:
+            expiry_dt = datetime.strptime(str(pos.get("expiry", ""))[:10], "%Y-%m-%d").date()
+            dte_val = (expiry_dt - today).days
+            dte_str = str(dte_val)
+        except (ValueError, TypeError):
+            dte_str = "--"
+
+        entry_date_raw = pos.get("entry_date", "")
+        try:
+            entry_dt = datetime.strptime(str(entry_date_raw)[:10], "%Y-%m-%d").date()
+            entry_str = entry_dt.strftime("%Y-%m-%d")
+            age_str = str((today - entry_dt).days)
+        except (ValueError, TypeError):
+            entry_str = "--"
+            age_str = "--"
+
         table_rows.append({
             "Pair": pair,
             "Type": display_type,
             "Strike": f"{pos.get('strike', 0):.4f}",
             "Delta": f"{pg.get('delta', 0):+,.0f}",
             "Expiry": str(pos.get("expiry", ""))[:10],
+            "DTE": dte_str,
             "Notional": f"{pos['notional']:,.0f}",
             "Book": pos.get("book", ""),
             "Strategy": pos.get("strategy", ""),
+            "Entry": entry_str,
+            "Age": age_str,
             "P&L": f"${pnl:+,.0f}",
             "Vega": f"{pg.get('vega', 0):+,.0f}",
             "Gamma": f"{pg.get('gamma', 0):+,.0f}",
             "Theta": f"{pg.get('theta', 0):+,.0f}",
+            "Vanna": f"{pg.get('vanna', 0):+,.4f}",
+            "Volga": f"{pg.get('volga', 0):+,.0f}",
         })
 
     if not table_rows:
@@ -2152,13 +2176,18 @@ def _build_position_table(positions, spots, rates, vol_surfaces):
         {"name": "Strike", "id": "Strike"},
         {"name": "Delta", "id": "Delta"},
         {"name": "Expiry", "id": "Expiry"},
+        {"name": "DTE", "id": "DTE"},
         {"name": "Notional", "id": "Notional"},
         {"name": "Book", "id": "Book"},
         {"name": "Strategy", "id": "Strategy"},
+        {"name": "Entry", "id": "Entry"},
+        {"name": "Age", "id": "Age"},
         {"name": "P&L", "id": "P&L"},
         {"name": "Vega", "id": "Vega"},
         {"name": "Gamma", "id": "Gamma"},
         {"name": "Theta", "id": "Theta"},
+        {"name": "Vanna", "id": "Vanna"},
+        {"name": "Volga", "id": "Volga"},
     ]
 
     return dash_table.DataTable(

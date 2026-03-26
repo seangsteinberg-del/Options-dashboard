@@ -1069,10 +1069,7 @@ def save_watchlist(n_clicks, pairs):
     prevent_initial_call=True,
 )
 def handle_metric_popup(metric_clicks, close_clicks):
-    """Universal metric popup — disabled (always hidden)."""
-    return {"display": "none"}, "", [], go.Figure()
-
-    # -- Original popup logic below (kept for reference) --
+    """Universal metric popup — click any stat to see 252-day history, percentile, z-score."""
     ctx = callback_context
     if not ctx.triggered:
         raise PreventUpdate
@@ -1097,6 +1094,8 @@ def handle_metric_popup(metric_clicks, close_clicks):
     try:
         from core.fx_analytics import vol_percentile
         info = vol_percentile(pair, tenor, metric, 252)
+        if not info or not isinstance(info, dict):
+            raise ValueError(f"No historical data for {pair} {tenor} {metric}")
 
         current = info.get("current", 0)
         mean_val = info.get("mean", 0)
