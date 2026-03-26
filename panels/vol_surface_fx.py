@@ -1139,7 +1139,8 @@ def chart_implied_dist(pair, sd, spot, r_dom, r_for, **kw):
 # Lab: Time-series fetch + rendering (ported from chart_lab.py)
 # ═══════════════════════════════════════════════════════════════════════════
 
-_CW = CHART_TEMPLATE["layout"]["colorway"]
+_CW = CHART_TEMPLATE["layout"].get("colorway") or [
+    "#ff8800", "#00cc66", "#3b82f6", "#a855f7", "#ef4444", "#06b6d4", "#f59e0b", "#ec4899"]
 _FONT = "'JetBrains Mono', monospace"
 
 
@@ -2752,6 +2753,8 @@ def register_callbacks(app):
          Input("vsfx-comp-tenor", "value")],
     )
     def run_comparison(n_clicks, pairs, comp_type, tenor):
+        if isinstance(pairs, str):
+            pairs = [pairs]
         if not pairs or len(pairs) < 2:
             return _empty_fig("Select 2-5 pairs")
         pairs = pairs[:5]

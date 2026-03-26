@@ -244,6 +244,8 @@ def _norm_pdf(x):
 def _gk_d1d2(S, K, T, r_d, r_f, sigma):
     """Compute d1 and d2 for Garman-Kohlhagen."""
     T_safe = np.maximum(T, 1e-10)
+    sigma = np.maximum(sigma, 1e-6)
+    K = np.maximum(K, 1e-10)
     sqrt_T = np.sqrt(T_safe)
     d1 = (np.log(S / K) + (r_d - r_f + 0.5 * sigma ** 2) * T_safe) / (sigma * sqrt_T)
     d2 = d1 - sigma * sqrt_T
@@ -270,7 +272,7 @@ def _gk_greeks(S, K, T, r_d, r_f, sigma, cp):
     """
     T_safe = max(float(T), 1e-10)
     sigma_safe = max(float(sigma), 1e-6)
-    S_f = float(S)
+    S_f = max(float(S), 1e-10)
     K_f = float(K)
     r_d_f = float(r_d)
     r_f_f = float(r_f)
@@ -327,9 +329,13 @@ def _interp_vol_for_delta(vol_surface_data, tenor, delta_abs, cp_sign):
     if not vol_surface_data:
         return 0.08
     if tenor not in vol_surface_data:
-        available = sorted(vol_surface_data.keys(),
-                           key=lambda t: abs(tenor_to_years(t) - tenor_to_years(tenor)))
-        tenor = available[0] if available else list(vol_surface_data.keys())[0]
+        def _safe_tenor_dist(t):
+            try:
+                return abs(tenor_to_years(t) - tenor_to_years(tenor))
+            except Exception:
+                return 999
+        available = sorted(vol_surface_data.keys(), key=_safe_tenor_dist)
+        tenor = available[0] if available else next(iter(vol_surface_data))
 
     q = vol_surface_data.get(tenor, {})
     if not q:
@@ -372,10 +378,14 @@ def _get_atm_vol(vol_surface_data, tenor):
     if not vol_surface_data:
         return 0.08
     if tenor not in vol_surface_data:
-        available = sorted(vol_surface_data.keys(),
-                           key=lambda t: abs(tenor_to_years(t) - tenor_to_years(tenor)))
-        tenor = available[0] if available else list(vol_surface_data.keys())[0]
-    return vol_surface_data[tenor]["atm"] / 100.0
+        def _safe_td(t):
+            try:
+                return abs(tenor_to_years(t) - tenor_to_years(tenor))
+            except Exception:
+                return 999
+        available = sorted(vol_surface_data.keys(), key=_safe_td)
+        tenor = available[0] if available else next(iter(vol_surface_data))
+    return vol_surface_data.get(tenor, {}).get("atm", 8.0) / 100.0
 
 
 # ============================================================================
@@ -505,7 +515,7 @@ def _compute_aggregates(processed_legs, S, T, r_d, r_f, notional, pip_size):
         atm_vol = max(processed_legs[0].get("vol", 0.10), 0.01)
     sigma_T = atm_vol * np.sqrt(max(T, 1e-4))
     mu_T = (r_d - r_f - 0.5 * atm_vol ** 2) * T
-    log_spots = np.log(spot_range / S)
+    log_spots = np.log(np.maximum(spot_range, 1e-10) / max(S, 1e-10))
     pdf_vals = np.exp(-0.5 * ((log_spots - mu_T) / sigma_T) ** 2) / (sigma_T * np.sqrt(2 * np.pi) * spot_range)
     _trapz = np.trapezoid if hasattr(np, 'trapezoid') else np.trapz
     total_area = _trapz(pdf_vals, spot_range)
