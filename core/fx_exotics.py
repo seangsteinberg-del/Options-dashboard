@@ -301,7 +301,7 @@ def digital_greeks(S, K, T, r_d, r_f, sigma, cp, payout=1.0):
     # theta (derivative w.r.t. time, per day)
     theta_val = cp * payout * df * (
         r_d * norm.cdf(cp * d2)
-        + pdf_d2 * ((r_d - r_f) / sqrt_T - d2 / (2 * T))
+        + pdf_d2 * ((r_d - r_f - 0.5 * sigma ** 2) / sqrt_T - d2 / (2 * T))
     )
     theta = -theta_val / 365.0
 
