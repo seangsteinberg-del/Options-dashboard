@@ -659,6 +659,12 @@ def _compute_expected_value(processed_legs, S, T, r_d, r_f, pair, tenor,
             "hist_vol_used": hist_vol,
             "pdf_strikes": impl_strikes if impl_strikes is not None else spot_grid,
             "pdf_vals": impl_pdf if impl_pdf is not None else hist_pdf,
+            # Additional data for EV sensitivity & density overlay
+            "spot_grid": spot_grid,
+            "pnl_grid": pnl,
+            "hist_pdf": hist_pdf,
+            "hist_pdf_strikes": spot_grid,
+            "S": S, "T": T, "r_d": r_d, "r_f": r_f,
         }
     except Exception as exc:
         logger.debug("EV calculation failed: %s", exc)
@@ -996,8 +1002,299 @@ def _build_scenario_table(processed_legs, S, T, r_d, r_f, notional):
     return results
 
 
+# ============================================================================
+# EV Sensitivity Curve — EV as a function of realized vol assumption
+# ============================================================================
+
+def _build_ev_sensitivity_chart(ev_data):
+    """Small chart: EV vs assumed realized vol, with breakeven RV annotated."""
+    if not ev_data or "pnl_grid" not in ev_data:
+        return html.Div()
+
+    spot_grid = ev_data["spot_grid"]
+    pnl = ev_data["pnl_grid"]
+    S = ev_data["S"]
+    T = ev_data["T"]
+    r_d = ev_data["r_d"]
+    r_f = ev_data["r_f"]
+    hist_vol = ev_data.get("hist_vol_used", 0.08)
+
+    # Sweep RV from 30% of current to 250% of current (at least 2% to 30%)
+    rv_lo = max(hist_vol * 0.3, 0.02)
+    rv_hi = max(hist_vol * 2.5, 0.30)
+    rv_range = np.linspace(rv_lo, rv_hi, 30)
+    ev_vals = []
+
+    for rv in rv_range:
+        mu_T = (r_d - r_f - 0.5 * rv ** 2) * T
+        sigma_T = rv * np.sqrt(max(T, 1e-6))
+        log_s = np.log(np.maximum(spot_grid, 1e-10) / max(S, 1e-10))
+        pdf = np.exp(-0.5 * ((log_s - mu_T) / max(sigma_T, 1e-8)) ** 2) / (
+            max(sigma_T, 1e-8) * np.sqrt(2 * np.pi) * np.maximum(spot_grid, 1e-10))
+        total = _trapz(pdf, spot_grid)
+        if total > 0:
+            pdf = pdf / total
+        ev_vals.append(float(_trapz(pnl * pdf, spot_grid)))
+
+    ev_arr = np.array(ev_vals)
+    rv_pct = rv_range * 100
+
+    # Find breakeven RV (where EV crosses zero)
+    be_rv = None
+    for i in range(1, len(ev_arr)):
+        if ev_arr[i - 1] * ev_arr[i] < 0:
+            # Linear interpolation
+            x0, x1 = rv_pct[i - 1], rv_pct[i]
+            y0, y1 = ev_arr[i - 1], ev_arr[i]
+            be_rv = x0 - y0 * (x1 - x0) / (y1 - y0) if (y1 - y0) != 0 else x0
+            break
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=rv_pct, y=ev_arr, mode="lines",
+        line=dict(color=COLORS["accent_cyan"], width=2),
+        fill="tozeroy", fillcolor="rgba(6,182,212,0.06)",
+        hovertemplate="RV: %{x:.1f}%<br>EV: %{y:+,.0f}<extra></extra>",
+    ))
+    fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=1, dash="dot"))
+
+    # Mark current RV
+    fig.add_vline(x=hist_vol * 100,
+                  line=dict(color=COLORS["accent_orange"], width=1, dash="dash"),
+                  annotation_text=f"Current RV {hist_vol*100:.1f}%",
+                  annotation_font=dict(color=COLORS["accent_orange"], size=8))
+
+    # Mark breakeven
+    if be_rv is not None:
+        fig.add_vline(x=be_rv,
+                      line=dict(color=COLORS["accent_red"], width=1.5, dash="dashdot"),
+                      annotation_text=f"BE RV {be_rv:.1f}%",
+                      annotation_font=dict(color=COLORS["accent_red"], size=9),
+                      annotation_position="top left")
+
+    tpl = CHART_TEMPLATE["layout"]
+    fig.update_layout(
+        title=dict(text="EV SENSITIVITY TO REALIZED VOL", font=dict(color=COLORS["text_muted"], size=10)),
+        xaxis_title="Assumed Realized Vol (%)", yaxis_title="Expected Value",
+        paper_bgcolor=tpl["paper_bgcolor"], plot_bgcolor=tpl["plot_bgcolor"],
+        font=tpl["font"], margin=dict(l=50, r=15, t=30, b=30),
+        hoverlabel=tpl["hoverlabel"], height=200, showlegend=False,
+        xaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+        yaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+    )
+    return dcc.Graph(figure=fig, config={"displayModeBar": False},
+                     style={"marginBottom": "8px"})
+
+
+# ============================================================================
+# Named Scenarios — joint spot + vol + time shocks
+# ============================================================================
+
+NAMED_SCENARIOS = [
+    {"name": "Risk-off",         "spot": -0.03, "vol_mult": +0.40, "dt": 0},
+    {"name": "Risk-on rally",    "spot": +0.02, "vol_mult": -0.15, "dt": 0},
+    {"name": "Vol normalization", "spot": 0,     "vol_mult": "mean", "dt": 0},
+    {"name": "Post-event crush", "spot": 0,     "vol_mult": -0.25,  "dt": 5 / 365},
+    {"name": "Spot stress ↑",    "spot": +0.05, "vol_mult": +0.20, "dt": 0},
+    {"name": "Spot stress ↓",    "spot": -0.05, "vol_mult": +0.30, "dt": 0},
+    {"name": "Time decay (1W)",  "spot": 0,     "vol_mult": 0,      "dt": 7 / 365},
+    {"name": "Time decay (1M)",  "spot": 0,     "vol_mult": 0,      "dt": 30 / 365},
+    {"name": "Benign carry",     "spot": +0.005, "vol_mult": -0.05, "dt": 30 / 365},
+]
+
+
+def _build_named_scenarios(processed_legs, S, T, r_d, r_f, notional, atm_vol,
+                            pair=None, tenor=None):
+    """Compute P&L under named multi-factor scenarios."""
+    net_prem = sum(lg["price_unit"] * lg["side_sign"] * lg["ratio"]
+                   for lg in processed_legs)
+
+    # Get mean vol for "mean revert" scenario
+    mean_vol = atm_vol
+    try:
+        vp = vol_percentile(pair, tenor or "3M", "ATM", 252)
+        if vp and vp.get("mean"):
+            mean_vol = vp["mean"] / 100.0
+    except Exception:
+        pass
+
+    results = []
+    for sc in NAMED_SCENARIOS:
+        s_new = S * (1.0 + sc["spot"])
+        t_new = max(T - sc["dt"], 1e-6)
+
+        # Vol shock: multiplicative or mean-revert
+        if sc["vol_mult"] == "mean":
+            vol_ratio = mean_vol / max(atm_vol, 1e-6)
+        else:
+            vol_ratio = 1.0 + sc["vol_mult"]
+
+        pnl_sum = 0.0
+        for lg in processed_legs:
+            vol_new = max(lg["vol"] * vol_ratio, 0.005)
+            qty = lg["side_sign"] * lg["ratio"]
+            pnl_sum += float(_gk_price(s_new, lg["strike"], t_new, r_d, r_f,
+                                        vol_new, lg["cp_sign"])) * qty
+        pnl_total = (pnl_sum - net_prem) * notional
+
+        # Format vol description
+        if sc["vol_mult"] == "mean":
+            vol_desc = f"→{mean_vol*100:.1f}%"
+        elif sc["vol_mult"] == 0:
+            vol_desc = "unch"
+        else:
+            vol_desc = f"{sc['vol_mult']:+.0%}"
+
+        time_desc = f"-{sc['dt']*365:.0f}d" if sc["dt"] > 0 else "now"
+
+        results.append({
+            "name": sc["name"],
+            "spot_desc": f"{sc['spot']:+.1%}" if sc["spot"] != 0 else "unch",
+            "vol_desc": vol_desc,
+            "time_desc": time_desc,
+            "pnl": pnl_total,
+        })
+    return results
+
+
+# ============================================================================
+# Structure Efficiency Comparison — rank alternative structures
+# ============================================================================
+
+# Map vol views to comparable preset structures
+_VIEW_ALTERNATIVES = {
+    "long_vol": ["Straddle", "Strangle", "25D Strangle", "10D Strangle", "Calendar Spread"],
+    "short_vol": ["Butterfly", "Iron Butterfly", "Iron Condor", "Broken Wing Butterfly"],
+    "skew": ["Risk Reversal", "25D Risk Reversal", "Seagull", "Collar"],
+    "neutral": ["Call Spread", "Put Spread", "Collar", "Fence", "Iron Condor"],
+    "term_structure": ["Calendar Spread", "Diagonal Spread"],
+    "unknown": [],
+}
+
+
+def _build_efficiency_table(processed_legs, agg, ev_data, preset_name, view_info,
+                             pair, tenor, notional, spot_data, rates, vol_surface,
+                             S, T, r_d, r_f, pip_size):
+    """Auto-generate alternative structures and compare efficiency metrics."""
+    tpl_font = {"fontFamily": "'JetBrains Mono', monospace"}
+    vol_view = view_info.get("vol_view", "unknown")
+    alternatives = _VIEW_ALTERNATIVES.get(vol_view, [])
+
+    # Remove current preset from alternatives
+    alternatives = [a for a in alternatives if a != preset_name][:4]
+    if not alternatives:
+        return html.Div()
+
+    # Current structure metrics
+    current_prem = agg.get("net_premium_pips", 0)
+    current_vega = agg.get("net_vega", 0) * notional
+    current_prem_abs = abs(current_prem) * pip_size * notional if pip_size > 0 else 1
+
+    rows = []
+
+    # Current structure row
+    rows.append({
+        "name": preset_name or "Current",
+        "premium": current_prem,
+        "max_loss": agg.get("max_loss", 0),
+        "be": agg["breakevens"][0] if agg.get("breakevens") else None,
+        "vega_per_pip": abs(current_vega / max(abs(current_prem), 0.01)),
+        "gamma_theta": abs(agg["net_gamma"] / max(abs(agg["net_theta"]), 1e-12)),
+        "pop": agg.get("pop", 0),
+        "ev": ev_data["ev"] if ev_data else 0,
+        "is_current": True,
+    })
+
+    # Price each alternative
+    for alt_name in alternatives:
+        try:
+            alt_legs = PRESETS.get(alt_name)
+            if not alt_legs:
+                continue
+            alt_proc = _process_legs(alt_legs, pair, tenor, notional, spot_data, rates, vol_surface)
+            if not alt_proc:
+                continue
+            alt_agg = _compute_aggregates(alt_proc, S, T, r_d, r_f, notional, pip_size)
+            alt_vega = alt_agg.get("net_vega", 0) * notional
+            alt_prem = alt_agg.get("net_premium_pips", 0)
+
+            rows.append({
+                "name": alt_name,
+                "premium": alt_prem,
+                "max_loss": alt_agg.get("max_loss", 0),
+                "be": alt_agg["breakevens"][0] if alt_agg.get("breakevens") else None,
+                "vega_per_pip": abs(alt_vega / max(abs(alt_prem), 0.01)),
+                "gamma_theta": abs(alt_agg["net_gamma"] / max(abs(alt_agg["net_theta"]), 1e-12)),
+                "pop": alt_agg.get("pop", 0),
+                "ev": 0,  # Skip full EV for performance
+                "is_current": False,
+            })
+        except Exception:
+            continue
+
+    if len(rows) < 2:
+        return html.Div()
+
+    # Build HTML table
+    hdr_s = {"color": COLORS["text_muted"], "fontSize": "8px", "fontWeight": "600",
+             "padding": "3px 5px", "textTransform": "uppercase", **tpl_font,
+             "borderBottom": f"1px solid {COLORS['border_subtle']}"}
+    cell_s = {"color": COLORS["text_primary"], "fontSize": "9px", "padding": "3px 5px",
+              **tpl_font, "borderBottom": f"1px solid {COLORS['border_subtle']}"}
+
+    header = html.Tr([html.Th(h, style=hdr_s) for h in
+                       ["STRUCTURE", "PREM (p)", "MAX LOSS", "BREAKEVEN",
+                        "VEGA/$", "γ/θ", "POP", "EV"]])
+    body = []
+    for r in rows:
+        highlight = {"backgroundColor": "rgba(6,182,212,0.08)"} if r["is_current"] else {}
+        be_str = f"{r['be']:.5f}" if r["be"] else "—"
+        ev_str = f"{r['ev']:+,.0f}" if r["ev"] != 0 else "—"
+        body.append(html.Tr([
+            html.Td(r["name"], style={**cell_s, **highlight,
+                     "fontWeight": "700" if r["is_current"] else "400",
+                     "color": COLORS["accent_cyan"] if r["is_current"] else COLORS["text_primary"]}),
+            html.Td(f"{r['premium']:.1f}", style={**cell_s, **highlight, "textAlign": "right"}),
+            html.Td(f"{r['max_loss']:,.0f}" if r["max_loss"] > -1e12 else "UNLIM",
+                     style={**cell_s, **highlight, "textAlign": "right"}),
+            html.Td(be_str, style={**cell_s, **highlight, "textAlign": "right"}),
+            html.Td(f"{r['vega_per_pip']:.0f}", style={**cell_s, **highlight, "textAlign": "right"}),
+            html.Td(f"{r['gamma_theta']:.1f}", style={**cell_s, **highlight, "textAlign": "right"}),
+            html.Td(f"{r['pop']:.0f}%", style={**cell_s, **highlight, "textAlign": "right"}),
+            html.Td(ev_str, style={**cell_s, **highlight, "textAlign": "right"}),
+        ]))
+
+    return html.Div([
+        html.Div("STRUCTURE COMPARISON", style={"color": COLORS["text_muted"], "fontSize": "9px",
+                 "fontWeight": "600", "textTransform": "uppercase", "letterSpacing": "1px",
+                 "marginBottom": "4px", **tpl_font}),
+        html.Table([html.Thead(header), html.Tbody(body)],
+                   style={"width": "100%", "borderCollapse": "collapse"}),
+    ], style={"marginTop": "8px"})
+
+
+# ============================================================================
+# Delta-to-metric mapper for per-leg edge analysis
+# ============================================================================
+
+def _delta_to_vol_metric(delta_input, cp_sign):
+    """Map a leg's delta to the most relevant vol surface metric for percentile ranking."""
+    d = abs(delta_input)
+    if 0.40 <= d <= 0.60:
+        return "ATM", "ATM level"
+    elif 0.20 <= d < 0.40:
+        if cp_sign > 0:
+            return "25D_BF", "25D wing"
+        else:
+            return "25D_BF", "25D wing"
+    elif d < 0.20:
+        return "25D_BF", "wing (10D)"
+    return "ATM", "ATM level"
+
+
 def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
-                          preset_name, S, T, r_d, r_f, pip_size, vol_surface):
+                          preset_name, S, T, r_d, r_f, pip_size, vol_surface,
+                          spot_data=None, rates=None, atm_vol=0.10):
     """Build the unified Trade Analysis panel (EV + edge + scenarios + risks)."""
     tpl_font = {"fontFamily": "'JetBrains Mono', monospace"}
     section_style = {"marginBottom": "12px"}
@@ -1030,11 +1327,15 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
             ], style={**make_stat_style(ev_data["edge_color"]), "flex": "1", "minWidth": "100px"}),
         ]
 
-    # ── Per-leg edge ──
+    # ── Per-leg edge (delta-specific percentile) ──
     leg_rows = []
     for lg in processed_legs:
         leg_tenor = years_to_nearest_tenor(lg["T"]) if lg.get("T") else tenor
-        vp = vol_percentile(pair, leg_tenor, "ATM", 252)
+        metric, metric_label = _delta_to_vol_metric(lg.get("delta_input", 0.5), lg["cp_sign"])
+        vp = vol_percentile(pair, leg_tenor, metric, 252)
+        if not vp:
+            vp = vol_percentile(pair, leg_tenor, "ATM", 252)
+            metric_label = "ATM level"
         pct = vp["percentile"] if vp else 50
         pct_color = (COLORS["accent_green"] if pct < 25
                      else COLORS["accent_red"] if pct > 75
@@ -1044,7 +1345,7 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
         action = "Buying" if lg["side_sign"] > 0 else "Selling"
         leg_rows.append(html.Div(
             f"L{lg['leg_num']} {action} {lg['cp'].upper()} Δ{lg['delta_input']:.0%} "
-            f"| vol {lg['vol']*100:.1f}% | {_ordinal(pct)} %ile ({cheap_label})",
+            f"| vol {lg['vol']*100:.1f}% | {metric_label} {_ordinal(pct)} %ile ({cheap_label})",
             style={"color": pct_color, "fontSize": "10px", **tpl_font, "marginBottom": "2px"},
         ))
 
@@ -1078,16 +1379,50 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
                    "fontSize": "10px", **tpl_font, "marginTop": "4px"},
         )
 
-    # ── Scenario table ──
-    scenarios = _build_scenario_table(processed_legs, S, T, r_d, r_f, notional)
-    sc_cells = []
-    for sc in scenarios:
+    # ── EV sensitivity chart ──
+    ev_sensitivity = html.Div()
+    try:
+        ev_sensitivity = _build_ev_sensitivity_chart(ev_data)
+    except Exception:
+        pass
+
+    # ── Named scenario table ──
+    named_scenarios = []
+    try:
+        named_scenarios = _build_named_scenarios(
+            processed_legs, S, T, r_d, r_f, notional, atm_vol, pair, tenor)
+    except Exception:
+        pass
+
+    sc_header = html.Tr([html.Th(h, style={**label_s, "padding": "2px 4px", "fontSize": "7px"})
+                          for h in ["SCENARIO", "SPOT", "VOL", "TIME", "P&L"]])
+    sc_rows = []
+    for sc in named_scenarios:
         pnl = sc["pnl"]
         color = COLORS["accent_green"] if pnl > 0 else COLORS["accent_red"] if pnl < 0 else COLORS["text_muted"]
-        sc_cells.append(html.Div([
-            html.Div(f"{sc['shock']:+.0%}", style={"fontSize": "8px", "color": COLORS["text_muted"], **tpl_font}),
-            html.Div(f"{pnl:+,.0f}", style={"fontSize": "10px", "fontWeight": "600", "color": color, **tpl_font}),
-        ], style={"textAlign": "center", "flex": "1", "minWidth": "50px"}))
+        sc_rows.append(html.Tr([
+            html.Td(sc["name"], style={"color": COLORS["text_primary"], "fontSize": "9px",
+                     "padding": "2px 4px", **tpl_font}),
+            html.Td(sc["spot_desc"], style={"color": COLORS["text_secondary"], "fontSize": "9px",
+                     "padding": "2px 4px", "textAlign": "center", **tpl_font}),
+            html.Td(sc["vol_desc"], style={"color": COLORS["text_secondary"], "fontSize": "9px",
+                     "padding": "2px 4px", "textAlign": "center", **tpl_font}),
+            html.Td(sc["time_desc"], style={"color": COLORS["text_secondary"], "fontSize": "9px",
+                     "padding": "2px 4px", "textAlign": "center", **tpl_font}),
+            html.Td(f"{pnl:+,.0f}", style={"color": color, "fontSize": "9px", "fontWeight": "600",
+                     "padding": "2px 4px", "textAlign": "right", **tpl_font}),
+        ]))
+
+    # ── Structure efficiency comparison ──
+    efficiency_table = html.Div()
+    try:
+        if spot_data and rates:
+            efficiency_table = _build_efficiency_table(
+                processed_legs, agg, ev_data, preset_name, view_info,
+                pair, tenor, notional, spot_data, rates, vol_surface,
+                S, T, r_d, r_f, pip_size)
+    except Exception:
+        pass
 
     # ── Risk warnings ──
     risks = _generate_risks(processed_legs, agg, notional, S, T, pip_size)
@@ -1124,10 +1459,16 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
             carry_section,
         ], style=section_style),
 
-        # Scenario strip
+        # EV sensitivity
+        html.Div([ev_sensitivity], style=section_style) if ev_sensitivity else html.Div(),
+
+        # Named scenario table
         html.Div([
-            html.Div("SCENARIOS (spot shock, current vol)", style={**label_s, "marginBottom": "4px"}),
-            html.Div(sc_cells, style={"display": "flex", "gap": "2px", "flexWrap": "wrap"}),
+            html.Div("SCENARIOS (spot + vol + time)", style={**label_s, "marginBottom": "4px"}),
+            html.Table([html.Thead(sc_header), html.Tbody(sc_rows)],
+                       style={"width": "100%", "borderCollapse": "collapse"})
+            if sc_rows else html.Div("No scenario data", style={"color": COLORS["text_muted"],
+                                      "fontSize": "9px", **tpl_font}),
         ], style=section_style),
 
         # Risks
@@ -1135,6 +1476,9 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
             html.Div("RISKS", style={**label_s, "marginBottom": "4px"}),
             *risk_items,
         ], style=section_style),
+
+        # Structure efficiency comparison
+        efficiency_table,
     ])
 
 
@@ -1304,20 +1648,37 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
                       annotation_text=f"BE {be:.4f}",
                       annotation_font=dict(color=COLORS["accent_orange"], size=8))
 
-    # Probability density overlay from vol smile (secondary y-axis)
+    # Probability density overlay: implied (risk-neutral) vs historical (physical)
     if ev_data and "pdf_strikes" in ev_data:
-        pdf_x = ev_data["pdf_strikes"]
-        pdf_y = ev_data["pdf_vals"]
-        # Scale PDF so peak is ~30% of chart height for visual balance
-        pdf_max = np.max(pdf_y) if len(pdf_y) > 0 else 1
         pnl_range = max(abs(np.max(pnl_expiry)), abs(np.min(pnl_expiry)), 1)
-        scale = pnl_range * 0.30 / max(pdf_max, 1e-12)
+
+        # Compute shared scale factor from both PDFs
+        pdf_x_impl = ev_data["pdf_strikes"]
+        pdf_y_impl = ev_data["pdf_vals"]
+        pdf_x_hist = ev_data.get("hist_pdf_strikes")
+        pdf_y_hist = ev_data.get("hist_pdf")
+
+        all_peaks = [np.max(pdf_y_impl) if len(pdf_y_impl) > 0 else 1]
+        if pdf_y_hist is not None and len(pdf_y_hist) > 0:
+            all_peaks.append(np.max(pdf_y_hist))
+        peak_max = max(all_peaks)
+        scale = pnl_range * 0.30 / max(peak_max, 1e-12)
+
+        # Implied density (orange)
         fig.add_trace(go.Scatter(
-            x=pdf_x, y=pdf_y * scale, mode="lines", fill="tozeroy",
+            x=pdf_x_impl, y=pdf_y_impl * scale, mode="lines", fill="tozeroy",
             fillcolor="rgba(255,136,0,0.06)",
-            line=dict(color="rgba(255,136,0,0.25)", width=1),
-            name="Implied Prob", showlegend=True, hoverinfo="skip",
+            line=dict(color="rgba(255,136,0,0.35)", width=1.5),
+            name="Implied Density", showlegend=True, hoverinfo="skip",
         ))
+
+        # Historical density (purple) — gap between curves shows edge
+        if pdf_y_hist is not None and pdf_x_hist is not None:
+            fig.add_trace(go.Scatter(
+                x=pdf_x_hist, y=pdf_y_hist * scale, mode="lines",
+                line=dict(color="rgba(168,85,247,0.50)", width=1.5, dash="dash"),
+                name="Historical Density", showlegend=True, hoverinfo="skip",
+            ))
 
     fig.update_layout(
         title=dict(text="PAYOFF DIAGRAM", font=dict(color=COLORS["text_primary"], size=13)),
@@ -2471,7 +2832,8 @@ def register_callbacks(app):
             try:
                 trade_analysis_div = _build_trade_analysis(
                     processed, agg, ev_data, pair, tenor, notional,
-                    preset_name or "Custom", S, T, r_d, r_f, pip_size, vol_surface)
+                    preset_name or "Custom", S, T, r_d, r_f, pip_size, vol_surface,
+                    spot_data=spot_data, rates=rates, atm_vol=atm_vol)
             except Exception:
                 logger.debug("Trade analysis failed for %s", pair)
 
