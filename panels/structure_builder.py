@@ -345,7 +345,9 @@ def _interp_vol_for_delta(vol_surface_data, tenor, delta_abs, cp_sign):
             except Exception:
                 return 999
         available = sorted(vol_surface_data.keys(), key=_safe_tenor_dist)
-        tenor = available[0] if available else next(iter(vol_surface_data))
+        if not available:
+            return 0.08
+        tenor = available[0]
 
     q = vol_surface_data.get(tenor, {})
     if not q:
@@ -404,7 +406,9 @@ def _get_atm_vol(vol_surface_data, tenor):
             except Exception:
                 return 999
         available = sorted(vol_surface_data.keys(), key=_safe_td)
-        tenor = available[0] if available else next(iter(vol_surface_data))
+        if not available:
+            return 0.08
+        tenor = available[0]
     return vol_surface_data.get(tenor, {}).get("atm", 8.0) / 100.0
 
 
@@ -956,7 +960,7 @@ def _generate_risks(processed_legs, agg, notional, S, T, pip_size):
     daily_theta = agg["net_theta"] * notional
     if daily_theta < -10:
         net_prem = abs(agg["net_premium"])
-        days_to_bleed = net_prem / abs(daily_theta) if abs(daily_theta) > 1 else 999
+        days_to_bleed = net_prem / abs(daily_theta) if abs(daily_theta) > 1e-6 else 999
         risks.append(("warning",
                        f"Theta bleed: {daily_theta:,.0f}/day. "
                        f"Premium bleeds out in ~{days_to_bleed:.0f} days"))
@@ -1063,10 +1067,10 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
     # ── Carry analysis ──
     carry_section = html.Div()
     daily_theta = agg["net_theta"] * notional
-    if abs(daily_theta) > 1:
+    if abs(daily_theta) > 1e-6:
         theta_pips = agg["net_theta"] / pip_size if pip_size > 0 else 0
         prem_abs = abs(agg["net_premium"])
-        days_bleed = prem_abs / abs(daily_theta) if abs(daily_theta) > 1 else 999
+        days_bleed = prem_abs / abs(daily_theta) if abs(daily_theta) > 1e-6 else 999
         carry_section = html.Div(
             f"Theta: {daily_theta:+,.0f}/day ({theta_pips:+.1f} pips/day) | "
             f"Premium bleeds in ~{days_bleed:.0f} days",
@@ -1229,7 +1233,10 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
     Vectorised — uses numpy array pricing instead of per-point loop.
     Optional ev_data adds probability density overlay."""
     tpl = CHART_TEMPLATE["layout"]
-    spot_range = np.linspace(S * 0.85, S * 1.15, 400)
+    # Adaptive range: ±2 implied moves (min ±5%, max ±30%)
+    implied_move = atm_vol * np.sqrt(max(T, 1.0 / 365.0))
+    half_range = max(0.05, min(2.5 * implied_move, 0.30))
+    spot_range = np.linspace(S * (1 - half_range), S * (1 + half_range), 400)
     pnl_expiry = np.zeros_like(spot_range)
     pnl_half = np.zeros_like(spot_range)
     pnl_now = np.zeros_like(spot_range)
@@ -1350,14 +1357,16 @@ def _vectorized_greeks(spot_arr, K, T, r_d, r_f, sigma, cp):
     }
 
 
-def _build_greeks_chart(processed_legs, S, T, r_d, r_f, notional):
+def _build_greeks_chart(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
     """Chart 2: 2x2 subplot of Delta, Gamma, Vega, Theta vs spot. Vectorised."""
     tpl = CHART_TEMPLATE["layout"]
     fig = make_subplots(rows=2, cols=2,
                         subplot_titles=("Delta", "Gamma", "Vega", "Theta"),
                         vertical_spacing=0.14, horizontal_spacing=0.10)
 
-    spot_grid = np.linspace(S * 0.85, S * 1.15, 150)
+    implied_move = atm_vol * np.sqrt(max(T, 1.0 / 365.0))
+    half_range = max(0.05, min(2.5 * implied_move, 0.30))
+    spot_grid = np.linspace(S * (1 - half_range), S * (1 + half_range), 150)
     greek_names = ["delta", "gamma", "vega", "theta"]
     greek_colors = [COLORS["accent_cyan"], COLORS["accent_blue"],
                     COLORS["accent_purple"], COLORS["accent_orange"]]
@@ -1401,10 +1410,12 @@ def _build_greeks_chart(processed_legs, S, T, r_d, r_f, notional):
     return fig
 
 
-def _build_pnl_heatmap(processed_legs, S, T, r_d, r_f, notional):
+def _build_pnl_heatmap(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
     """Chart 3: P&L heatmap -- spot shock x vol shock. Vectorised."""
     tpl = CHART_TEMPLATE["layout"]
-    spot_shocks = np.linspace(-0.15, 0.15, 25)
+    implied_move = atm_vol * np.sqrt(max(T, 1.0 / 365.0))
+    spot_half = max(0.05, min(2.5 * implied_move, 0.30))
+    spot_shocks = np.linspace(-spot_half, spot_half, 25)
     vol_shocks = np.linspace(-0.50, 0.50, 25)
 
     net_prem_per_unit = sum(
@@ -1462,12 +1473,14 @@ def _build_pnl_heatmap(processed_legs, S, T, r_d, r_f, notional):
     return fig
 
 
-def _build_3d_surface(processed_legs, S, T, r_d, r_f, notional):
+def _build_3d_surface(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
     """Chart 4: 3D P&L surface -- Spot x Time x P&L."""
     tpl = CHART_TEMPLATE["layout"]
     n_spot = 40
     n_time = 30
-    spot_grid = np.linspace(S * 0.85, S * 1.15, n_spot)
+    implied_move = atm_vol * np.sqrt(max(T, 1.0 / 365.0))
+    half_range = max(0.05, min(2.5 * implied_move, 0.30))
+    spot_grid = np.linspace(S * (1 - half_range), S * (1 + half_range), n_spot)
     time_grid = np.linspace(T, max(T * 0.01, 1.0 / 365.0), n_time)
 
     net_prem_per_unit = sum(
@@ -2404,9 +2417,9 @@ def register_callbacks(app):
             # ── Build charts (pass ev_data to payoff for probability overlay) ──
             payoff_fig = _build_payoff_chart(processed, agg, S, T, r_d, r_f,
                                              notional, atm_vol, ev_data=ev_data)
-            greeks_fig = _build_greeks_chart(processed, S, T, r_d, r_f, notional)
-            heatmap_fig = _build_pnl_heatmap(processed, S, T, r_d, r_f, notional)
-            surface_fig = _build_3d_surface(processed, S, T, r_d, r_f, notional)
+            greeks_fig = _build_greeks_chart(processed, S, T, r_d, r_f, notional, atm_vol)
+            heatmap_fig = _build_pnl_heatmap(processed, S, T, r_d, r_f, notional, atm_vol)
+            surface_fig = _build_3d_surface(processed, S, T, r_d, r_f, notional, atm_vol)
             premium_table = _build_premium_table(processed, pair, pip_size, notional)
             scenario_fig = _build_scenario_chart(processed, S, T, r_d, r_f, notional)
             smile_fig = _build_smile_chart(processed, vol_surface, tenor)
@@ -2422,13 +2435,13 @@ def register_callbacks(app):
                 cell_s = {"color": COLORS["text_primary"], "fontSize": "10px",
                           "padding": "4px 6px", "fontFamily": "'JetBrains Mono', monospace",
                           "borderBottom": f"1px solid {COLORS['border_subtle']}"}
-                # Find cheapest vol percentile
+                # Find cheapest vol percentile — only highlight if actually cheap (<50th)
                 min_pct = min((r["vol_pctile"] for r in ts_rows), default=50)
                 t_head = html.Tr([html.Th(h, style=hdr_s) for h in
                                   ["Tenor", "Prem (pips)", "POP", "Θ/day", "Vol %ile", "Breakeven"]])
                 t_rows = []
                 for r in ts_rows:
-                    is_cheapest = r["vol_pctile"] <= min_pct + 1
+                    is_cheapest = r["vol_pctile"] <= min_pct + 1 and min_pct < 50
                     row_color = COLORS["accent_green"] if is_cheapest else COLORS["text_primary"]
                     be_s = f"{r['be']:.5f}" if r["be"] else "--"
                     pct_color = (COLORS["accent_green"] if r["vol_pctile"] < 25
@@ -2492,7 +2505,12 @@ def register_callbacks(app):
                           COLORS["accent_blue"]),
                 _stat_box("EXPECTED VALUE", ev_stat_val, ev_stat_color),
                 _stat_box(f"COST vs STRADDLE", f"{cost_vs_straddle:.0f}%", COLORS["text_secondary"]),
-                _stat_box("MAX LOSS", f"{agg['max_loss']:,.0f}", COLORS["accent_red"]),
+                _stat_box("MAX LOSS",
+                         "UNLIMITED" if (
+                             sum(lg["ratio"] * lg["side_sign"] for lg in processed if lg["cp_sign"] > 0) < -1e-9
+                             or sum(lg["ratio"] * lg["side_sign"] for lg in processed if lg["cp_sign"] < 0) < -1e-9
+                         ) else f"{agg['max_loss']:,.0f}",
+                         COLORS["accent_red"]),
             ]
 
             # Per-leg display fields
