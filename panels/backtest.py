@@ -125,7 +125,7 @@ def _strike_from_delta(target_delta, S, T, r_d, r_f, sigma, cp):
     for _ in range(50):
         d1 = (np.log(S / K) + (r_d - r_f + 0.5 * sigma ** 2) * T) / (sigma * sqrtT)
         calc = cp * np.exp(-r_f * T) * _norm.cdf(cp * d1)
-        dd = -cp * np.exp(-r_f * T) * _norm.pdf(cp * d1) / (K * sigma * sqrtT)
+        dd = -np.exp(-r_f * T) * _norm.pdf(cp * d1) / (K * sigma * sqrtT)
         if abs(dd) < 1e-15:
             break
         K -= (calc - target_delta) / dd

@@ -1755,13 +1755,14 @@ def register_callbacks(app):
             elif compare == "cross" and cross_pair and cross_pair != pair:
                 # Overlay cross-pair ATM term structure
                 cross_sd = _get_surface_data(cross_pair)
-                for chart_type, fig in [
-                    (q1, fig1), (q2, fig2), (q3, fig3), (q4, fig4),
-                ]:
-                    if chart_type == "atm_term":
-                        _overlay_cross_pair_on_atm(fig, cross_pair, cross_sd)
-                    elif chart_type == "surface_3d":
-                        _overlay_cross_surface_wireframe(fig, cross_pair, cross_sd)
+                if cross_sd is not None:
+                    for chart_type, fig in [
+                        (q1, fig1), (q2, fig2), (q3, fig3), (q4, fig4),
+                    ]:
+                        if chart_type == "atm_term":
+                            _overlay_cross_pair_on_atm(fig, cross_pair, cross_sd)
+                        elif chart_type == "surface_3d":
+                            _overlay_cross_surface_wireframe(fig, cross_pair, cross_sd)
         except Exception:
             logger.exception("Comparison overlay failed for %s", pair)
 

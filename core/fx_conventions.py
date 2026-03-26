@@ -271,17 +271,17 @@ def delta_to_strike_vectorized(deltas, S, T, r_d, r_f, sigma, convention="spot")
         d1 = (np.log(S / K) + (r_d - r_f + 0.5 * sigma ** 2) * T) / (sigma * sqrtT)
         if convention == "spot":
             calc_delta = cp * np.exp(-r_f * T) * norm.cdf(cp * d1)
-            ddelta_dK = -cp * np.exp(-r_f * T) * norm.pdf(cp * d1) / (K * sigma * sqrtT)
+            ddelta_dK = -np.exp(-r_f * T) * norm.pdf(cp * d1) / (K * sigma * sqrtT)
         elif convention == "forward":
             calc_delta = cp * norm.cdf(cp * d1)
-            ddelta_dK = -cp * norm.pdf(cp * d1) / (K * sigma * sqrtT)
+            ddelta_dK = -norm.pdf(cp * d1) / (K * sigma * sqrtT)
         else:
             d2 = d1 - sigma * sqrtT
             calc_delta = (cp * np.exp(-r_f * T) * norm.cdf(cp * d1)
                           - cp * np.exp(-r_d * T) * (K / S) * norm.cdf(cp * d2))
-            ddelta_dK = (-cp * np.exp(-r_f * T) * norm.pdf(cp * d1) / (K * sigma * sqrtT)
+            ddelta_dK = (-np.exp(-r_f * T) * norm.pdf(cp * d1) / (K * sigma * sqrtT)
                          - cp * np.exp(-r_d * T) * norm.cdf(cp * d2) / S
-                         + cp * np.exp(-r_d * T) * (K / S) * norm.pdf(cp * d2) / (K * sigma * sqrtT))
+                         + np.exp(-r_d * T) * norm.pdf(cp * d2) / (S * sigma * sqrtT))
 
         err = calc_delta - deltas
         dK = -err / np.where(np.abs(ddelta_dK) > 1e-15, ddelta_dK, 1e-15)
