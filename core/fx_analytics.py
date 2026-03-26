@@ -122,6 +122,14 @@ def vol_percentile(pair: str, tenor: str, metric: str = "ATM",
     if hist is None or len(hist) < 10:
         return None
 
+    # Filter NaN/inf before computing statistics
+    if hasattr(hist, 'dropna'):
+        hist = hist.dropna()
+    else:
+        hist = hist[np.isfinite(hist)]
+    if len(hist) < 10:
+        return None
+
     current = hist.iloc[-1] if hasattr(hist, 'iloc') else hist[-1]
     pct = percentileofscore(hist, current)
 
@@ -458,6 +466,13 @@ def iv_rv_spread(pair: str, tenor: str = "3M", rv_window: int = 20,
     n = min(len(iv_vals), len(rv_vals))
     iv_arr = iv_vals[-n:].astype(float)
     rv_arr = rv_vals[-n:].astype(float)
+    # Filter NaN/inf from both arrays
+    mask = np.isfinite(iv_arr) & np.isfinite(rv_arr)
+    iv_arr = iv_arr[mask]
+    rv_arr = rv_arr[mask]
+    n = len(iv_arr)
+    if n < 10:
+        return pd.DataFrame()
     spread = iv_arr - rv_arr
 
     df = pd.DataFrame({
@@ -1459,7 +1474,14 @@ def spot_vol_correlation(pair: str, window: int = 60) -> dict:
     vol_chg = np.diff(vol_hist[-n-1:])
 
     m = min(len(spot_ret), len(vol_chg))
-    corr = float(np.corrcoef(spot_ret[:m], vol_chg[:m])[0, 1])
+    sr = spot_ret[:m]
+    vc = vol_chg[:m]
+    mask = np.isfinite(sr) & np.isfinite(vc)
+    if mask.sum() < 10:
+        return None
+    corr = float(np.corrcoef(sr[mask], vc[mask])[0, 1])
+    if np.isnan(corr):
+        corr = 0.0
 
     return {
         "pair": pair,

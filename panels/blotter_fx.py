@@ -536,19 +536,19 @@ def register_callbacks(app):
         table_data = []
         for t in trades[:100]:
             table_data.append({
-                "Time": t["timestamp"],
-                "Pair": t["pair"],
-                "Type": t["type"],
-                "Side": t["side"].upper() if isinstance(t["side"], str) else t["side"],
-                "Strike": f"{t['strike']:.5g}",
-                "Delta": f"{t['delta']:.3f}",
-                "Expiry": t["expiry"],
-                "Notional": f"{t['notional']:,.0f}",
-                "Premium": f"{t['premium']:,.0f}",
+                "Time": t.get("timestamp", ""),
+                "Pair": t.get("pair", ""),
+                "Type": t.get("type", ""),
+                "Side": (t.get("side", "BUY") or "BUY").upper(),
+                "Strike": f"{t.get('strike', 0):.5g}",
+                "Delta": f"{t.get('delta', 0):.3f}",
+                "Expiry": t.get("expiry", ""),
+                "Notional": f"{t.get('notional', 0):,.0f}",
+                "Premium": f"{t.get('premium', 0):,.0f}",
                 "Book": t.get("book", ""),
                 "Strategy": t.get("strategy", ""),
                 "Cpty": t.get("counterparty", ""),
-                "Status": t["status"],
+                "Status": t.get("status", ""),
             })
 
         table_cols = [{"name": c, "id": c} for c in
@@ -643,7 +643,7 @@ def register_callbacks(app):
             )
 
             # ── Flow Analytics: Cumulative Premium Flow ─────────────
-            sorted_trades = sorted(trades, key=lambda x: x["timestamp"])
+            sorted_trades = sorted(trades, key=lambda x: x.get("timestamp", ""))
             cum_prems = []
             running = 0.0
             times = []
@@ -653,8 +653,8 @@ def register_callbacks(app):
                 prem_signed = -sign * t.get("premium", 0)  # pay on buy, receive on sell
                 running += prem_signed
                 cum_prems.append(running)
-                times.append(t["timestamp"])
-                day_key = t["timestamp"][:10]
+                times.append(t.get("timestamp", ""))
+                day_key = t.get("timestamp", "")[:10]
                 daily_bars[day_key] = daily_bars.get(day_key, 0) + prem_signed
 
             prem_fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
@@ -697,15 +697,15 @@ def register_callbacks(app):
 
             # ── Flow Analytics: Activity Timeline ───────────────────
             activity_fig = go.Figure()
-            pair_list = sorted(set(t["pair"] for t in trades))
+            pair_list = sorted(set(t.get("pair", "") for t in trades))
             for idx, p in enumerate(pair_list):
-                p_trades = [t for t in trades if t["pair"] == p]
+                p_trades = [t for t in trades if t.get("pair") == p]
                 activity_fig.add_trace(go.Scatter(
-                    x=[t["timestamp"] for t in p_trades],
-                    y=[t["notional"] for t in p_trades],
+                    x=[t.get("timestamp", "") for t in p_trades],
+                    y=[t.get("notional", 0) for t in p_trades],
                     mode="markers",
                     marker=dict(
-                        size=[max(6, min(30, t["notional"] / 3_000_000))
+                        size=[max(6, min(30, t.get("notional", 0) / 3_000_000))
                               for t in p_trades],
                         color=PAIR_COLORS[idx % len(PAIR_COLORS)],
                         opacity=0.75,

@@ -2119,12 +2119,12 @@ def _build_position_table(positions, spots, rates, vol_surfaces):
 
         entry_prem = pos.get("entry_premium", 0)
         mtm = pg.get("price", 0)
-        pnl = mtm - entry_prem if direction == "buy" else entry_prem - abs(mtm)
+        pnl = mtm - entry_prem if direction == "buy" else entry_prem - mtm
 
         table_rows.append({
             "Pair": pair,
             "Type": display_type,
-            "Strike": f"{pos['strike']:.4f}",
+            "Strike": f"{pos.get('strike', 0):.4f}",
             "Delta": f"{pg.get('delta', 0):+,.0f}",
             "Expiry": str(pos.get("expiry", ""))[:10],
             "Notional": f"{pos['notional']:,.0f}",

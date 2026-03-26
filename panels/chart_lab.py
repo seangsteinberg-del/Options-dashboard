@@ -883,31 +883,34 @@ def _build_slot_stats(metric, pairs, tenor, timeframe):
                     c = "#ff3333" if pct > 75 else ("#00cc66" if pct < 25 else "#d4d4d4")
                     return [_sv("RV %ile", f"{pct:.0f}th", c)]
             if metric == "STUDY_VOL_REGIME":
-                r = vol_regime_detect(pair)
-                return [_sv("Regime", r["regime"], r.get("color", "#d4d4d4")),
-                        _sv("Trend", r["trend"]), _sv("ATM", f"{r['atm_iv']:.2f}")]
+                r = vol_regime_detect(pair) or {}
+                return [_sv("Regime", r.get("regime", "N/A"), r.get("color", "#d4d4d4")),
+                        _sv("Trend", r.get("trend", "N/A")), _sv("ATM", f"{r.get('atm_iv', 0):.2f}")]
             if metric == "STUDY_SMILE":
-                sk = smile_skewness(pair, tenor)
-                ku = smile_kurtosis(pair, tenor)
-                return [_sv("Skew", f"{sk['rr_25d']:.2f} ({sk['direction']})"),
-                        _sv("Kurtosis", f"{ku['bf_25d']:.2f} ({ku['tail_assessment']})")]
+                sk = smile_skewness(pair, tenor) or {}
+                ku = smile_kurtosis(pair, tenor) or {}
+                return [_sv("Skew", f"{sk.get('rr_25d', 0):.2f} ({sk.get('direction', 'N/A')})"),
+                        _sv("Kurtosis", f"{ku.get('bf_25d', 0):.2f} ({ku.get('tail_assessment', 'N/A')})")]
             return []
 
         # Time series stats
         if metric in ("ATM", "25D_RR", "25D_BF", "10D_RR", "10D_BF"):
-            info = vol_percentile(pair, tenor, metric, min(int(timeframe), 252))
-            chg = vol_change(pair, tenor, metric, 1)
-            z = vol_zscore(pair, tenor, metric, min(int(timeframe), 252))
-            chg_c = "#00cc66" if chg["abs_change"] < 0 else ("#ff3333" if chg["abs_change"] > 0 else "#d4d4d4")
-            z_c = "#ff3333" if abs(z["zscore"]) > 2 else ("#ff8800" if abs(z["zscore"]) > 1 else "#d4d4d4")
-            return [_sv("Last", f"{info['current']:.2f}"), _sv("1D", f"{chg['abs_change']:+.2f}", chg_c),
-                    _sv("Z", f"{z['zscore']:+.1f}", z_c), _sv("%ile", f"{info['percentile']:.0f}th"),
-                    _sv("Range", f"{info['min']:.1f}-{info['max']:.1f}")]
+            info = vol_percentile(pair, tenor, metric, min(int(timeframe), 252)) or {}
+            chg = vol_change(pair, tenor, metric, 1) or {}
+            z = vol_zscore(pair, tenor, metric, min(int(timeframe), 252)) or {}
+            chg_val = chg.get("abs_change", 0)
+            z_val = z.get("zscore", 0)
+            chg_c = "#00cc66" if chg_val < 0 else ("#ff3333" if chg_val > 0 else "#d4d4d4")
+            z_c = "#ff3333" if abs(z_val) > 2 else ("#ff8800" if abs(z_val) > 1 else "#d4d4d4")
+            return [_sv("Last", f"{info.get('current', 0):.2f}"), _sv("1D", f"{chg_val:+.2f}", chg_c),
+                    _sv("Z", f"{z_val:+.1f}", z_c), _sv("%ile", f"{info.get('percentile', 50):.0f}th"),
+                    _sv("Range", f"{info.get('min', 0):.1f}-{info.get('max', 0):.1f}")]
         if metric == "IV_RV":
-            ivr = iv_rv_percentile(pair, tenor, lookback=min(int(timeframe), 252))
-            c = "#ff3333" if ivr["signal"] == "IV_RICH" else ("#00cc66" if ivr["signal"] == "IV_CHEAP" else "#d4d4d4")
-            return [_sv("Spread", f"{ivr['current_spread']:.2f}"), _sv("Signal", ivr["signal"], c),
-                    _sv("%ile", f"{ivr['percentile']:.0f}th")]
+            ivr = iv_rv_percentile(pair, tenor, lookback=min(int(timeframe), 252)) or {}
+            sig = ivr.get("signal", "NEUTRAL")
+            c = "#ff3333" if sig == "IV_RICH" else ("#00cc66" if sig == "IV_CHEAP" else "#d4d4d4")
+            return [_sv("Spread", f"{ivr.get('current_spread', 0):.2f}"), _sv("Signal", sig, c),
+                    _sv("%ile", f"{ivr.get('percentile', 50):.0f}th")]
     except Exception:
         pass
     return []
@@ -1365,15 +1368,15 @@ def register_callbacks(app):
                 return html.Span([html.Span(f"{l}: ", style=STAT_ITEM),
                                    html.Span(str(v), style={**STAT_VAL, "color": c})])
             if study_type == "vol_deep_dive":
-                r = vol_regime_detect(pair)
-                z = vol_zscore(pair, tenor or "3M", "ATM")
-                p = vol_percentile(pair, tenor or "3M", "ATM")
-                return [_sv("Regime", r["regime"], r.get("color")),
-                        _sv("Z-Score", f"{z['zscore']:+.2f}"),
-                        _sv("Percentile", f"{p['percentile']:.0f}th")]
+                r = vol_regime_detect(pair) or {}
+                z = vol_zscore(pair, tenor or "3M", "ATM") or {}
+                p = vol_percentile(pair, tenor or "3M", "ATM") or {}
+                return [_sv("Regime", r.get("regime", "N/A"), r.get("color", "#d4d4d4")),
+                        _sv("Z-Score", f"{z.get('zscore', 0):+.2f}"),
+                        _sv("Percentile", f"{p.get('percentile', 50):.0f}th")]
             if study_type == "smile_deep_dive":
-                sk = smile_skewness(pair, tenor or "3M")
-                return [_sv("Skew", f"{sk['rr_25d']:.2f}"), _sv("Direction", sk["direction"])]
+                sk = smile_skewness(pair, tenor or "3M") or {}
+                return [_sv("Skew", f"{sk.get('rr_25d', 0):.2f}"), _sv("Direction", sk.get("direction", "N/A"))]
             if study_type == "rv_scanner":
                 return [_sv("Pairs scanned", str(len(pairs)))]
         except Exception: pass
