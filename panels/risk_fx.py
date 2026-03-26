@@ -975,13 +975,9 @@ def register_callbacks(app):
             pct_val = "N/A"
             pct_color = COLORS["text_muted"]
 
-        try:
-            regime_info = vol_regime_detect(pair)
-            regime_label = regime_info["regime"]
-            regime_color = regime_info["color"]
-        except Exception:
-            regime_label = "N/A"
-            regime_color = COLORS["text_muted"]
+        regime_info = vol_regime_detect(pair) or {}
+        regime_label = regime_info.get("regime", "N/A")
+        regime_color = regime_info.get("color", COLORS["text_muted"])
 
         # --- Build the detail section ---
         header = html.Div(

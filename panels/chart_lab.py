@@ -629,7 +629,7 @@ def _study_vol_regime(pair, tenor, timeframe):
                                      (10, "#ffaa33", "ELEVATED"), (6, "#808080", "NORMAL")]:
             fig.add_hline(y=level, line_dash="dot", line_color=color,
                           annotation_text=label, annotation_font_size=8, annotation_font_color=color)
-        regime = vol_regime_detect(pair)
+        regime = vol_regime_detect(pair) or {}
         fig.update_layout(**chart_layout(
             title=dict(text=f"{pair} Vol Regime: {regime.get('regime','?')} | Trend: {regime.get('trend','?')}",
                        font=dict(size=11, color=regime.get('color', '#ff8800'), family=_FONT)),
@@ -706,10 +706,12 @@ def _study_breakeven(pair, tenor, timeframe):
         from core.fx_conventions import tenor_to_days
         days = tenor_to_days(tenor)
         info = breakeven_vol(pair, tenor, days)
+        if not info:
+            return _empty("No breakeven data")
         fig = go.Figure()
         labels = ["ATM IV", "Breakeven RV", "Cushion"]
-        vals = [info["atm_iv"], info["breakeven_rv"], info["iv_rv_cushion"]]
-        colors = ["#ff8800", "#d4d4d4", "#00cc66" if info["iv_rv_cushion"] > 0 else "#ff3333"]
+        vals = [info.get("atm_iv", 0), info.get("breakeven_rv", 0), info.get("iv_rv_cushion", 0)]
+        colors = ["#ff8800", "#d4d4d4", "#00cc66" if info.get("iv_rv_cushion", 0) > 0 else "#ff3333"]
         fig.add_trace(go.Bar(x=labels, y=vals, marker_color=colors,
                               text=[f"{v:.2f}" for v in vals], textposition="outside",
                               textfont=dict(color="#d4d4d4", family=_FONT, size=11)))

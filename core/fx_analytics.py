@@ -161,6 +161,14 @@ def vol_zscore(pair: str, tenor: str, metric: str = "ATM",
     if hist is None or len(hist) < 10:
         return None
 
+    # Filter NaN/inf before computing statistics
+    if hasattr(hist, 'dropna'):
+        hist = hist.dropna()
+    else:
+        hist = hist[np.isfinite(hist)]
+    if len(hist) < 10:
+        return None
+
     current = hist.iloc[-1] if hasattr(hist, 'iloc') else hist[-1]
     mu = np.mean(hist)
     sigma = np.std(hist)

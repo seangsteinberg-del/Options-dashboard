@@ -746,7 +746,7 @@ def pnl_attribution(positions, spots_old, spots_new, surfaces_old, surfaces_new,
         t_pnl = greeks["theta"] * sc                    # theta is per calendar day
         r_pnl = greeks["rho_d"] * 0.0 * sc             # rates unchanged in this call
         va_pnl = greeks.get("vanna", 0) * dS * d_sigma * sc
-        volga_pnl = 0.5 * greeks.get("volga", 0) * d_sigma ** 2 * 100.0 ** 2 * sc
+        volga_pnl = 0.5 * greeks.get("volga", 0) * d_sigma ** 2 * sc
 
         # Actual revaluation
         price_old = _gk_price(S_old, K, T, r_d, r_f, sigma_old, cp)
