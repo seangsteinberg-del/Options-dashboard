@@ -3,7 +3,7 @@
 FX Options Workstation v5 — Consolidated
 =========================================
 Institutional-grade FX options analytics platform.
-10 panels across 4 workspaces. Zero duplication.
+9 panels across 4 workspaces. Zero duplication.
 
 Run:  python app.py
 Open: http://localhost:8050
@@ -67,17 +67,16 @@ from core.bloomberg import is_connected
 
 logger = logging.getLogger(__name__)
 
-# ── 10 Consolidated Panels ───────────────────────────────────────────────
+# ── 9 Consolidated Panels ────────────────────────────────────────────────
 from panels import market_dashboard          # DESK
-from panels import vol_surface_fx            # VOL
+from panels import vol_surface_fx            # VOL (includes Chart Lab features)
 from panels import vol_scanner_unified       # VOL
+from panels import relative_value_plus      # VOL
 from panels import structure_builder         # TRADE
 from panels import exotics_pricer            # TRADE
 from panels import blotter_fx               # TRADE
-from panels import risk_fx                   # RISK & ANALYTICS
-from panels import relative_value_plus      # RISK & ANALYTICS
-from panels import chart_lab                 # RISK & ANALYTICS
-from panels import backtest                  # RISK & ANALYTICS
+from panels import risk_fx                   # RISK
+from panels import backtest                  # RISK
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -108,7 +107,7 @@ DEFAULT_WATCHLIST = [
 ]
 
 
-# ── Workspace Definition (4 workspaces, 10 panels) ──────────────────────
+# ── Workspace Definition (4 workspaces, 9 panels) ───────────────────────
 WORKSPACES = [
     {
         "id": "desk",
@@ -123,8 +122,9 @@ WORKSPACES = [
         "label": "VOL",
         "accent": COLORS["accent_orange"],
         "tabs": [
-            {"id": "vol-surface-fx",    "label": "VOL SURFACE",  "module": vol_surface_fx},
-            {"id": "vol-scanner-unified","label": "VOL SCANNER",  "module": vol_scanner_unified},
+            {"id": "vol-scanner-unified","label": "VOL SCANNER",    "module": vol_scanner_unified},
+            {"id": "vol-surface-fx",     "label": "VOL SURFACE",    "module": vol_surface_fx},
+            {"id": "relative-value-plus","label": "RELATIVE VALUE", "module": relative_value_plus},
         ],
     },
     {
@@ -132,20 +132,18 @@ WORKSPACES = [
         "label": "TRADE",
         "accent": COLORS["accent_orange"],
         "tabs": [
-            {"id": "structure-builder", "label": "STRUCTURE BUILDER", "module": structure_builder},
+            {"id": "structure-builder", "label": "TRADE WORKSHOP", "module": structure_builder},
             {"id": "exotics-pricer",    "label": "EXOTICS PRICER",    "module": exotics_pricer},
             {"id": "blotter-fx",        "label": "BLOTTER",           "module": blotter_fx},
         ],
     },
     {
-        "id": "risk-analytics",
-        "label": "RISK & ANALYTICS",
+        "id": "risk",
+        "label": "RISK",
         "accent": COLORS["accent_red"],
         "tabs": [
-            {"id": "risk-fx",             "label": "RISK DASHBOARD",   "module": risk_fx},
-            {"id": "relative-value-plus", "label": "RELATIVE VALUE",   "module": relative_value_plus},
-            {"id": "chart-lab",           "label": "CHART LAB",         "module": chart_lab},
-            {"id": "backtest",            "label": "BACKTEST",           "module": backtest},
+            {"id": "risk-fx",  "label": "RISK DASHBOARD", "module": risk_fx},
+            {"id": "backtest", "label": "BACKTEST",        "module": backtest},
         ],
     },
 ]
@@ -177,7 +175,7 @@ WORKSPACE_PRESETS = {
     "Desk":  ("desk",           "market-dashboard"),
     "Vol":   ("vol",            "vol-surface-fx"),
     "Trade": ("trade",          "structure-builder"),
-    "Risk":  ("risk-analytics", "risk-fx"),
+    "Risk":  ("risk",            "risk-fx"),
 }
 
 # Command palette search items
@@ -1215,7 +1213,7 @@ def handle_metric_popup(metric_clicks, close_clicks):
 
 
 # ---------------------------------------------------------------------------
-# 9. Send to Lab button (metric popup → chart lab)
+# 9. Send to Lab button (metric popup → vol surface lab mode)
 # ---------------------------------------------------------------------------
 @app.callback(
     [Output("workspace-tabs", "value", allow_duplicate=True),
@@ -1226,7 +1224,7 @@ def handle_metric_popup(metric_clicks, close_clicks):
 def send_to_lab(n_clicks):
     if not n_clicks:
         raise PreventUpdate
-    return "risk-analytics", "chart-lab"
+    return "vol", "vol-surface-fx"
 
 
 # ---------------------------------------------------------------------------
@@ -1313,7 +1311,7 @@ def _update_data_source_status(_n):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Register All Panel Callbacks (10 panels)
+# Register All Panel Callbacks (9 panels)
 # ═══════════════════════════════════════════════════════════════════════════
 
 market_dashboard.register_callbacks(app)
@@ -1324,7 +1322,6 @@ exotics_pricer.register_callbacks(app)
 blotter_fx.register_callbacks(app)
 risk_fx.register_callbacks(app)
 relative_value_plus.register_callbacks(app)
-chart_lab.register_callbacks(app)
 backtest.register_callbacks(app)
 
 

@@ -1,28 +1,31 @@
 """
 FX Vol Analytics Workstation
 =============================
-Flagship panel for FX options vol surface analysis. Provides 14 chart types
-in a configurable 2x2 grid with 10 KPI stat boxes, model selection
-(Market / SABR / Vanna-Volga), view presets, comparison modes, and
-auto-refresh.
+Flagship panel for FX options vol surface analysis.  Provides 14 surface
+chart types **plus** Chart-Lab-style configurable time-series / study
+charts in a 2×2 grid with 10 KPI stat boxes, model selection
+(Market / SABR / Vanna-Volga), view presets, comparison modes, a deep
+analytical-studies section, and auto-refresh.
 
 Exports: layout(), register_callbacks(app)
 """
 
 import logging
+import traceback
 
 import numpy as np
 import pandas as pd
 
 import dash
 from dash import html, dcc, Input, Output, State, callback_context, no_update
+from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE, AXIS_DEFAULTS,
     make_stat_style, TAB_STYLE, LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE,
-    clickable_stat,
+    clickable_stat, section_header,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
     CSV_BTN_STYLE, no_data_fig,
 )
@@ -30,7 +33,7 @@ from core.csv_export import export_csv
 from core.bloomberg_fx import (
     get_fx_vol_surface, get_fx_spots, get_fx_rates,
     get_fx_historical_vol, get_fx_realized_vol, get_all_pairs,
-    get_fx_historical_spot,
+    get_fx_historical_spot, get_fx_term_structure,
 )
 from core.fx_analytics import (
     vol_percentile, vol_zscore, vol_regime_detect, vol_cone,
@@ -38,6 +41,10 @@ from core.fx_analytics import (
     vol_percentile_surface, vol_zscore_surface, vol_change,
     vol_surface_diff, forward_vol_surface, smile_implied_pdf,
     iv_rv_percentile,
+    vol_regime_history, tail_probabilities, breakeven_vol,
+    carry_per_vol, carry_momentum, rate_differential_history,
+    spot_correlation_matrix, vol_correlation_matrix,
+    rv_scanner,
 )
 from core.fx_conventions import (
     tenor_to_years, bf_rr_to_smile, build_smile_spline,
@@ -54,6 +61,7 @@ DELTA_LABELS = ["10P", "25P", "ATM", "25C", "10C"]
 DELTA_NUMERIC = [-0.10, -0.25, 0.0, 0.25, 0.10]
 
 CHART_OPTIONS = [
+    {"label": "── SURFACE ──────", "value": "_sfc_header", "disabled": True},
     {"label": "3D Vol Surface", "value": "surface_3d"},
     {"label": "Vol Heatmap", "value": "heatmap"},
     {"label": "ATM Term Structure", "value": "atm_term"},
@@ -68,6 +76,69 @@ CHART_OPTIONS = [
     {"label": "Surface Change", "value": "surface_change"},
     {"label": "SABR Parameters", "value": "sabr_params"},
     {"label": "Implied Distribution", "value": "implied_dist"},
+    {"label": "── LAB: TIME SERIES ─", "value": "_ts_header", "disabled": True},
+    {"label": "TS: ATM Vol",       "value": "lab_atm"},
+    {"label": "TS: 25D RR",        "value": "lab_25d_rr"},
+    {"label": "TS: 25D BF",        "value": "lab_25d_bf"},
+    {"label": "TS: Spot",          "value": "lab_spot"},
+    {"label": "TS: IV-RV Spread",  "value": "lab_iv_rv"},
+    {"label": "TS: Realized Vol",  "value": "lab_rv"},
+    {"label": "TS: Forward Vol",   "value": "lab_fwd_vol"},
+    {"label": "TS: Term Spread",   "value": "lab_term_spread"},
+    {"label": "TS: Carry (bps)",   "value": "lab_carry"},
+    {"label": "── LAB: STUDIES ────", "value": "_st_header", "disabled": True},
+    {"label": "Vol Cone Study",         "value": "lab_study_vol_cone"},
+    {"label": "Vol Smile Study",        "value": "lab_study_smile"},
+    {"label": "Implied PDF Study",      "value": "lab_study_implied_pdf"},
+    {"label": "Vol Regime Study",       "value": "lab_study_vol_regime"},
+    {"label": "Forward Vol Curve Study", "value": "lab_study_fwd_vol_curve"},
+    {"label": "Percentile Surface",     "value": "lab_study_pctile_surface"},
+    {"label": "Z-Score Surface",        "value": "lab_study_zscore_surface"},
+    {"label": "Tail Probabilities",     "value": "lab_study_tail_probs"},
+    {"label": "Breakeven Vol",          "value": "lab_study_breakeven"},
+    {"label": "Carry Landscape",        "value": "lab_study_carry_landscape"},
+]
+
+# Map lab metric keys → bloomberg_fx fetch params
+_LAB_METRIC_MAP = {
+    "lab_atm":          ("ATM",    "vol"),
+    "lab_25d_rr":       ("25D_RR", "vol"),
+    "lab_25d_bf":       ("25D_BF", "vol"),
+    "lab_spot":         ("SPOT",   "spot"),
+    "lab_iv_rv":        ("IV_RV",  "derived"),
+    "lab_rv":           ("RV",     "derived"),
+    "lab_fwd_vol":      ("FWD_VOL","derived"),
+    "lab_term_spread":  ("TERM_SPREAD", "derived"),
+    "lab_carry":        ("CARRY",  "derived"),
+}
+
+# Overlay options for Lab time-series charts
+LAB_OVERLAY_OPTIONS = [
+    {"label": "— None —", "value": ""},
+    {"label": "ATM Vol",      "value": "lab_atm"},
+    {"label": "25D RR",       "value": "lab_25d_rr"},
+    {"label": "25D BF",       "value": "lab_25d_bf"},
+    {"label": "Spot",         "value": "lab_spot"},
+    {"label": "IV-RV Spread", "value": "lab_iv_rv"},
+    {"label": "Realized Vol", "value": "lab_rv"},
+    {"label": "Forward Vol",  "value": "lab_fwd_vol"},
+    {"label": "Term Spread",  "value": "lab_term_spread"},
+    {"label": "Carry",        "value": "lab_carry"},
+]
+
+LAB_WINDOW_OPTIONS = [
+    {"label": "30d",  "value": 30},
+    {"label": "60d",  "value": 60},
+    {"label": "120d", "value": 120},
+    {"label": "252d", "value": 252},
+    {"label": "504d", "value": 504},
+]
+
+LAB_NORMALIZE_OPTIONS = [
+    {"label": "Raw",     "value": "raw"},
+    {"label": "Indexed", "value": "indexed"},
+    {"label": "Z-Score", "value": "zscore"},
+    {"label": "% Chg",   "value": "pct_change"},
 ]
 
 VIEW_PRESETS = {
@@ -75,6 +146,10 @@ VIEW_PRESETS = {
     "Skew":       ["smile_curve", "skew_rr", "smile_bf", "rich_cheap"],
     "Term":       ["atm_term", "fwd_vol", "heatmap", "vol_cone_chart"],
     "Rich-Cheap": ["rich_cheap", "surface_change", "vol_ts", "implied_dist"],
+    "Lab: Vol Monitor": ["lab_atm", "lab_25d_rr", "lab_iv_rv", "lab_study_vol_regime"],
+    "Lab: Smile":       ["lab_study_smile", "lab_study_implied_pdf", "lab_study_tail_probs", "lab_25d_rr"],
+    "Lab: RV":          ["lab_study_vol_cone", "lab_iv_rv", "lab_study_breakeven", "lab_rv"],
+    "Lab: Carry":       ["lab_carry", "lab_study_carry_landscape", "lab_term_spread", "lab_fwd_vol"],
 }
 
 _PAIR_GROUPS = {
@@ -1060,8 +1135,394 @@ def chart_implied_dist(pair, sd, spot, r_dom, r_for, **kw):
     return fig
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Lab: Time-series fetch + rendering (ported from chart_lab.py)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_CW = CHART_TEMPLATE["layout"]["colorway"]
+_FONT = "'JetBrains Mono', monospace"
+
+
+def _lab_fetch_series(pair, metric_key, tenor, window):
+    """Fetch a time series for a lab metric.  Returns (pd.Series|None, label)."""
+    info = _LAB_METRIC_MAP.get(metric_key)
+    if info is None:
+        return None, f"{pair} {metric_key}"
+    bbg_metric, kind = info
+    label = f"{pair} {bbg_metric} {tenor}"
+    try:
+        if kind == "vol":
+            data = get_fx_historical_vol(pair, tenor, bbg_metric, int(window))
+            if data is not None and len(data) > 0:
+                return (data if isinstance(data, pd.Series)
+                        else pd.Series(np.asarray(data))), label
+        elif bbg_metric == "SPOT":
+            label = f"{pair} Spot"
+            df = get_fx_historical_spot(pair, int(window))
+            if df is not None and not df.empty:
+                col = ("close" if "close" in df.columns
+                       else ("Close" if "Close" in df.columns else df.columns[-1]))
+                s = df[col]; s.name = label
+                return s, label
+        elif bbg_metric == "IV_RV":
+            label = f"{pair} IV-RV {tenor}"
+            df = iv_rv_spread(pair, tenor, lookback=int(window))
+            if df is not None and not df.empty and "spread" in df.columns:
+                s = df["spread"]; s.name = label; return s, label
+        elif bbg_metric == "RV":
+            label = f"{pair} RV"
+            df = get_fx_historical_spot(pair, int(window) + 30)
+            if df is not None and not df.empty:
+                closes = df["close"] if "close" in df.columns else df.iloc[:, -1]
+                rv = (np.log(closes / closes.shift(1)).dropna()
+                      .rolling(20).std() * np.sqrt(252) * 100)
+                rv = rv.dropna(); rv.name = label; return rv, label
+        elif bbg_metric == "FWD_VOL":
+            label = f"{pair} Fwd Vol"
+            df = forward_vol_curve(pair)
+            if df is not None and not df.empty and "forward_vol" in df.columns:
+                idx = (df["end_tenor"].values if "end_tenor" in df.columns
+                       else np.arange(len(df)))
+                s = pd.Series(df["forward_vol"].values, index=idx, name=label)
+                return s, label
+        elif bbg_metric == "TERM_SPREAD":
+            label = f"{pair} 1M-1Y Spread"
+            v1m = get_fx_historical_vol(pair, "1M", "ATM", int(window))
+            v1y = get_fx_historical_vol(pair, "1Y", "ATM", int(window))
+            if v1m is not None and v1y is not None:
+                a, b = np.asarray(v1m), np.asarray(v1y)
+                n = min(len(a), len(b))
+                if n > 0:
+                    return pd.Series(a[-n:] - b[-n:], name=label), label
+        elif bbg_metric == "CARRY":
+            label = f"{pair} Carry (bps)"
+            df = rate_differential_history(pair, lookback=int(window))
+            if df is not None and not df.empty and "rate_diff" in df.columns:
+                return pd.Series(df["rate_diff"].values * 10000, name=label), label
+    except Exception:
+        logger.debug("_lab_fetch_series error for %s/%s", pair, metric_key)
+    return None, label
+
+
+def _lab_apply_norm(s, mode):
+    """Apply normalisation to a series."""
+    if s is None or len(s) == 0 or mode == "raw":
+        return s
+    arr = s.values if isinstance(s, pd.Series) else np.asarray(s)
+    if mode == "indexed":
+        f = arr[0]
+        if f == 0 or np.isnan(f):
+            return s
+        result = (arr / f) * 100
+    elif mode == "zscore":
+        mu, sig = np.nanmean(arr), np.nanstd(arr)
+        if sig == 0 or np.isnan(sig):
+            return s
+        result = (arr - mu) / sig
+    elif mode == "pct_change":
+        f = arr[0]
+        if f == 0 or np.isnan(f):
+            return s
+        result = ((arr - f) / abs(f)) * 100
+    else:
+        return s
+    return pd.Series(result,
+                     index=s.index if isinstance(s, pd.Series) else None,
+                     name=getattr(s, "name", None))
+
+
+def _lab_build_ts_chart(chart_type, pair, sd, spot, r_dom, r_for, **kw):
+    """Build a Lab time-series chart with multi-pair + overlay support."""
+    lab_pairs = kw.get("lab_pairs") or [pair]
+    if isinstance(lab_pairs, str):
+        lab_pairs = [lab_pairs]
+    lab_pairs = lab_pairs[:5]
+    overlay = kw.get("lab_overlay") or ""
+    window = kw.get("lab_window") or 252
+    normalize = kw.get("lab_normalize") or "raw"
+    tenor = kw.get("smile_tenor") or "3M"
+
+    has_overlay = bool(overlay) and overlay != chart_type
+    if has_overlay:
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+    else:
+        fig = go.Figure()
+
+    any_data = False
+
+    def _xy(series):
+        x = (series.index if isinstance(series, pd.Series)
+             and series.index.dtype != object else list(range(len(series))))
+        return x, (series.values if isinstance(series, pd.Series) else series)
+
+    # Primary metric
+    for idx, p in enumerate(lab_pairs):
+        series, label = _lab_fetch_series(p, chart_type, tenor, window)
+        if series is None or len(series) == 0:
+            continue
+        any_data = True
+        series = _lab_apply_norm(series, normalize)
+        color = _CW[idx % len(_CW)]
+        x, y = _xy(series)
+        trace = go.Scatter(x=x, y=y, mode="lines", name=label,
+                           line=dict(color=color, width=1.5))
+        if has_overlay:
+            fig.add_trace(trace, secondary_y=False)
+        else:
+            fig.add_trace(trace)
+
+    # Overlay (secondary Y)
+    if has_overlay:
+        ov_colors = ["#ffffff", "#88ff88", "#ff8888", "#88bbff", "#ffcc44"]
+        for idx, p in enumerate(lab_pairs):
+            series, label = _lab_fetch_series(p, overlay, tenor, window)
+            if series is None or len(series) == 0:
+                continue
+            any_data = True
+            series = _lab_apply_norm(series, normalize)
+            x, y = _xy(series)
+            ov_name = next((m["label"] for m in LAB_OVERLAY_OPTIONS
+                            if m["value"] == overlay), overlay)
+            fig.add_trace(go.Scatter(
+                x=x, y=y, mode="lines", name=f"{p} {ov_name}",
+                line=dict(color=ov_colors[idx % len(ov_colors)],
+                          width=1.5, dash="dot")),
+                secondary_y=True)
+
+    if not any_data:
+        return no_data_fig(height=CHART_MD, msg="NO DATA")
+
+    m_label = next((m["label"] for m in CHART_OPTIONS
+                    if m["value"] == chart_type), chart_type)
+    title = f"{m_label} | {tenor} | {window}d"
+    if normalize != "raw":
+        title += f" [{normalize}]"
+
+    _apply_chart_template(fig, title)
+    fig.update_layout(
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="left", x=0, font=dict(size=9), bgcolor="rgba(0,0,0,0)"),
+        margin=dict(l=45, r=50 if has_overlay else 15, t=40, b=30),
+        hovermode="x unified")
+
+    if has_overlay:
+        ov_label = next((m["label"] for m in LAB_OVERLAY_OPTIONS
+                         if m["value"] == overlay), overlay)
+        fig.update_yaxes(title_text=m_label, secondary_y=False,
+                         title_font=dict(size=9, color="#ff8800"))
+        fig.update_yaxes(title_text=ov_label, secondary_y=True,
+                         title_font=dict(size=9, color="#ffffff"),
+                         gridcolor="rgba(26,26,46,0.3)")
+    return fig
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Lab: Study chart builders (ported from chart_lab.py)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _lab_study_vol_cone(pair, sd, spot, r_dom, r_for, **kw):
+    window = kw.get("lab_window") or 252
+    df = vol_cone(pair, lookback=int(window))
+    if df is None or df.empty:
+        return _empty_fig("No vol cone data")
+    fig = go.Figure()
+    w = df["window"].tolist()
+    for col, name in [("p90", "90th"), ("p75", "75th"),
+                      ("p25", "25th"), ("p10", "10th")]:
+        if col in df.columns:
+            fig.add_trace(go.Scatter(x=w, y=df[col].tolist(), mode="lines",
+                          name=name, line=dict(color="#808080", width=1, dash="dot")))
+    if "median" in df.columns:
+        fig.add_trace(go.Scatter(x=w, y=df["median"].tolist(), mode="lines",
+                      name="Median", line=dict(color="#d4d4d4", width=1.5, dash="dash")))
+    if "current_c2c" in df.columns:
+        fig.add_trace(go.Scatter(x=w, y=df["current_c2c"].tolist(),
+                      mode="lines+markers", name="Current",
+                      line=dict(color="#ff8800", width=2.5),
+                      marker=dict(size=6, color="#ff8800")))
+    _apply_chart_template(fig, f"{pair} Realized Vol Cone")
+    fig.update_layout(xaxis_title="Window (days)", yaxis_title="RV (%)",
+                      hovermode="x unified")
+    return fig
+
+
+def _lab_study_smile(pair, sd, spot, r_dom, r_for, **kw):
+    surface = get_fx_vol_surface(pair)
+    if not surface:
+        return _empty_fig("No surface data")
+    fig = go.Figure()
+    for idx, t in enumerate(["1M", "3M", "6M", "1Y"]):
+        td = surface.get(t, {})
+        atm = td.get("atm", 0)
+        if atm == 0:
+            continue
+        rr25, bf25 = td.get("rr25", 0), td.get("bf25", 0)
+        rr10, bf10 = td.get("rr10", 0), td.get("bf10", 0)
+        vols = [atm - rr10/2 + bf10, atm - rr25/2 + bf25, atm,
+                atm + rr25/2 + bf25, atm + rr10/2 + bf10]
+        fig.add_trace(go.Scatter(x=["10P", "25P", "ATM", "25C", "10C"],
+                      y=vols, mode="lines+markers", name=t,
+                      line=dict(color=_CW[idx % len(_CW)], width=2)))
+    _apply_chart_template(fig, f"{pair} Vol Smile")
+    fig.update_layout(xaxis_title="Delta", yaxis_title="IV (%)",
+                      hovermode="x unified")
+    return fig
+
+
+def _lab_study_implied_pdf(pair, sd, spot, r_dom, r_for, **kw):
+    tenor = kw.get("smile_tenor") or "3M"
+    df = smile_implied_pdf(pair, tenor)
+    if df is None or df.empty:
+        return _empty_fig("No PDF data")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df["strike"].tolist(), y=df["pdf"].tolist(),
+                  mode="lines", name="Implied PDF", fill="tozeroy",
+                  line=dict(color="#ff8800", width=2),
+                  fillcolor="rgba(255,136,0,0.15)"))
+    spots = get_fx_spots([pair]) or {}
+    s = spots.get(pair, {}).get("mid")
+    if s:
+        fig.add_vline(x=s, line_dash="dash", line_color="#d4d4d4",
+                      annotation_text=f"Spot {s:.4f}")
+    _apply_chart_template(fig, f"{pair} {tenor} Implied PDF")
+    fig.update_layout(xaxis_title="Strike", yaxis_title="Density",
+                      hovermode="x unified")
+    return fig
+
+
+def _lab_study_vol_regime(pair, sd, spot, r_dom, r_for, **kw):
+    window = kw.get("lab_window") or 252
+    df = vol_regime_history(pair, lookback=int(window))
+    if df is None or df.empty:
+        return _empty_fig("No regime data")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df["day"].tolist(), y=df["vol"].tolist(),
+                  mode="lines", name=f"{pair} ATM",
+                  line=dict(color="#ff8800", width=2)))
+    for level, color, lbl in [(20, "#ff3333", "CRISIS"), (14, "#ff8800", "HIGH"),
+                               (10, "#ffaa33", "ELEVATED"), (6, "#808080", "NORMAL")]:
+        fig.add_hline(y=level, line_dash="dot", line_color=color,
+                      annotation_text=lbl, annotation_font_size=8,
+                      annotation_font_color=color)
+    regime = vol_regime_detect(pair) or {}
+    _apply_chart_template(
+        fig, f"{pair} Vol Regime: {regime.get('regime','?')} | "
+             f"Trend: {regime.get('trend','?')}")
+    fig.update_layout(xaxis_title="Days", yaxis_title="ATM Vol (%)",
+                      hovermode="x unified")
+    return fig
+
+
+def _lab_study_fwd_vol_curve(pair, sd, spot, r_dom, r_for, **kw):
+    tenor = kw.get("smile_tenor") or "3M"
+    df = forward_vol_curve(pair, start_tenor=tenor)
+    if df is None or df.empty:
+        return _empty_fig("No forward vol data")
+    fig = go.Figure()
+    if "spot_vol" in df.columns:
+        fig.add_trace(go.Scatter(x=df["end_tenor"].tolist(),
+                      y=df["spot_vol"].tolist(), mode="lines+markers",
+                      name="Spot Vol", line=dict(color="#d4d4d4", width=1.5)))
+    fig.add_trace(go.Scatter(x=df["end_tenor"].tolist(),
+                  y=df["forward_vol"].tolist(), mode="lines+markers",
+                  name="Forward Vol", line=dict(color="#ff8800", width=2.5),
+                  marker=dict(size=6)))
+    _apply_chart_template(fig, f"{pair} Forward Vol (from {tenor})")
+    fig.update_layout(xaxis_title="End Tenor", yaxis_title="Vol (%)",
+                      hovermode="x unified")
+    return fig
+
+
+def _lab_study_pctile_surface(pair, sd, spot, r_dom, r_for, **kw):
+    df = vol_percentile_surface(pair)
+    if df is None or df.empty:
+        return _empty_fig("No percentile surface data")
+    fig = go.Figure(data=go.Heatmap(
+        z=df.values, x=df.columns.tolist(), y=df.index.tolist(),
+        colorscale=[[0, "#00cc66"], [0.25, "#222240"], [0.5, "#808080"],
+                    [0.75, "#222240"], [1, "#ff3333"]],
+        text=np.round(df.values, 1).astype(str), texttemplate="%{text}",
+        textfont=dict(size=10, color="#d4d4d4")))
+    _apply_chart_template(fig, f"{pair} Percentile Surface")
+    return fig
+
+
+def _lab_study_zscore_surface(pair, sd, spot, r_dom, r_for, **kw):
+    df = vol_zscore_surface(pair)
+    if df is None or df.empty:
+        return _empty_fig("No z-score surface data")
+    fig = go.Figure(data=go.Heatmap(
+        z=df.values, x=df.columns.tolist(), y=df.index.tolist(),
+        colorscale=[[0, "#00cc66"], [0.5, "#000000"], [1, "#ff3333"]],
+        text=np.round(df.values, 1).astype(str), texttemplate="%{text}",
+        textfont=dict(size=10, color="#d4d4d4")))
+    _apply_chart_template(fig, f"{pair} Z-Score Surface")
+    return fig
+
+
+def _lab_study_tail_probs(pair, sd, spot, r_dom, r_for, **kw):
+    tenor = kw.get("smile_tenor") or "3M"
+    df = tail_probabilities(pair, tenor)
+    if df is None or df.empty:
+        return _empty_fig("No tail prob data")
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=[f"+{m:.0f}%" for m in df["move_pct"]],
+                  y=df["prob_up"].tolist(), name="Up",
+                  marker_color="#00cc66", opacity=0.85))
+    fig.add_trace(go.Bar(x=[f"+{m:.0f}%" for m in df["move_pct"]],
+                  y=df["prob_down"].tolist(), name="Down",
+                  marker_color="#ff3333", opacity=0.85))
+    _apply_chart_template(fig, f"{pair} {tenor} Tail Probabilities")
+    fig.update_layout(xaxis_title="Move Size", yaxis_title="Probability (%)",
+                      barmode="group")
+    return fig
+
+
+def _lab_study_breakeven(pair, sd, spot, r_dom, r_for, **kw):
+    from core.fx_conventions import tenor_to_days
+    tenor = kw.get("smile_tenor") or "3M"
+    days = tenor_to_days(tenor)
+    info = breakeven_vol(pair, tenor, days)
+    if not info:
+        return _empty_fig("No breakeven data")
+    fig = go.Figure()
+    labels = ["ATM IV", "Breakeven RV", "Cushion"]
+    vals = [info.get("atm_iv", 0), info.get("breakeven_rv", 0),
+            info.get("iv_rv_cushion", 0)]
+    colors = ["#ff8800", "#d4d4d4",
+              "#00cc66" if info.get("iv_rv_cushion", 0) > 0 else "#ff3333"]
+    fig.add_trace(go.Bar(x=labels, y=vals, marker_color=colors,
+                  text=[f"{v:.2f}" for v in vals], textposition="outside",
+                  textfont=dict(color="#d4d4d4", size=11)))
+    _apply_chart_template(fig, f"{pair} {tenor} Breakeven Analysis")
+    fig.update_layout(yaxis_title="Vol (%)")
+    return fig
+
+
+def _lab_study_carry_landscape(pair, sd, spot, r_dom, r_for, **kw):
+    lab_pairs = kw.get("lab_pairs") or [pair]
+    if isinstance(lab_pairs, str):
+        lab_pairs = [lab_pairs]
+    df = carry_per_vol(lab_pairs)
+    if df is None or df.empty:
+        return _empty_fig("No carry data")
+    colors = ["#00cc66" if s == "ATTRACTIVE"
+              else ("#ff8800" if s == "MODERATE" else "#ff3333")
+              for s in df["rank_signal"]]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=df["pair"].tolist(), y=df["sharpe_proxy"].tolist(),
+                  marker_color=colors,
+                  text=[f"{v:.2f}" for v in df["sharpe_proxy"]],
+                  textposition="outside",
+                  textfont=dict(color="#d4d4d4", size=10)))
+    _apply_chart_template(fig, "Carry / Vol Ranking (Sharpe Proxy)")
+    fig.update_layout(yaxis_title="Sharpe Proxy")
+    return fig
+
+
 # Chart dispatch table
 CHART_DISPATCH = {
+    # Surface charts
     "surface_3d": chart_surface_3d,
     "heatmap": chart_heatmap,
     "atm_term": chart_atm_term,
@@ -1076,11 +1537,35 @@ CHART_DISPATCH = {
     "surface_change": chart_surface_change,
     "sabr_params": chart_sabr_params,
     "implied_dist": chart_implied_dist,
+    # Lab study charts
+    "lab_study_vol_cone": _lab_study_vol_cone,
+    "lab_study_smile": _lab_study_smile,
+    "lab_study_implied_pdf": _lab_study_implied_pdf,
+    "lab_study_vol_regime": _lab_study_vol_regime,
+    "lab_study_fwd_vol_curve": _lab_study_fwd_vol_curve,
+    "lab_study_pctile_surface": _lab_study_pctile_surface,
+    "lab_study_zscore_surface": _lab_study_zscore_surface,
+    "lab_study_tail_probs": _lab_study_tail_probs,
+    "lab_study_breakeven": _lab_study_breakeven,
+    "lab_study_carry_landscape": _lab_study_carry_landscape,
 }
 
 
 def _render_chart(chart_type, pair, sd, spot, r_dom, r_for, **kw):
-    """Dispatch to the correct chart function."""
+    """Dispatch to the correct chart function.
+
+    Lab time-series metrics (lab_atm, lab_25d_rr, etc.) are handled
+    by _lab_build_ts_chart.  Lab study metrics and surface charts go
+    through the dispatch table.
+    """
+    # Lab time-series metrics → multi-pair TS builder
+    if chart_type in _LAB_METRIC_MAP:
+        try:
+            return _lab_build_ts_chart(chart_type, pair, sd, spot, r_dom, r_for, **kw)
+        except Exception as exc:
+            return _empty_fig(f"Lab TS error: {exc}")
+
+    # Surface + study dispatch
     fn = CHART_DISPATCH.get(chart_type)
     if fn is None:
         return _empty_fig(f"Unknown chart: {chart_type}")
@@ -1496,6 +1981,17 @@ def layout():
                         html.Button("Term", id="vsfx-preset-term", n_clicks=0, style=PRESET_BTN),
                         html.Button("Rich-Cheap", id="vsfx-preset-rc", n_clicks=0, style=PRESET_BTN),
                     ], style={"display": "flex", "flexWrap": "wrap"}),
+                    html.Div(style={"height": "4px"}),
+                    html.Div([
+                        html.Button("Lab: Vol", id="vsfx-preset-lab-vol", n_clicks=0,
+                                    style={**PRESET_BTN, "color": COLORS["accent_cyan"]}),
+                        html.Button("Lab: Smile", id="vsfx-preset-lab-smile", n_clicks=0,
+                                    style={**PRESET_BTN, "color": COLORS["accent_cyan"]}),
+                        html.Button("Lab: RV", id="vsfx-preset-lab-rv", n_clicks=0,
+                                    style={**PRESET_BTN, "color": COLORS["accent_cyan"]}),
+                        html.Button("Lab: Carry", id="vsfx-preset-lab-carry", n_clicks=0,
+                                    style={**PRESET_BTN, "color": COLORS["accent_cyan"]}),
+                    ], style={"display": "flex", "flexWrap": "wrap"}),
                 ], style=SIDEBAR_SECTION),
 
                 # ── Group divider: core selection → comparison settings ──
@@ -1598,6 +2094,54 @@ def layout():
                     style={"fontSize": "10px"}),
                 ], style=SIDEBAR_SECTION),
 
+                # ── Group divider: view → lab controls ──
+                html.Div(style={"borderBottom": "1px solid #333355", "margin": "8px 0 12px 0"}),
+
+                html.Div("LAB CONTROLS", style={
+                    "color": COLORS["accent_cyan"], "fontSize": "9px",
+                    "fontWeight": "700", "fontFamily": "'JetBrains Mono', monospace",
+                    "letterSpacing": "1.2px", "textTransform": "uppercase",
+                    "marginBottom": "8px",
+                }),
+
+                # Multi-pair selector (used by lab TS metrics)
+                html.Div([
+                    html.Label("MULTI-PAIR", style=SIDEBAR_LABEL),
+                    dcc.Dropdown(id="vsfx-lab-pairs",
+                        options=[{"label": p, "value": p}
+                                 for p in sorted(FX_PAIR_REGISTRY.keys())],
+                        value=["EURUSD", "USDJPY", "GBPUSD"],
+                        multi=True, clearable=False,
+                        style={"fontSize": "10px"}),
+                ], style=SIDEBAR_SECTION),
+
+                # Overlay metric (secondary axis)
+                html.Div([
+                    html.Label("OVERLAY", style=SIDEBAR_LABEL),
+                    dcc.Dropdown(id="vsfx-lab-overlay",
+                        options=LAB_OVERLAY_OPTIONS,
+                        value="", clearable=True, placeholder="2nd axis",
+                        style={"fontSize": "10px"}),
+                ], style=SIDEBAR_SECTION),
+
+                # Lookback window
+                html.Div([
+                    html.Label("WINDOW", style=SIDEBAR_LABEL),
+                    dcc.Dropdown(id="vsfx-lab-window",
+                        options=LAB_WINDOW_OPTIONS,
+                        value=252, clearable=False,
+                        style={"fontSize": "10px"}),
+                ], style=SIDEBAR_SECTION),
+
+                # Normalization
+                html.Div([
+                    html.Label("NORMALIZE", style=SIDEBAR_LABEL),
+                    dcc.Dropdown(id="vsfx-lab-normalize",
+                        options=LAB_NORMALIZE_OPTIONS,
+                        value="raw", clearable=False,
+                        style={"fontSize": "10px"}),
+                ], style=SIDEBAR_SECTION),
+
             ], style=SIDEBAR_STYLE),
 
             # ──── Main Content Area ────────────────────────────────
@@ -1658,6 +2202,113 @@ def layout():
                 # Overnight Summary Strip
                 html.Div(id="vsfx-overnight-summary"),
 
+                # ── Deep Study Section (from Chart Lab) ───────────
+                html.Div([
+                    section_header("ANALYTICAL STUDIES"),
+                    html.Div([
+                        html.Div([
+                            html.Label("STUDY", style=SIDEBAR_LABEL),
+                            dcc.Dropdown(id="vsfx-study-type", options=[
+                                {"label": "Vol Deep Dive",      "value": "vol_deep_dive"},
+                                {"label": "Smile Deep Dive",    "value": "smile_deep_dive"},
+                                {"label": "RV Scanner",         "value": "rv_scanner"},
+                                {"label": "Correlation Lab",    "value": "correlation_lab"},
+                                {"label": "Carry Dashboard",    "value": "carry_dashboard"},
+                                {"label": "Forward Vol Lab",    "value": "fwd_vol_lab"},
+                            ], value="vol_deep_dive", clearable=False,
+                            style={"fontSize": "10px"}),
+                        ], style={"flex": "1", "minWidth": "140px"}),
+                        html.Div([
+                            html.Label("PAIR(S)", style=SIDEBAR_LABEL),
+                            dcc.Dropdown(id="vsfx-study-pairs",
+                                options=[{"label": p, "value": p}
+                                         for p in sorted(FX_PAIR_REGISTRY.keys())],
+                                value=["EURUSD", "USDJPY", "GBPUSD"],
+                                multi=True, style={"fontSize": "10px"}),
+                        ], style={"flex": "2", "minWidth": "200px"}),
+                        html.Div([
+                            html.Label("TENOR", style=SIDEBAR_LABEL),
+                            dcc.Dropdown(id="vsfx-study-tenor",
+                                options=[{"label": t, "value": t}
+                                         for t in ["1M", "2M", "3M", "6M", "1Y", "2Y"]],
+                                value="3M", clearable=False,
+                                style={"fontSize": "10px"}),
+                        ], style={"flex": "0.6", "minWidth": "65px"}),
+                        html.Div([
+                            html.Button("RUN STUDY", id="vsfx-study-run",
+                                n_clicks=0, style={
+                                    "backgroundColor": "#ff8800", "color": "#000",
+                                    "border": "none", "borderRadius": "0px",
+                                    "padding": "4px 12px",
+                                    "fontFamily": "'JetBrains Mono', monospace",
+                                    "fontSize": "9px", "fontWeight": "700",
+                                    "cursor": "pointer", "letterSpacing": "0.8px",
+                                    "textTransform": "uppercase",
+                                }),
+                        ], style={"display": "flex", "alignItems": "flex-end"}),
+                    ], style={"display": "flex", "gap": GAP, "flexWrap": "wrap",
+                              "alignItems": "flex-end", "marginBottom": GAP}),
+                    dcc.Graph(id="vsfx-study-chart",
+                              style={"height": f"{CHART_LG}px"},
+                              config={"displayModeBar": True, "displaylogo": False}),
+                ], style={**CARD_STYLE, "marginTop": SECTION_GAP,
+                          "padding": "12px"}),
+
+                # ── Comparison Overlay Section ────────────────────
+                html.Div([
+                    section_header("COMPARISON OVERLAY"),
+                    html.Div([
+                        html.Div([
+                            html.Label("PAIRS (2-5)", style=SIDEBAR_LABEL),
+                            dcc.Dropdown(id="vsfx-comp-pairs",
+                                options=[{"label": p, "value": p}
+                                         for p in sorted(FX_PAIR_REGISTRY.keys())],
+                                value=["EURUSD", "USDJPY", "GBPUSD"],
+                                multi=True, style={"fontSize": "10px"}),
+                        ], style={"flex": "2", "minWidth": "200px"}),
+                        html.Div([
+                            html.Label("TYPE", style=SIDEBAR_LABEL),
+                            dcc.Dropdown(id="vsfx-comp-type", options=[
+                                {"label": "Term Structure",     "value": "term_structure"},
+                                {"label": "Skew Profile",       "value": "skew_profile"},
+                                {"label": "Smile",              "value": "smile"},
+                                {"label": "Vol Cone",           "value": "vol_cone"},
+                                {"label": "IV-RV Overlay",      "value": "iv_rv_overlay"},
+                                {"label": "Correlation Matrix", "value": "correlation_matrix"},
+                                {"label": "Vol Corr Matrix",    "value": "vol_correlation_matrix"},
+                                {"label": "RV Heatmap",         "value": "rv_heatmap"},
+                                {"label": "Carry Ranking",      "value": "carry_ranking"},
+                            ], value="term_structure", clearable=False,
+                            style={"fontSize": "10px"}),
+                        ], style={"flex": "1", "minWidth": "120px"}),
+                        html.Div([
+                            html.Label("TENOR", style=SIDEBAR_LABEL),
+                            dcc.Dropdown(id="vsfx-comp-tenor",
+                                options=[{"label": t, "value": t}
+                                         for t in ["1M", "2M", "3M", "6M", "1Y", "2Y"]],
+                                value="3M", clearable=False,
+                                style={"fontSize": "10px"}),
+                        ], style={"flex": "0.6", "minWidth": "65px"}),
+                        html.Div([
+                            html.Button("REFRESH", id="vsfx-comp-refresh",
+                                n_clicks=0, style={
+                                    "backgroundColor": "#ff8800", "color": "#000",
+                                    "border": "none", "borderRadius": "0px",
+                                    "padding": "4px 12px",
+                                    "fontFamily": "'JetBrains Mono', monospace",
+                                    "fontSize": "9px", "fontWeight": "700",
+                                    "cursor": "pointer", "letterSpacing": "0.8px",
+                                    "textTransform": "uppercase",
+                                }),
+                        ], style={"display": "flex", "alignItems": "flex-end"}),
+                    ], style={"display": "flex", "gap": GAP, "flexWrap": "wrap",
+                              "alignItems": "flex-end", "marginBottom": GAP}),
+                    dcc.Graph(id="vsfx-comp-chart",
+                              style={"height": f"{CHART_LG}px"},
+                              config={"displayModeBar": True, "displaylogo": False}),
+                ], style={**CARD_STYLE, "marginTop": SECTION_GAP,
+                          "padding": "12px"}),
+
             ], style={"flex": "1", "padding": SECTION_GAP, "overflowY": "auto"}),
 
         ], style={"display": "flex", "height": "100vh",
@@ -1682,10 +2333,14 @@ def register_callbacks(app):
         [Input("vsfx-preset-trader", "n_clicks"),
          Input("vsfx-preset-skew", "n_clicks"),
          Input("vsfx-preset-term", "n_clicks"),
-         Input("vsfx-preset-rc", "n_clicks")],
+         Input("vsfx-preset-rc", "n_clicks"),
+         Input("vsfx-preset-lab-vol", "n_clicks"),
+         Input("vsfx-preset-lab-smile", "n_clicks"),
+         Input("vsfx-preset-lab-rv", "n_clicks"),
+         Input("vsfx-preset-lab-carry", "n_clicks")],
         prevent_initial_call=True,
     )
-    def update_preset(trader_n, skew_n, term_n, rc_n):
+    def update_preset(*args):
         ctx = callback_context
         if not ctx.triggered:
             return no_update, no_update, no_update, no_update
@@ -1695,6 +2350,10 @@ def register_callbacks(app):
             "vsfx-preset-skew": "Skew",
             "vsfx-preset-term": "Term",
             "vsfx-preset-rc": "Rich-Cheap",
+            "vsfx-preset-lab-vol": "Lab: Vol Monitor",
+            "vsfx-preset-lab-smile": "Lab: Smile",
+            "vsfx-preset-lab-rv": "Lab: RV",
+            "vsfx-preset-lab-carry": "Lab: Carry",
         }
         preset_name = preset_map.get(trigger_id, "Trader")
         charts = VIEW_PRESETS.get(preset_name, VIEW_PRESETS["Trader"])
@@ -1735,12 +2394,17 @@ def register_callbacks(app):
          Input("vsfx-tenors", "value"),
          Input("vsfx-delta-range", "value"),
          Input("vsfx-smile-tenor", "value"),
-         Input("vsfx-interval", "n_intervals")],
+         Input("vsfx-interval", "n_intervals"),
+         Input("vsfx-lab-pairs", "value"),
+         Input("vsfx-lab-overlay", "value"),
+         Input("vsfx-lab-window", "value"),
+         Input("vsfx-lab-normalize", "value")],
     )
     def update_workstation(pair, model, q1, q2, q3, q4,
                            compare, hist_offset, cross_pair,
                            selected_tenors, delta_range, smile_tenor,
-                           n_intervals):
+                           n_intervals,
+                           lab_pairs, lab_overlay, lab_window, lab_normalize):
         pair = pair or "EURUSD"
         model = model or "market"
 
@@ -1748,7 +2412,18 @@ def register_callbacks(app):
         sd_full = _get_surface_data(pair)
         if sd_full is None:
             ndf = no_data_fig(height=CHART_MD, msg="NO VOL SURFACE DATA")
-            return ndf, ndf, ndf, ndf, html.Div(), html.Div()
+            # Still try to render lab charts that don't need surface data
+            any_lab = any(q.startswith("lab_") for q in [q1, q2, q3, q4] if q)
+            if not any_lab:
+                return ndf, ndf, ndf, ndf, html.Div(), html.Div()
+            # Create minimal placeholder sd for surface charts
+            sd_full = {"tenors": [], "T_years": np.array([]),
+                       "atm": np.array([]), "rr25": np.array([]),
+                       "bf25": np.array([]), "rr10": np.array([]),
+                       "bf10": np.array([]), "vol_grid": np.zeros((0, 5)),
+                       "delta_labels": DELTA_LABELS,
+                       "delta_numeric": np.array(DELTA_NUMERIC),
+                       "surface_raw": {}}
         sd = _filter_surface_data(sd_full, selected_tenors)
         sd = _filter_delta_range(sd, delta_range or "10-50")
         spot, fwd_1m, r_dom, r_for = _get_spot_and_rates(pair)
@@ -1764,6 +2439,11 @@ def register_callbacks(app):
             "model": model,
             "selected_tenors": selected_tenors,
             "delta_range": delta_range or "10-50",
+            # Lab controls
+            "lab_pairs": lab_pairs or [pair],
+            "lab_overlay": lab_overlay or "",
+            "lab_window": lab_window or 252,
+            "lab_normalize": lab_normalize or "raw",
         }
 
         # If model is SABR or VV, overlay on smile_curve and surface_3d
@@ -1852,3 +2532,375 @@ def register_callbacks(app):
         except Exception:
             logger.exception("CSV export failed for %s/%s", panel, chart_type)
             return no_update
+
+    # ------------------------------------------------------------------
+    # Callback 5: Deep Analytical Study
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output("vsfx-study-chart", "figure"),
+        [Input("vsfx-study-run", "n_clicks")],
+        [State("vsfx-study-type", "value"),
+         State("vsfx-study-pairs", "value"),
+         State("vsfx-study-tenor", "value")],
+        prevent_initial_call=True,
+    )
+    def run_deep_study(n_clicks, study_type, pairs, tenor):
+        if not pairs:
+            return _empty_fig("Select pairs")
+        if isinstance(pairs, str):
+            pairs = [pairs]
+        pair = pairs[0]
+        tenor = tenor or "3M"
+
+        try:
+            if study_type == "vol_deep_dive":
+                fig = make_subplots(rows=2, cols=2, subplot_titles=[
+                    f"{pair} ATM Vol + Regime", f"{pair} Vol Cone",
+                    f"{pair} IV-RV Spread", "Stats"],
+                    vertical_spacing=0.12, horizontal_spacing=0.08)
+                rh = vol_regime_history(pair, 252)
+                if rh is not None and not rh.empty:
+                    fig.add_trace(go.Scatter(x=rh["day"].tolist(), y=rh["vol"].tolist(),
+                                  mode="lines", name="ATM Vol",
+                                  line=dict(color="#ff8800", width=2)), row=1, col=1)
+                vc = vol_cone(pair)
+                if vc is not None and not vc.empty:
+                    w = vc["window"].tolist()
+                    if "median" in vc.columns:
+                        fig.add_trace(go.Scatter(x=w, y=vc["median"].tolist(),
+                                      mode="lines", name="Median",
+                                      line=dict(color="#808080", dash="dash")), row=1, col=2)
+                    if "current_c2c" in vc.columns:
+                        fig.add_trace(go.Scatter(x=w, y=vc["current_c2c"].tolist(),
+                                      mode="lines+markers", name="Current RV",
+                                      line=dict(color="#ff8800", width=2)), row=1, col=2)
+                ivr = iv_rv_spread(pair, tenor, lookback=252)
+                if ivr is not None and not ivr.empty:
+                    if "iv" in ivr.columns:
+                        fig.add_trace(go.Scatter(x=list(range(len(ivr))),
+                                      y=ivr["iv"].tolist(), mode="lines", name="IV",
+                                      line=dict(color="#ff8800")), row=2, col=1)
+                    if "rv" in ivr.columns:
+                        fig.add_trace(go.Scatter(x=list(range(len(ivr))),
+                                      y=ivr["rv"].tolist(), mode="lines", name="RV",
+                                      line=dict(color="#d4d4d4", dash="dash")), row=2, col=1)
+                r = vol_regime_detect(pair) or {}
+                z = vol_zscore(pair, tenor, "ATM") or {}
+                stats_text = (f"Regime: {r.get('regime', 'N/A')}<br>"
+                             f"Trend: {r.get('trend', 'N/A')}<br>"
+                             f"ATM IV: {r.get('atm_iv', 0):.2f}<br>"
+                             f"Z-Score: {z.get('zscore', 0):+.2f}<br>"
+                             f"Percentile: {z.get('percentile', 50):.0f}th")
+                fig.add_annotation(text=stats_text, xref="x4", yref="y4",
+                                   x=0.5, y=0.5, showarrow=False,
+                                   font=dict(color="#d4d4d4", size=11),
+                                   align="left", row=2, col=2)
+
+            elif study_type == "smile_deep_dive":
+                fig = make_subplots(rows=2, cols=2, subplot_titles=[
+                    f"{pair} Smile ({tenor})", f"{pair} Implied PDF ({tenor})",
+                    "Skew Across Tenors", "Tail Probabilities"])
+                surface = get_fx_vol_surface(pair)
+                if surface:
+                    td = surface.get(tenor, {})
+                    atm = td.get("atm", 0)
+                    if atm > 0:
+                        rr25, bf25 = td.get("rr25", 0), td.get("bf25", 0)
+                        rr10, bf10 = td.get("rr10", 0), td.get("bf10", 0)
+                        vols = [atm-rr10/2+bf10, atm-rr25/2+bf25, atm,
+                                atm+rr25/2+bf25, atm+rr10/2+bf10]
+                        fig.add_trace(go.Scatter(x=["10P","25P","ATM","25C","10C"],
+                                      y=vols, mode="lines+markers", name="Smile",
+                                      line=dict(color="#ff8800", width=2)), row=1, col=1)
+                pdf = smile_implied_pdf(pair, tenor)
+                if pdf is not None and not pdf.empty:
+                    fig.add_trace(go.Scatter(x=pdf["strike"].tolist(),
+                                  y=pdf["pdf"].tolist(), mode="lines", name="PDF",
+                                  fill="tozeroy", line=dict(color="#ff8800"),
+                                  fillcolor="rgba(255,136,0,0.15)"), row=1, col=2)
+                if surface:
+                    for t in ["1M", "3M", "6M", "1Y"]:
+                        rr = surface.get(t, {}).get("rr25", 0)
+                        fig.add_trace(go.Bar(x=[t], y=[rr], name=f"RR {t}",
+                                      marker_color="#ff8800", showlegend=False),
+                                      row=2, col=1)
+                tp = tail_probabilities(pair, tenor)
+                if tp is not None and not tp.empty:
+                    fig.add_trace(go.Bar(
+                        x=[f"{m:.0f}%" for m in tp["move_pct"]],
+                        y=tp["prob_either"].tolist(), name="Either",
+                        marker_color="#ff8800"), row=2, col=2)
+
+            elif study_type == "rv_scanner":
+                fig = make_subplots(rows=1, cols=2,
+                    subplot_titles=["Vol Z-Score Heatmap", "IV-RV Spread"])
+                sc = rv_scanner(pairs, ["1M", "3M", "1Y"])
+                if sc is not None and not sc.empty:
+                    pvt = sc.pivot_table(values="zscore", index="pair",
+                                         columns="tenor", aggfunc="first")
+                    if not pvt.empty:
+                        fig.add_trace(go.Heatmap(
+                            z=pvt.values, x=pvt.columns.tolist(),
+                            y=pvt.index.tolist(),
+                            colorscale=[[0,"#00cc66"],[0.5,"#000000"],[1,"#ff3333"]],
+                            zmid=0, text=np.round(pvt.values, 2).astype(str),
+                            texttemplate="%{text}",
+                            textfont=dict(size=10)), row=1, col=1)
+                    ivrv = sc.pivot_table(values="iv_rv_spread", index="pair",
+                                          columns="tenor", aggfunc="first")
+                    if not ivrv.empty:
+                        for ci, t in enumerate(ivrv.columns):
+                            fig.add_trace(go.Bar(x=ivrv.index.tolist(),
+                                y=ivrv[t].tolist(), name=t,
+                                marker_color=_CW[ci % len(_CW)]), row=1, col=2)
+
+            elif study_type == "correlation_lab":
+                fig = make_subplots(rows=1, cols=2,
+                    subplot_titles=["Spot Correlation", "Vol Correlation"])
+                sc = spot_correlation_matrix(pairs, 60)
+                if sc is not None and not sc.empty:
+                    fig.add_trace(go.Heatmap(
+                        z=sc.values, x=sc.columns.tolist(), y=sc.index.tolist(),
+                        colorscale=[[0,"#ff3333"],[0.5,"#000000"],[1,"#00cc66"]],
+                        zmin=-1, zmax=1,
+                        text=np.round(sc.values, 2).astype(str),
+                        texttemplate="%{text}",
+                        textfont=dict(size=10)), row=1, col=1)
+                vc = vol_correlation_matrix(pairs, tenor, 60)
+                if vc is not None and not vc.empty:
+                    fig.add_trace(go.Heatmap(
+                        z=vc.values, x=vc.columns.tolist(), y=vc.index.tolist(),
+                        colorscale=[[0,"#ff3333"],[0.5,"#000000"],[1,"#00cc66"]],
+                        zmin=-1, zmax=1,
+                        text=np.round(vc.values, 2).astype(str),
+                        texttemplate="%{text}",
+                        textfont=dict(size=10)), row=1, col=2)
+
+            elif study_type == "carry_dashboard":
+                fig = make_subplots(rows=1, cols=2,
+                    subplot_titles=["Carry / Vol Ranking", "Carry Momentum"])
+                cpv = carry_per_vol(pairs)
+                if cpv is not None and not cpv.empty:
+                    colors = ["#00cc66" if s == "ATTRACTIVE"
+                              else ("#ff8800" if s == "MODERATE" else "#ff3333")
+                              for s in cpv["rank_signal"]]
+                    fig.add_trace(go.Bar(x=cpv["pair"].tolist(),
+                                  y=cpv["sharpe_proxy"].tolist(),
+                                  marker_color=colors, name="Sharpe Proxy"),
+                                  row=1, col=1)
+                for idx, p in enumerate(pairs[:6]):
+                    try:
+                        cm = carry_momentum(p)
+                        fig.add_trace(go.Bar(x=[p], y=[cm["change_20d_bps"]],
+                                      name=f"{p} 20D",
+                                      marker_color=_CW[idx % len(_CW)],
+                                      showlegend=False), row=1, col=2)
+                    except Exception:
+                        pass
+
+            elif study_type == "fwd_vol_lab":
+                fig = make_subplots(rows=1, cols=2,
+                    subplot_titles=[f"{pair} Forward Vol Curve",
+                                    f"{pair} Forward Vol Surface"])
+                fc = forward_vol_curve(pair)
+                if fc is not None and not fc.empty:
+                    if "spot_vol" in fc.columns:
+                        fig.add_trace(go.Scatter(x=fc["end_tenor"].tolist(),
+                                      y=fc["spot_vol"].tolist(),
+                                      mode="lines+markers", name="Spot Vol",
+                                      line=dict(color="#d4d4d4")), row=1, col=1)
+                    fig.add_trace(go.Scatter(x=fc["end_tenor"].tolist(),
+                                  y=fc["forward_vol"].tolist(),
+                                  mode="lines+markers", name="Fwd Vol",
+                                  line=dict(color="#ff8800", width=2)), row=1, col=1)
+                fs = forward_vol_surface(pair)
+                if fs is not None and not fs.empty:
+                    fig.add_trace(go.Heatmap(
+                        z=fs.values, x=fs.columns.tolist(), y=fs.index.tolist(),
+                        colorscale=[[0,"#000000"],[1,"#ff8800"]],
+                        text=np.where(np.isnan(fs.values), "",
+                                      np.round(fs.values, 1).astype(str)),
+                        texttemplate="%{text}",
+                        textfont=dict(size=9)), row=1, col=2)
+
+            else:
+                return _empty_fig(f"Unknown study: {study_type}")
+
+            if not fig.data:
+                return no_data_fig(height=CHART_LG, msg="NO DATA")
+
+            _apply_chart_template(fig, "")
+            fig.update_layout(height=CHART_LG, showlegend=True,
+                              hovermode="x unified",
+                              margin=dict(l=50, r=20, t=45, b=35))
+            for ann in fig.layout.annotations:
+                ann.font = dict(size=10, color="#ff8800")
+            return fig
+
+        except Exception:
+            logger.exception("Deep study error for %s", study_type)
+            return _empty_fig("Error building study")
+
+    # ------------------------------------------------------------------
+    # Callback 6: Comparison Overlay
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output("vsfx-comp-chart", "figure"),
+        [Input("vsfx-comp-refresh", "n_clicks"),
+         Input("vsfx-comp-pairs", "value"),
+         Input("vsfx-comp-type", "value"),
+         Input("vsfx-comp-tenor", "value")],
+    )
+    def run_comparison(n_clicks, pairs, comp_type, tenor):
+        if not pairs or len(pairs) < 2:
+            return _empty_fig("Select 2-5 pairs")
+        pairs = pairs[:5]
+        tenor = tenor or "3M"
+        comp_type = comp_type or "term_structure"
+        fig = go.Figure()
+
+        try:
+            if comp_type == "term_structure":
+                for idx, pair in enumerate(pairs):
+                    ts = get_fx_term_structure(pair)
+                    if ts is not None and not ts.empty and "atm" in ts.columns:
+                        fig.add_trace(go.Scatter(
+                            x=ts["tenor"].tolist(), y=ts["atm"].tolist(),
+                            mode="lines+markers", name=pair,
+                            line=dict(color=_CW[idx % len(_CW)], width=2)))
+                _apply_chart_template(fig, "ATM Vol Term Structure")
+                fig.update_layout(xaxis_title="Tenor", yaxis_title="ATM Vol (%)")
+
+            elif comp_type == "skew_profile":
+                for idx, pair in enumerate(pairs):
+                    surface = get_fx_vol_surface(pair)
+                    if surface:
+                        rr_vals, t_labels = [], []
+                        for t in ["1M", "3M", "6M", "1Y"]:
+                            rr_vals.append(surface.get(t, {}).get("rr25", 0))
+                            t_labels.append(t)
+                        fig.add_trace(go.Scatter(
+                            x=t_labels, y=rr_vals, mode="lines+markers",
+                            name=pair, line=dict(color=_CW[idx % len(_CW)], width=2)))
+                _apply_chart_template(fig, "25D RR Skew Profile")
+                fig.update_layout(xaxis_title="Tenor", yaxis_title="25D RR (vol pts)")
+
+            elif comp_type == "smile":
+                for idx, pair in enumerate(pairs):
+                    surface = get_fx_vol_surface(pair)
+                    if surface:
+                        td = surface.get(tenor, surface.get("3M", {}))
+                        atm = td.get("atm", 0)
+                        if atm == 0:
+                            continue
+                        rr25, bf25 = td.get("rr25", 0), td.get("bf25", 0)
+                        rr10, bf10 = td.get("rr10", 0), td.get("bf10", 0)
+                        vols = [atm-rr10/2+bf10, atm-rr25/2+bf25, atm,
+                                atm+rr25/2+bf25, atm+rr10/2+bf10]
+                        fig.add_trace(go.Scatter(
+                            x=["10P","25P","ATM","25C","10C"], y=vols,
+                            mode="lines+markers", name=f"{pair} {tenor}",
+                            line=dict(color=_CW[idx % len(_CW)], width=2)))
+                _apply_chart_template(fig, f"{tenor} Smile Comparison")
+                fig.update_layout(xaxis_title="Delta", yaxis_title="Vol (%)")
+
+            elif comp_type == "vol_cone":
+                for idx, pair in enumerate(pairs):
+                    cone = vol_cone(pair)
+                    if cone is not None and not cone.empty and "current_c2c" in cone.columns:
+                        fig.add_trace(go.Scatter(
+                            x=cone["window"].tolist(),
+                            y=cone["current_c2c"].tolist(),
+                            mode="lines+markers", name=pair,
+                            line=dict(color=_CW[idx % len(_CW)], width=2)))
+                _apply_chart_template(fig, "RV Cone: Current Level")
+                fig.update_layout(xaxis_title="Window (days)", yaxis_title="RV (%)")
+
+            elif comp_type == "iv_rv_overlay":
+                for idx, pair in enumerate(pairs):
+                    df = iv_rv_spread(pair, tenor, lookback=120)
+                    if df is not None and not df.empty:
+                        c = _CW[idx % len(_CW)]
+                        if "iv" in df.columns:
+                            fig.add_trace(go.Scatter(
+                                x=list(range(len(df))), y=df["iv"].tolist(),
+                                mode="lines", name=f"{pair} IV",
+                                line=dict(color=c, width=2)))
+                        if "rv" in df.columns:
+                            fig.add_trace(go.Scatter(
+                                x=list(range(len(df))), y=df["rv"].tolist(),
+                                mode="lines", name=f"{pair} RV",
+                                line=dict(color=c, width=1.5, dash="dash")))
+                _apply_chart_template(fig, f"IV vs RV ({tenor})")
+                fig.update_layout(xaxis_title="Days", yaxis_title="Vol (%)")
+
+            elif comp_type == "correlation_matrix":
+                corr = spot_correlation_matrix(pairs, window=60)
+                if corr is not None and not corr.empty:
+                    fig = go.Figure(data=go.Heatmap(
+                        z=corr.values, x=corr.columns.tolist(),
+                        y=corr.index.tolist(),
+                        colorscale=[[0,"#ff3333"],[0.5,"#000000"],[1,"#00cc66"]],
+                        zmin=-1, zmax=1,
+                        text=np.round(corr.values, 2).astype(str),
+                        texttemplate="%{text}",
+                        textfont=dict(size=11, color="#d4d4d4")))
+                _apply_chart_template(fig, "60D Spot Correlation")
+
+            elif comp_type == "vol_correlation_matrix":
+                corr = vol_correlation_matrix(pairs, tenor=tenor, window=60)
+                if corr is not None and not corr.empty:
+                    fig = go.Figure(data=go.Heatmap(
+                        z=corr.values, x=corr.columns.tolist(),
+                        y=corr.index.tolist(),
+                        colorscale=[[0,"#ff3333"],[0.5,"#000000"],[1,"#00cc66"]],
+                        zmin=-1, zmax=1,
+                        text=np.round(corr.values, 2).astype(str),
+                        texttemplate="%{text}",
+                        textfont=dict(size=11, color="#d4d4d4")))
+                _apply_chart_template(fig, f"60D Vol Change Correlation ({tenor})")
+
+            elif comp_type == "rv_heatmap":
+                df = rv_scanner(pairs, ["1M", "3M", "1Y"])
+                if df is not None and not df.empty:
+                    pvt = df.pivot_table(values="zscore", index="pair",
+                                         columns="tenor", aggfunc="first")
+                    if not pvt.empty:
+                        fig = go.Figure(data=go.Heatmap(
+                            z=pvt.values, x=pvt.columns.tolist(),
+                            y=pvt.index.tolist(),
+                            colorscale=[[0,"#00cc66"],[0.5,"#000000"],[1,"#ff3333"]],
+                            zmid=0, text=np.round(pvt.values, 2).astype(str),
+                            texttemplate="%{text}",
+                            textfont=dict(size=11, color="#d4d4d4")))
+                _apply_chart_template(fig, "Vol Z-Score Heatmap (cheap=green, rich=red)")
+
+            elif comp_type == "carry_ranking":
+                df = carry_per_vol(pairs)
+                if df is not None and not df.empty:
+                    colors = ["#00cc66" if s == "ATTRACTIVE"
+                              else ("#ff8800" if s == "MODERATE" else "#ff3333")
+                              for s in df["rank_signal"]]
+                    fig.add_trace(go.Bar(
+                        x=df["pair"].tolist(), y=df["sharpe_proxy"].tolist(),
+                        marker_color=colors,
+                        text=[f"{v:.2f}" for v in df["sharpe_proxy"]],
+                        textposition="outside",
+                        textfont=dict(color="#d4d4d4", size=10)))
+                _apply_chart_template(fig, "Carry / Vol Ranking")
+                fig.update_layout(yaxis_title="Sharpe Proxy")
+
+            if not fig.data:
+                return no_data_fig(height=CHART_LG, msg="NO DATA")
+
+            fig.update_layout(
+                legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                            xanchor="left", x=0, font=dict(size=9),
+                            bgcolor="rgba(0,0,0,0)"),
+                margin=dict(l=50, r=20, t=45, b=35),
+                hovermode="x unified")
+            return fig
+
+        except Exception:
+            logger.exception("Comparison error for %s", comp_type)
+            return _empty_fig("Error building comparison")

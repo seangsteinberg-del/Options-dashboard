@@ -1,33 +1,48 @@
 """
-Strategy Construction Lab Panel
-================================
-FX options multi-leg structure builder with delta-based leg configuration,
-Garman-Kohlhagen pricing, full Greeks decomposition, payoff diagrams,
-P&L heatmaps, 3D surfaces, and scenario sensitivity analysis.
+FX Trade Idea Workshop
+=======================
+Institutional-grade FX options structuring workstation.  Multi-leg builder
+with delta- and strike-based entry, Garman-Kohlhagen pricing, full Greeks,
+**expected-value calculator** (Breeden-Litzenberger implied density),
+vol-regime-aware **suggestion engine**, multi-tenor scan, **solver**
+(zero-cost / delta-neutral / target metrics), compare mode, edge analysis,
+probability-weighted payoff overlay, and scenario sensitivity.
 
-Supports 25 preset structures plus fully custom multi-leg construction
-for institutional FX options workflows.
+25 preset structures plus fully custom multi-leg construction.
 """
+
+import logging
+from copy import deepcopy
+from datetime import datetime
 
 import dash
 from dash import html, dcc, Input, Output, State, callback_context, no_update, ALL, MATCH
+from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
+from scipy.optimize import brentq, minimize_scalar
 
 from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
+    BUTTON_SUCCESS_STYLE, BUTTON_DANGER_STYLE,
     make_stat_style, clickable_stat,
     CSV_BTN_STYLE, no_data_fig,
 )
 from core.csv_export import export_csv
-from core.fx_analytics import vol_percentile
+from core.fx_analytics import (
+    vol_percentile, iv_rv_percentile, breakeven_vol,
+    smile_implied_pdf, vol_regime_detect,
+)
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs
 from core.fx_conventions import (
-    tenor_to_years, years_to_nearest_tenor, delta_to_strike, atm_dns_strike, bf_rr_to_smile,
+    tenor_to_years, tenor_to_days, years_to_nearest_tenor,
+    delta_to_strike, atm_dns_strike, bf_rr_to_smile,
     FX_PAIR_REGISTRY, forward_points, fx_forward, premium_pips, premium_pct_notional,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -163,6 +178,41 @@ PRESETS = {
 
 
 MAX_LEGS = 8
+
+SCAN_TENORS = ["1M", "2M", "3M", "6M", "1Y"]
+
+# ============================================================================
+# Structure Classification — maps presets to market views for Trade Analysis
+# ============================================================================
+
+STRUCTURE_VIEWS = {
+    "Custom":                {"view": "Custom structure", "type": "custom", "vol_view": "unknown"},
+    "Call":                  {"view": "Bullish spot", "type": "directional", "vol_view": "long_vol"},
+    "Put":                   {"view": "Bearish spot", "type": "directional", "vol_view": "long_vol"},
+    "Call Spread":           {"view": "Moderately bullish", "type": "directional", "vol_view": "neutral"},
+    "Put Spread":            {"view": "Moderately bearish", "type": "directional", "vol_view": "neutral"},
+    "Risk Reversal":         {"view": "Bullish spot + skew", "type": "directional", "vol_view": "skew"},
+    "25D Risk Reversal":     {"view": "Bullish spot + skew", "type": "directional", "vol_view": "skew"},
+    "Straddle":              {"view": "Long volatility", "type": "vol", "vol_view": "long_vol"},
+    "Strangle":              {"view": "Long volatility (wide)", "type": "vol", "vol_view": "long_vol"},
+    "25D Strangle":          {"view": "Long volatility (25D wings)", "type": "vol", "vol_view": "long_vol"},
+    "10D Strangle":          {"view": "Long tail risk", "type": "vol", "vol_view": "long_vol"},
+    "Butterfly":             {"view": "Short vol / range-bound", "type": "vol", "vol_view": "short_vol"},
+    "Iron Butterfly":        {"view": "Short vol / defined risk", "type": "vol", "vol_view": "short_vol"},
+    "Iron Condor":           {"view": "Range-bound / short vol", "type": "vol", "vol_view": "short_vol"},
+    "Broken Wing Butterfly": {"view": "Range-bound with directional bias", "type": "hybrid", "vol_view": "short_vol"},
+    "Seagull":               {"view": "Bullish, capped, funded by sold put", "type": "hybrid", "vol_view": "neutral"},
+    "Collar":                {"view": "Hedged long / limited range", "type": "hedge", "vol_view": "neutral"},
+    "Fence":                 {"view": "Hedged position / tight range", "type": "hedge", "vol_view": "neutral"},
+    "Participating Forward": {"view": "Full directional + offset premium", "type": "directional", "vol_view": "neutral"},
+    "Leveraged Forward":     {"view": "Leveraged directional (ratio risk)", "type": "directional", "vol_view": "neutral"},
+    "1x2 Call Spread":       {"view": "Moderately bullish (ratio risk above)", "type": "hybrid", "vol_view": "short_vol"},
+    "1x2 Put Spread":        {"view": "Moderately bearish (ratio risk below)", "type": "hybrid", "vol_view": "short_vol"},
+    "Calendar Spread":       {"view": "Long term structure / roll-down", "type": "vol", "vol_view": "term_structure"},
+    "Diagonal Spread":       {"view": "Directional + term structure", "type": "hybrid", "vol_view": "term_structure"},
+    "Christmas Tree":        {"view": "Moderately bullish, low cost", "type": "directional", "vol_view": "neutral"},
+    "Ladder":                {"view": "Directional with distributed risk", "type": "hybrid", "vol_view": "neutral"},
+}
 
 
 # ============================================================================
@@ -484,11 +534,631 @@ def _compute_aggregates(processed_legs, S, T, r_d, r_f, notional, pip_size):
 
 
 # ============================================================================
+# Expected Value Calculator (Breeden-Litzenberger implied density)
+# ============================================================================
+
+def _compute_expected_value(processed_legs, S, T, r_d, r_f, pair, tenor,
+                            notional, pip_size, vol_surface):
+    """Probability-weighted expected P&L using vol-smile-implied density."""
+    try:
+        pdf_data = smile_implied_pdf(pair, tenor)
+        if pdf_data is None or pdf_data.empty:
+            return None
+
+        strikes = pdf_data["strike"].values
+        pdf_vals = pdf_data["pdf"].values
+
+        _trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
+        total_prob = _trapz(pdf_vals, strikes)
+        if total_prob <= 0:
+            return None
+        pdf_norm = pdf_vals / total_prob
+
+        # Structure payoff at each strike
+        net_prem = sum(lg["price_unit"] * lg["side_sign"] * lg["ratio"]
+                       for lg in processed_legs)
+        payoff = np.zeros_like(strikes)
+        for lg in processed_legs:
+            cp = lg["cp_sign"]
+            K = lg["strike"]
+            qty = lg["side_sign"] * lg["ratio"]
+            payoff += np.maximum(cp * (strikes - K), 0.0) * qty
+        pnl = (payoff - net_prem) * notional
+
+        ev = float(_trapz(pnl * pdf_norm, strikes))
+        profit_mask = pnl > 0
+        loss_mask = pnl < 0
+        prob_profit = float(_trapz(pdf_norm * profit_mask, strikes) * 100)
+        expected_profit = float(_trapz(pnl * pdf_norm * profit_mask, strikes))
+        expected_loss = float(_trapz(pnl * pdf_norm * loss_mask, strikes))
+
+        premium_abs = abs(net_prem * notional)
+        ev_pct = (ev / premium_abs * 100) if premium_abs > 1 else 0.0
+
+        return {
+            "ev": ev,
+            "ev_pips": ev / (notional * pip_size) if (notional * pip_size) > 0 else 0,
+            "ev_pct": ev_pct,
+            "prob_profit": prob_profit,
+            "expected_profit": expected_profit,
+            "expected_loss": expected_loss,
+            "edge": "POSITIVE" if ev > 0 else "NEGATIVE",
+            "edge_color": COLORS["accent_green"] if ev > 0 else COLORS["accent_red"],
+            "pdf_strikes": strikes,
+            "pdf_vals": pdf_norm,
+        }
+    except Exception as exc:
+        logger.debug("EV calculation failed: %s", exc)
+        return None
+
+
+# ============================================================================
+# Suggestion Engine — scan vol surface and suggest optimal structures
+# ============================================================================
+
+def _classify_regime(atm_pct, rr_pct, bf_pct, term_pct):
+    """Combine signal percentiles into a named vol regime."""
+    a = atm_pct or 50
+    r = rr_pct or 50
+    b = bf_pct or 50
+    t = term_pct or 50
+
+    if a > 80 and abs(r - 50) > 25:
+        return {"name": "CRASH FEAR", "color": COLORS["accent_red"],
+                "desc": "Vol elevated + skew extreme — risk-off"}
+    if a < 20 and b < 25:
+        return {"name": "COMPLACENT", "color": COLORS["accent_green"],
+                "desc": "Vol + wings historically cheap — opportunity to buy"}
+    if a < 30:
+        return {"name": "VOL CHEAP", "color": COLORS["accent_green"],
+                "desc": "ATM vol near lows — long vol setups attractive"}
+    if a > 70:
+        return {"name": "VOL RICH", "color": COLORS["accent_orange"],
+                "desc": "ATM vol elevated — short vol may have edge"}
+    if t > 80:
+        return {"name": "EVENT RISK", "color": COLORS["accent_orange"],
+                "desc": "Inverted term structure — near-term risk priced"}
+    return {"name": "NORMAL", "color": COLORS["text_secondary"],
+            "desc": "No extreme signals — standard conditions"}
+
+
+def _build_suggestions(pair, tenor, vol_surface, spots, rates):
+    """Scan current vol surface and generate ranked trade suggestions."""
+    suggestions = []
+
+    # ATM vol percentile
+    atm_info = vol_percentile(pair, tenor, "ATM", 252)
+    atm_pct = atm_info["percentile"] if atm_info else 50
+
+    # 25D RR percentile
+    rr_info = vol_percentile(pair, tenor, "25D_RR", 252)
+    rr_pct = rr_info["percentile"] if rr_info else 50
+    rr_val = rr_info["current"] if rr_info else 0
+
+    # 25D BF percentile
+    bf_info = vol_percentile(pair, tenor, "25D_BF", 252)
+    bf_pct = bf_info["percentile"] if bf_info else 50
+
+    # IV-RV spread
+    ivrv = iv_rv_percentile(pair, tenor)
+    ivrv_pct = ivrv.get("percentile", 50) if ivrv else 50
+
+    # Term structure: 1M vs 1Y ATM
+    term_pct = 50
+    atm_1m = vol_percentile(pair, "1M", "ATM", 252)
+    atm_1y = vol_percentile(pair, "1Y", "ATM", 252)
+    if atm_1m and atm_1y:
+        spread = (atm_1m.get("current", 0) or 0) - (atm_1y.get("current", 0) or 0)
+        term_pct = 80 if spread > 1.0 else (20 if spread < -2.0 else 50)
+
+    # Regime
+    regime = _classify_regime(atm_pct, rr_pct, bf_pct, term_pct)
+
+    # Generate suggestions based on signals
+    if atm_pct < 25:
+        suggestions.append({
+            "signal": f"ATM vol at {atm_pct:.0f}th %ile — CHEAP",
+            "structures": ["Straddle", "Strangle", "25D Strangle"],
+            "rationale": "Buy vol when historically cheap",
+            "color": COLORS["accent_green"],
+        })
+    elif atm_pct > 75:
+        suggestions.append({
+            "signal": f"ATM vol at {atm_pct:.0f}th %ile — EXPENSIVE",
+            "structures": ["Iron Condor", "Butterfly", "Iron Butterfly"],
+            "rationale": "Sell vol when historically rich",
+            "color": COLORS["accent_red"],
+        })
+
+    if rr_pct > 75:
+        direction = "Puts expensive" if rr_val < 0 else "Calls expensive"
+        suggestions.append({
+            "signal": f"25D RR at {rr_pct:.0f}th %ile — {direction}",
+            "structures": ["Risk Reversal", "Seagull", "Collar"],
+            "rationale": "Sell expensive side of skew",
+            "color": COLORS["accent_orange"],
+        })
+    elif rr_pct < 25:
+        suggestions.append({
+            "signal": f"25D RR at {rr_pct:.0f}th %ile — Skew flat",
+            "structures": ["Risk Reversal", "25D Risk Reversal"],
+            "rationale": "Buy protection cheaply when skew is flat",
+            "color": COLORS["accent_green"],
+        })
+
+    if bf_pct < 20:
+        suggestions.append({
+            "signal": f"Wings (BF25) at {bf_pct:.0f}th %ile — CHEAP",
+            "structures": ["Strangle", "10D Strangle", "Iron Butterfly"],
+            "rationale": "Wings historically cheap — buy convexity",
+            "color": COLORS["accent_green"],
+        })
+
+    if ivrv_pct > 80:
+        suggestions.append({
+            "signal": f"IV-RV spread at {ivrv_pct:.0f}th %ile — IV RICH",
+            "structures": ["Iron Condor", "Butterfly", "Calendar Spread"],
+            "rationale": "IV overpriced vs realised — sell premium",
+            "color": COLORS["accent_orange"],
+        })
+    elif ivrv_pct < 20:
+        suggestions.append({
+            "signal": f"IV-RV spread at {ivrv_pct:.0f}th %ile — IV CHEAP",
+            "structures": ["Straddle", "Strangle"],
+            "rationale": "IV underpriced vs realised — buy premium",
+            "color": COLORS["accent_green"],
+        })
+
+    if term_pct > 75:
+        suggestions.append({
+            "signal": "Term structure inverted — near-term event risk",
+            "structures": ["Calendar Spread", "Diagonal Spread"],
+            "rationale": "Buy back-end / sell front-end to capture normalisation",
+            "color": COLORS["accent_orange"],
+        })
+
+    return suggestions, regime, {
+        "atm_pct": atm_pct, "rr_pct": rr_pct, "bf_pct": bf_pct,
+        "ivrv_pct": ivrv_pct, "term_pct": term_pct,
+    }
+
+
+# ============================================================================
+# Multi-Tenor Scan
+# ============================================================================
+
+def _build_tenor_scan(legs_config, pair, notional, spots, rates, vol_surface):
+    """Price the same structure across multiple tenors for comparison."""
+    spot_data = spots.get(pair, {"mid": 1.0})
+    S = spot_data.get("mid", spot_data.get("bid", 1.0))
+    r_d = rates.get("r_dom", 0.03)
+    r_f = rates.get("r_for", 0.01)
+    pip_size = FX_PAIR_REGISTRY[pair].pip if pair in FX_PAIR_REGISTRY else 0.0001
+
+    rows = []
+    for t in SCAN_TENORS:
+        try:
+            T_val = tenor_to_years(t)
+            proc = _process_legs(legs_config, pair, t, notional, spot_data, rates, vol_surface)
+            agg = _compute_aggregates(proc, S, T_val, r_d, r_f, notional, pip_size)
+            vp = vol_percentile(pair, t, "ATM", 252)
+            pct = vp["percentile"] if vp else 50
+            rows.append({
+                "tenor": t, "premium_pips": agg["net_premium_pips"],
+                "pop": agg["pop"], "theta_day": agg["net_theta"] * notional,
+                "theta_pips": agg["net_theta"] / pip_size if pip_size > 0 else 0,
+                "vol_pctile": pct,
+                "be": agg["breakevens"][0] if agg["breakevens"] else None,
+                "max_loss": agg["max_loss"],
+            })
+        except Exception:
+            rows.append({"tenor": t, "premium_pips": 0, "pop": 0,
+                         "theta_day": 0, "theta_pips": 0, "vol_pctile": 50,
+                         "be": None, "max_loss": 0})
+    return rows
+
+
+# ============================================================================
+# Solver — find parameter value that hits a target metric
+# ============================================================================
+
+def _solve_for_parameter(target_metric, target_value, solve_leg, solve_param,
+                         legs_config, pair, tenor, notional, spot_data, rates,
+                         vol_surface):
+    """
+    Use brentq to find the value of solve_param on solve_leg that makes
+    target_metric == target_value.
+
+    Returns: {"success": bool, "value": float, "message": str}
+    """
+    S = spot_data.get("mid", spot_data.get("bid", 1.0))
+    T = tenor_to_years(tenor)
+    r_d = rates.get("r_dom", 0.03)
+    r_f = rates.get("r_for", 0.01)
+    pip_size = FX_PAIR_REGISTRY[pair].pip if pair in FX_PAIR_REGISTRY else 0.0001
+
+    if solve_param == "delta":
+        bounds = (0.05, 0.95)
+    elif solve_param == "ratio":
+        bounds = (1.0, 10.0)
+    else:
+        return {"success": False, "value": None, "message": f"Unknown param: {solve_param}"}
+
+    def objective(x):
+        test_config = deepcopy(legs_config)
+        if solve_param == "ratio":
+            test_config[solve_leg]["ratio"] = max(1, round(x))
+        else:
+            test_config[solve_leg][solve_param] = float(x)
+        proc = _process_legs(test_config, pair, tenor, notional, spot_data, rates, vol_surface)
+        agg = _compute_aggregates(proc, S, T, r_d, r_f, notional, pip_size)
+        metric_map = {
+            "net_premium_pips": agg["net_premium_pips"],
+            "net_premium": agg["net_premium"],
+            "net_delta": agg["net_delta"],
+            "net_vega": agg["net_vega"] * notional,
+            "net_theta": agg["net_theta"] * notional,
+            "pop": agg["pop"],
+        }
+        return metric_map.get(target_metric, 0) - target_value
+
+    try:
+        # Ratio is discrete — use brute-force integer search
+        if solve_param == "ratio":
+            best_r, best_err = 1, float("inf")
+            for r in range(1, 11):
+                err = abs(objective(r))
+                if err < best_err:
+                    best_r, best_err = r, err
+            tol = max(abs(target_value) * 0.01, 0.5)
+            if best_err < tol:
+                return {"success": True, "value": best_r,
+                        "message": f"Leg {solve_leg+1} ratio = {best_r}"}
+            return {"success": False, "value": None,
+                    "message": f"No integer ratio achieves target (best: ratio={best_r}, residual={best_err:.2f})"}
+
+        # Delta is continuous — use brentq
+        val_lo = objective(bounds[0])
+        val_hi = objective(bounds[1])
+        if val_lo * val_hi > 0:
+            # No sign change — try minimize_scalar as fallback
+            res = minimize_scalar(lambda x: abs(objective(x)),
+                                  bounds=bounds, method="bounded",
+                                  options={"maxiter": 80})
+            residual = abs(objective(res.x))
+            tol = max(abs(target_value) * 0.01, 0.5)
+            if residual < tol:
+                v = round(res.x, 4)
+                return {"success": True, "value": v,
+                        "message": f"Leg {solve_leg+1} {solve_param} = {v} (approx)"}
+            return {"success": False, "value": None,
+                    "message": f"No exact solution. Range: {val_lo+target_value:.2f} to {val_hi+target_value:.2f}"}
+
+        result = brentq(objective, bounds[0], bounds[1], xtol=1e-5, maxiter=50)
+        v = round(result, 4)
+        return {"success": True, "value": v,
+                "message": f"Leg {solve_leg+1} {solve_param} = {v}"}
+    except Exception as exc:
+        return {"success": False, "value": None, "message": f"Solver error: {exc}"}
+
+
+# ============================================================================
+# Unified Trade Analysis Panel (edge + scorecard + EV + scenarios)
+# ============================================================================
+
+def _detect_view(processed_legs, preset_name):
+    """Auto-detect market view from structure or preset."""
+    info = STRUCTURE_VIEWS.get(preset_name)
+    if info and preset_name != "Custom":
+        return info
+
+    # Auto-detect for custom structures
+    net_delta = sum(lg["delta"] for lg in processed_legs)
+    net_vega = sum(lg["vega"] for lg in processed_legs)
+    has_short = any(lg["side_sign"] < 0 for lg in processed_legs)
+
+    if abs(net_delta) > 0.15:
+        direction = "Bullish" if net_delta > 0 else "Bearish"
+        return {"view": f"{direction} spot (Δ={net_delta:+.2f})", "type": "directional",
+                "vol_view": "long_vol" if net_vega > 0 else "neutral"}
+    if net_vega > 0.001:
+        return {"view": "Long volatility", "type": "vol", "vol_view": "long_vol"}
+    if net_vega < -0.001:
+        return {"view": "Short volatility", "type": "vol", "vol_view": "short_vol"}
+    return {"view": "Delta-neutral / carry", "type": "neutral", "vol_view": "neutral"}
+
+
+def _generate_risks(processed_legs, agg, notional, S, T, pip_size):
+    """Auto-generate risk warnings based on structure analysis."""
+    risks = []
+
+    # Check for naked short exposure
+    net_call_ratio = sum(lg["ratio"] * lg["side_sign"]
+                         for lg in processed_legs if lg["cp_sign"] > 0)
+    net_put_ratio = sum(lg["ratio"] * lg["side_sign"]
+                        for lg in processed_legs if lg["cp_sign"] < 0)
+
+    if net_call_ratio < 0:
+        risks.append(("danger", f"Net short {abs(net_call_ratio)} call(s) — unlimited upside risk"))
+    if net_put_ratio < 0:
+        risks.append(("danger", f"Net short {abs(net_put_ratio)} put(s) — unlimited downside risk"))
+
+    # Theta bleed
+    daily_theta = agg["net_theta"] * notional
+    if daily_theta < -10:
+        net_prem = abs(agg["net_premium"])
+        days_to_bleed = net_prem / abs(daily_theta) if abs(daily_theta) > 1 else 999
+        risks.append(("warning",
+                       f"Theta bleed: {daily_theta:,.0f}/day. "
+                       f"Premium bleeds out in ~{days_to_bleed:.0f} days"))
+
+    # Max loss
+    if agg["max_loss"] < -1e12:
+        risks.append(("danger", "Potentially unlimited loss"))
+    elif agg["max_loss"] < -notional * 0.05:
+        risks.append(("warning", f"Max loss: {agg['max_loss']:,.0f}"))
+
+    # Short gamma warning
+    net_gamma = agg["net_gamma"]
+    if net_gamma < -0.001:
+        risks.append(("warning", "Short gamma — vulnerable to sharp spot moves"))
+
+    return risks
+
+
+def _build_scenario_table(processed_legs, S, T, r_d, r_f, notional):
+    """Compute P&L at fixed spot shocks."""
+    shocks = [-0.10, -0.05, -0.02, -0.01, 0, 0.01, 0.02, 0.05, 0.10]
+    net_prem = sum(lg["price_unit"] * lg["side_sign"] * lg["ratio"]
+                   for lg in processed_legs)
+    results = []
+    for ds in shocks:
+        s_sh = S * (1.0 + ds)
+        pnl = 0.0
+        for lg in processed_legs:
+            qty = lg["side_sign"] * lg["ratio"]
+            pnl += float(_gk_price(s_sh, lg["strike"], T, r_d, r_f,
+                                   lg["vol"], lg["cp_sign"])) * qty
+        results.append({"shock": ds, "pnl": (pnl - net_prem) * notional})
+    return results
+
+
+def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
+                          preset_name, S, T, r_d, r_f, pip_size, vol_surface):
+    """Build the unified Trade Analysis panel (EV + edge + scenarios + risks)."""
+    tpl_font = {"fontFamily": "'JetBrains Mono', monospace"}
+    section_style = {"marginBottom": "12px"}
+    label_s = {"color": COLORS["text_muted"], "fontSize": "9px",
+               "textTransform": "uppercase", "letterSpacing": "1px", **tpl_font}
+    val_s = {"fontSize": "14px", "fontWeight": "700", **tpl_font}
+
+    # ── View detection ──
+    view_info = _detect_view(processed_legs, preset_name)
+
+    # ── EV display ──
+    ev_boxes = []
+    if ev_data:
+        ev_boxes = [
+            html.Div([
+                html.Div(f"{ev_data['ev']:+,.0f}", style={**val_s, "color": ev_data["edge_color"]}),
+                html.Div("EXPECTED VALUE", style=label_s),
+            ], style={**make_stat_style(ev_data["edge_color"]), "flex": "1", "minWidth": "100px"}),
+            html.Div([
+                html.Div(f"{ev_data['ev_pct']:+.1f}%", style={**val_s, "color": ev_data["edge_color"]}),
+                html.Div("EV % OF PREMIUM", style=label_s),
+            ], style={**make_stat_style(ev_data["edge_color"]), "flex": "1", "minWidth": "100px"}),
+            html.Div([
+                html.Div(f"{ev_data['prob_profit']:.1f}%", style={**val_s, "color": COLORS["accent_cyan"]}),
+                html.Div("PROB OF PROFIT (SMILE)", style=label_s),
+            ], style={**make_stat_style(COLORS["accent_cyan"]), "flex": "1", "minWidth": "100px"}),
+            html.Div([
+                html.Div(ev_data["edge"], style={**val_s, "color": ev_data["edge_color"]}),
+                html.Div("EDGE", style=label_s),
+            ], style={**make_stat_style(ev_data["edge_color"]), "flex": "1", "minWidth": "100px"}),
+        ]
+
+    # ── Per-leg edge ──
+    leg_rows = []
+    for lg in processed_legs:
+        leg_tenor = years_to_nearest_tenor(lg["T"]) if lg.get("T") else tenor
+        vp = vol_percentile(pair, leg_tenor, "ATM", 252)
+        pct = vp["percentile"] if vp else 50
+        pct_color = (COLORS["accent_green"] if pct < 25
+                     else COLORS["accent_red"] if pct > 75
+                     else COLORS["text_secondary"])
+        cheap_label = ("CHEAP" if pct < 25 else "EXPENSIVE" if pct > 75
+                       else "BELOW AVG" if pct < 50 else "ABOVE AVG")
+        action = "Buying" if lg["side_sign"] > 0 else "Selling"
+        leg_rows.append(html.Div(
+            f"L{lg['leg_num']} {action} {lg['cp'].upper()} Δ{lg['delta_input']:.0%} "
+            f"| vol {lg['vol']*100:.1f}% | {pct:.0f}th %ile ({cheap_label})",
+            style={"color": pct_color, "fontSize": "10px", **tpl_font, "marginBottom": "2px"},
+        ))
+
+    # ── Breakeven RV ──
+    be_section = html.Div()
+    try:
+        days = tenor_to_days(tenor)
+        be = breakeven_vol(pair, tenor, days)
+        if be:
+            gap = be["atm_iv"] - be["breakeven_rv"]
+            be_section = html.Div(
+                f"Breakeven RV: {be['breakeven_rv']:.1f}% | ATM IV: {be['atm_iv']:.1f}% "
+                f"| Cushion: {gap:+.1f} vol pts",
+                style={"color": COLORS["accent_cyan"] if gap > 0 else COLORS["accent_orange"],
+                       "fontSize": "10px", **tpl_font, "marginTop": "4px"},
+            )
+    except Exception:
+        pass
+
+    # ── Carry analysis ──
+    carry_section = html.Div()
+    daily_theta = agg["net_theta"] * notional
+    if abs(daily_theta) > 1:
+        theta_pips = agg["net_theta"] / pip_size if pip_size > 0 else 0
+        prem_abs = abs(agg["net_premium"])
+        days_bleed = prem_abs / abs(daily_theta) if abs(daily_theta) > 1 else 999
+        carry_section = html.Div(
+            f"Theta: {daily_theta:+,.0f}/day ({theta_pips:+.1f} pips/day) | "
+            f"Premium bleeds in ~{days_bleed:.0f} days",
+            style={"color": COLORS["accent_orange"] if daily_theta < 0 else COLORS["accent_green"],
+                   "fontSize": "10px", **tpl_font, "marginTop": "4px"},
+        )
+
+    # ── Scenario table ──
+    scenarios = _build_scenario_table(processed_legs, S, T, r_d, r_f, notional)
+    sc_cells = []
+    for sc in scenarios:
+        pnl = sc["pnl"]
+        color = COLORS["accent_green"] if pnl > 0 else COLORS["accent_red"] if pnl < 0 else COLORS["text_muted"]
+        sc_cells.append(html.Div([
+            html.Div(f"{sc['shock']:+.0%}", style={"fontSize": "8px", "color": COLORS["text_muted"], **tpl_font}),
+            html.Div(f"{pnl:+,.0f}", style={"fontSize": "10px", "fontWeight": "600", "color": color, **tpl_font}),
+        ], style={"textAlign": "center", "flex": "1", "minWidth": "50px"}))
+
+    # ── Risk warnings ──
+    risks = _generate_risks(processed_legs, agg, notional, S, T, pip_size)
+    risk_items = []
+    for level, msg in risks:
+        icon = "\u26a0" if level == "warning" else "\u2716"
+        color = COLORS["accent_orange"] if level == "warning" else COLORS["accent_red"]
+        risk_items.append(html.Div(
+            f"{icon} {msg}", style={"color": color, "fontSize": "10px", **tpl_font, "marginBottom": "2px"},
+        ))
+    if not risks:
+        risk_items = [html.Div("\u2713 No major risks detected",
+                               style={"color": COLORS["accent_green"], "fontSize": "10px", **tpl_font})]
+
+    # ── Assemble ──
+    return html.Div([
+        # View + date header
+        html.Div([
+            html.Span("TRADE ANALYSIS", style={"color": COLORS["text_primary"],
+                       "fontSize": "12px", "fontWeight": "700", "letterSpacing": "1.5px", **tpl_font}),
+            html.Span(f"  |  {view_info['view']}  |  {datetime.now().strftime('%Y-%m-%d')}",
+                       style={"color": COLORS["text_muted"], "fontSize": "10px", **tpl_font}),
+        ], style={"marginBottom": "10px"}),
+
+        # EV boxes
+        html.Div(ev_boxes, style={"display": "flex", "gap": "8px", "flexWrap": "wrap",
+                                   "marginBottom": "10px"}) if ev_boxes else html.Div(),
+
+        # Per-leg edge
+        html.Div([
+            html.Div("PER-LEG EDGE", style={**label_s, "marginBottom": "4px"}),
+            *leg_rows,
+            be_section,
+            carry_section,
+        ], style=section_style),
+
+        # Scenario strip
+        html.Div([
+            html.Div("SCENARIOS (spot shock, current vol)", style={**label_s, "marginBottom": "4px"}),
+            html.Div(sc_cells, style={"display": "flex", "gap": "2px", "flexWrap": "wrap"}),
+        ], style=section_style),
+
+        # Risks
+        html.Div([
+            html.Div("RISKS", style={**label_s, "marginBottom": "4px"}),
+            *risk_items,
+        ], style=section_style),
+    ])
+
+
+# ============================================================================
+# Compare Mode Builders
+# ============================================================================
+
+def _build_compare_overlay(snapshot_a, snapshot_b, notional):
+    """Build overlaid payoff chart + metrics comparison table."""
+    tpl = CHART_TEMPLATE["layout"]
+    fig = go.Figure()
+
+    for snap, name, color, dash_style in [
+        (snapshot_a, "A", COLORS["accent_cyan"], "solid"),
+        (snapshot_b, "B", COLORS["accent_purple"], "dash"),
+    ]:
+        if snap is None:
+            continue
+        sr = np.array(snap["spot_range"])
+        pnl = np.array(snap["expiry_pnl"])
+        fig.add_trace(go.Scatter(
+            x=sr, y=pnl, mode="lines",
+            name=f"{name}: {snap.get('label', '?')}",
+            line=dict(color=color, width=2.5 if dash_style == "solid" else 2, dash=dash_style),
+        ))
+        for be in snap.get("breakevens", []):
+            fig.add_vline(x=be, line=dict(color=color, width=1, dash="dot"))
+
+    fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dot"))
+    fig.update_layout(
+        title=dict(text="COMPARE: PAYOFF OVERLAY", font=dict(color=COLORS["text_primary"], size=12)),
+        xaxis_title="Spot", yaxis_title="P&L",
+        paper_bgcolor=tpl["paper_bgcolor"], plot_bgcolor=tpl["plot_bgcolor"],
+        font=tpl["font"], margin=dict(l=55, r=15, t=35, b=35),
+        legend=dict(font=dict(color=COLORS["text_secondary"], size=10), bgcolor="rgba(0,0,0,0)"),
+        hoverlabel=tpl["hoverlabel"], height=340,
+        xaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+        yaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+    )
+
+    # Metrics comparison table
+    def _row(label, val_a, val_b, fmt=".1f", better="lower"):
+        a = val_a or 0
+        b = val_b or 0
+        if better == "lower":
+            a_better = a < b
+        elif better == "lower_abs":
+            a_better = abs(a) < abs(b)
+        else:
+            a_better = a > b
+        b_better = not a_better
+        ca = COLORS["accent_green"] if a_better else COLORS["text_secondary"]
+        cb = COLORS["accent_green"] if b_better else COLORS["text_secondary"]
+        cs = {"fontSize": "10px", "fontFamily": "'JetBrains Mono', monospace",
+              "padding": "4px 8px", "borderBottom": f"1px solid {COLORS['border_subtle']}"}
+        return html.Tr([
+            html.Td(label, style={**cs, "color": COLORS["text_muted"], "width": "120px"}),
+            html.Td(f"{a:{fmt}}", style={**cs, "color": ca, "textAlign": "right"}),
+            html.Td(f"{b:{fmt}}", style={**cs, "color": cb, "textAlign": "right"}),
+        ])
+
+    a = snapshot_a or {}
+    b = snapshot_b or {}
+    table = html.Table([
+        html.Thead(html.Tr([
+            html.Th("Metric", style={"color": COLORS["text_muted"], "fontSize": "9px", "padding": "4px 8px"}),
+            html.Th("A", style={"color": COLORS["accent_cyan"], "fontSize": "9px", "padding": "4px 8px"}),
+            html.Th("B", style={"color": COLORS["accent_purple"], "fontSize": "9px", "padding": "4px 8px"}),
+        ])),
+        html.Tbody([
+            _row("Premium (pips)", a.get("prem_pips"), b.get("prem_pips"), ".1f", "lower"),
+            _row("Prob of Profit (%)", a.get("pop"), b.get("pop"), ".1f", "higher"),
+            _row("Net Delta", a.get("net_delta"), b.get("net_delta"), ".4f", "lower_abs"),
+            _row("Net Vega", a.get("net_vega"), b.get("net_vega"), ",.0f", "higher"),
+            _row("Daily Theta", a.get("daily_theta"), b.get("daily_theta"), ",.0f", "higher"),
+            _row("Max Loss", a.get("max_loss"), b.get("max_loss"), ",.0f", "higher"),
+        ]),
+    ], style={"width": "100%", "borderCollapse": "collapse"})
+
+    return html.Div([
+        html.Div([
+            dcc.Graph(figure=fig, style={"height": "340px"},
+                      config={"displayModeBar": True, "scrollZoom": False}),
+        ], style={"flex": "2", "minWidth": "400px"}),
+        html.Div(table, style={"flex": "1", "minWidth": "250px", "padding": "8px"}),
+    ], style={"display": "flex", "gap": "12px", "flexWrap": "wrap"})
+
+
+# ============================================================================
 # Chart Builders
 # ============================================================================
 
-def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol):
-    """Chart 1: Payoff diagram at expiry, T*0.5, and today."""
+def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
+                        ev_data=None):
+    """Chart 1: Payoff diagram at expiry, T*0.5, and today.
+    Vectorised — uses numpy array pricing instead of per-point loop.
+    Optional ev_data adds probability density overlay."""
     tpl = CHART_TEMPLATE["layout"]
     spot_range = np.linspace(S * 0.85, S * 1.15, 400)
     pnl_expiry = np.zeros_like(spot_range)
@@ -510,11 +1180,9 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol):
         pnl_expiry += intrinsic
 
         if T > 0.001:
-            for j, s in enumerate(spot_range):
-                p_half = float(_gk_price(s, K, max(T * 0.5, 1e-6), r_d, r_f, vol, cp))
-                p_now = float(_gk_price(s, K, T, r_d, r_f, vol, cp))
-                pnl_half[j] += p_half * qty
-                pnl_now[j] += p_now * qty
+            # Vectorised: _gk_price accepts numpy arrays for S
+            pnl_half += _gk_price(spot_range, K, max(T * 0.5, 1e-6), r_d, r_f, vol, cp) * qty
+            pnl_now += _gk_price(spot_range, K, T, r_d, r_f, vol, cp) * qty
 
     pnl_expiry = (pnl_expiry - net_prem_per_unit) * notional
     pnl_half = (pnl_half - net_prem_per_unit) * notional
@@ -559,6 +1227,21 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol):
         fig.add_vline(x=be, line=dict(color=COLORS["accent_orange"], width=1, dash="dashdot"),
                       annotation_text=f"BE {be:.4f}",
                       annotation_font=dict(color=COLORS["accent_orange"], size=8))
+
+    # Probability density overlay from vol smile (secondary y-axis)
+    if ev_data and "pdf_strikes" in ev_data:
+        pdf_x = ev_data["pdf_strikes"]
+        pdf_y = ev_data["pdf_vals"]
+        # Scale PDF so peak is ~30% of chart height for visual balance
+        pdf_max = np.max(pdf_y) if len(pdf_y) > 0 else 1
+        pnl_range = max(abs(np.max(pnl_expiry)), abs(np.min(pnl_expiry)), 1)
+        scale = pnl_range * 0.30 / max(pdf_max, 1e-12)
+        fig.add_trace(go.Scatter(
+            x=pdf_x, y=pdf_y * scale, mode="lines", fill="tozeroy",
+            fillcolor="rgba(255,136,0,0.06)",
+            line=dict(color="rgba(255,136,0,0.25)", width=1),
+            name="Implied Prob", showlegend=True, hoverinfo="skip",
+        ))
 
     fig.update_layout(
         title=dict(text="PAYOFF DIAGRAM", font=dict(color=COLORS["text_primary"], size=13)),
@@ -1135,10 +1818,15 @@ def layout():
 
     return html.Div([
         dcc.Download(id="stb-csv-download"),
+        # ── Stores for solver, compare, blotter ──
+        dcc.Store(id="stb-solver-store", data=None),
+        dcc.Store(id="stb-compare-a", data=None),
+        dcc.Store(id="stb-compare-b", data=None),
+
         html.Div([
             # ── Left: Input Panel ──────────────────────────────────────
             html.Div([
-                html.Div("STRATEGY CONSTRUCTION LAB",
+                html.Div("TRADE IDEA WORKSHOP",
                          style={"color": COLORS["text_primary"], "fontSize": "13px",
                                 "fontWeight": "700",
                                 "fontFamily": "'JetBrains Mono', monospace",
@@ -1217,6 +1905,74 @@ def layout():
                                        "boxShadow": "0 4px 14px rgba(239,68,68,0.3)"}),
                 ], style={"display": "flex", "gap": "8px", "marginTop": "10px"}),
 
+                # ── Quick Actions ──────────────────────────────────────
+                html.Div([
+                    html.Div("QUICK ACTIONS", style={**LABEL_STYLE, "marginTop": "14px",
+                             "paddingTop": "10px", "borderTop": f"1px solid {COLORS['border_subtle']}"}),
+                    html.Div([
+                        html.Button("FLIP", id="stb-flip-btn", n_clicks=0,
+                                    style={**BUTTON_STYLE, "fontSize": "9px", "padding": "5px 8px", "flex": "1"}),
+                        html.Button("MIRROR", id="stb-mirror-btn", n_clicks=0,
+                                    style={**BUTTON_STYLE, "fontSize": "9px", "padding": "5px 8px", "flex": "1"}),
+                        html.Button("0-COST", id="stb-zero-cost-btn", n_clicks=0,
+                                    style={**BUTTON_SUCCESS_STYLE, "fontSize": "9px", "padding": "5px 8px", "flex": "1"}),
+                    ], style={"display": "flex", "gap": "4px"}),
+                ]),
+
+                # ── Solver ─────────────────────────────────────────────
+                html.Div([
+                    html.Div("SOLVER", style={**LABEL_STYLE, "marginTop": "14px",
+                             "paddingTop": "10px", "borderTop": f"1px solid {COLORS['border_subtle']}"}),
+                    html.Div([
+                        html.Div([
+                            html.Label("TARGET", style={**LABEL_STYLE, "fontSize": "8px"}),
+                            dcc.Dropdown(id="stb-solver-target",
+                                         options=[
+                                             {"label": "Net Prem (pips)", "value": "net_premium_pips"},
+                                             {"label": "Net Prem (CCY2)", "value": "net_premium"},
+                                             {"label": "Net Delta", "value": "net_delta"},
+                                             {"label": "Net Vega", "value": "net_vega"},
+                                             {"label": "Net Theta", "value": "net_theta"},
+                                             {"label": "Prob of Profit", "value": "pop"},
+                                         ], value="net_premium_pips", clearable=False,
+                                         style={"fontSize": "10px"}),
+                        ], style={"flex": "1"}),
+                        html.Div([
+                            html.Label("VALUE", style={**LABEL_STYLE, "fontSize": "8px"}),
+                            dcc.Input(id="stb-solver-value", type="number", value=0,
+                                      style={**INPUT_STYLE, "fontSize": "10px", "padding": "5px"}, debounce=True),
+                        ], style={"width": "65px"}),
+                    ], style={"display": "flex", "gap": "4px", "marginBottom": "4px"}),
+                    html.Div([
+                        html.Div([
+                            html.Label("LEG", style={**LABEL_STYLE, "fontSize": "8px"}),
+                            dcc.Dropdown(id="stb-solver-leg",
+                                         options=[{"label": f"L{i+1}", "value": i} for i in range(MAX_LEGS)],
+                                         value=1, clearable=False, style={"fontSize": "10px"}),
+                        ], style={"flex": "1"}),
+                        html.Div([
+                            html.Label("PARAM", style={**LABEL_STYLE, "fontSize": "8px"}),
+                            dcc.Dropdown(id="stb-solver-param",
+                                         options=[{"label": "Delta", "value": "delta"},
+                                                  {"label": "Ratio", "value": "ratio"}],
+                                         value="delta", clearable=False, style={"fontSize": "10px"}),
+                        ], style={"flex": "1"}),
+                    ], style={"display": "flex", "gap": "4px", "marginBottom": "4px"}),
+                    html.Div([
+                        html.Button("SOLVE", id="stb-solve-btn", n_clicks=0,
+                                    style={**BUTTON_SUCCESS_STYLE, "fontSize": "9px",
+                                           "padding": "5px 12px", "flex": "1"}),
+                        html.Button("APPLY", id="stb-solver-apply-btn", n_clicks=0,
+                                    style={**BUTTON_STYLE, "fontSize": "9px",
+                                           "padding": "5px 12px", "flex": "1",
+                                           "display": "none"}),
+                    ], style={"display": "flex", "gap": "4px"}),
+                    html.Div(id="stb-solver-result", style={
+                        "color": COLORS["accent_green"], "fontSize": "9px",
+                        "fontFamily": "'JetBrains Mono', monospace", "marginTop": "4px",
+                    }),
+                ]),
+
             ], style={
                 **CARD_STYLE,
                 "width": "350px", "minWidth": "350px", "flexShrink": "0",
@@ -1225,11 +1981,34 @@ def layout():
 
             # ── Right: Charts + Stats ─────────────────────────────────
             html.Div([
-                # Summary stat boxes (8)
+                # Suggestion bar (intelligence layer)
+                html.Div(id="stb-suggestions-bar", style={
+                    "marginBottom": "10px",
+                }),
+
+                # Summary stat boxes (10 — original 8 + implied move + EV)
                 html.Div(id="stb-stats-row", style={
-                    "display": "flex", "gap": "8px", "marginBottom": "12px",
+                    "display": "flex", "gap": "8px", "marginBottom": "8px",
                     "flexWrap": "wrap",
                 }),
+
+                # Compare toolbar + quick actions
+                html.Div([
+                    html.Button("SAVE A", id="stb-save-a", n_clicks=0,
+                                style={**BUTTON_STYLE, "fontSize": "9px", "padding": "4px 10px"}),
+                    html.Button("SAVE B", id="stb-save-b", n_clicks=0,
+                                style={**BUTTON_STYLE, "fontSize": "9px", "padding": "4px 10px"}),
+                    html.Button("COMPARE", id="stb-compare-toggle", n_clicks=0,
+                                style={**BUTTON_STYLE, "fontSize": "9px", "padding": "4px 10px"}),
+                    html.Button("CLEAR", id="stb-compare-clear", n_clicks=0,
+                                style={**BUTTON_DANGER_STYLE, "fontSize": "9px", "padding": "4px 10px"}),
+                    html.Div(id="stb-compare-status", style={
+                        "color": COLORS["text_muted"], "fontSize": "9px",
+                        "fontFamily": "'JetBrains Mono', monospace",
+                        "paddingTop": "3px", "flex": "1",
+                    }),
+                ], style={"display": "flex", "gap": "6px", "alignItems": "center",
+                          "marginBottom": "10px"}),
 
                 # Chart grid row 1 (3 charts)
                 html.Div([
@@ -1278,11 +2057,23 @@ def layout():
                               "padding": "12px"}, className="dashboard-card"),
                 ], style={"display": "flex", "gap": "12px", "flexWrap": "wrap"}),
 
-                # Historical cost context
+                # Tenor Scan table
+                html.Div(id="stb-tenor-scan", style={
+                    **CARD_STYLE, "padding": "12px", "marginTop": "12px",
+                }),
+
+                # Trade Analysis (EV + edge + scenarios + risks)
+                html.Div(id="stb-trade-analysis", style={
+                    **CARD_STYLE, "padding": "12px", "marginTop": "12px",
+                }),
+
+                # Compare section (hidden by default)
+                html.Div(id="stb-compare-section", style={"display": "none", "marginTop": "12px"}),
+
+                # Historical cost context (kept for backward compat)
                 html.Div(id="stb-historical-cost", style={
                     "border": f"1px solid {COLORS['border_subtle']}",
-                    "padding": "8px",
-                    "marginTop": "4px",
+                    "padding": "8px", "marginTop": "4px",
                 }),
 
             ], style={"flex": "1", "minWidth": "0"}),
@@ -1387,14 +2178,17 @@ def register_callbacks(app):
 
     # -- Main computation callback --
     @app.callback(
-        [Output("stb-stats-row", "children"),
+        [Output("stb-suggestions-bar", "children"),
+         Output("stb-stats-row", "children"),
          Output("stb-payoff-chart", "figure"),
          Output("stb-greeks-chart", "figure"),
          Output("stb-heatmap-chart", "figure"),
          Output("stb-3d-chart", "figure"),
          Output("stb-premium-table-container", "children"),
          Output("stb-scenario-chart", "figure"),
-         Output("struct-smile-chart", "figure")] +
+         Output("struct-smile-chart", "figure"),
+         Output("stb-tenor-scan", "children"),
+         Output("stb-trade-analysis", "children")] +
         [Output({"type": "stb-strike-disp", "index": i}, "children") for i in range(MAX_LEGS)] +
         [Output({"type": "stb-vol-disp", "index": i}, "children") for i in range(MAX_LEGS)] +
         [Output({"type": "stb-prem-disp", "index": i}, "children") for i in range(MAX_LEGS)],
@@ -1407,13 +2201,18 @@ def register_callbacks(app):
         [Input({"type": "stb-delta", "index": i}, "value") for i in range(MAX_LEGS)] +
         [Input({"type": "stb-ratio", "index": i}, "value") for i in range(MAX_LEGS)] +
         [Input({"type": "stb-tenor-mult", "index": i}, "value") for i in range(MAX_LEGS)],
+        [State("stb-preset", "value")],
     )
     def update_structure(pair, tenor, notional, num_legs,
-                         *leg_inputs):
+                         *all_inputs):
         pair = pair or "EURUSD"
         tenor = tenor or "1M"
         notional = max(1_000, min(float(notional or 10_000_000), 1e12))
         num_legs = max(1, min(num_legs or 1, MAX_LEGS))
+
+        # Last element is preset (State), everything before is leg inputs
+        leg_inputs = all_inputs[:5 * MAX_LEGS]
+        preset_name = all_inputs[5 * MAX_LEGS] if len(all_inputs) > 5 * MAX_LEGS else "Custom"
 
         # Parse leg inputs (5 groups of MAX_LEGS each)
         cp_vals = list(leg_inputs[0:MAX_LEGS])
@@ -1432,6 +2231,10 @@ def register_callbacks(app):
                 "tenor_mult": float(tenor_mult_vals[i]) if tenor_mult_vals[i] is not None else 1.0,
             })
 
+        # Number of new outputs before per-leg displays: 11
+        n_new = 11
+        empty_div = html.Div()
+
         # Fetch market data
         spots = get_fx_spots([pair]) or {}
         vol_surface = get_fx_vol_surface(pair) or {}
@@ -1442,8 +2245,9 @@ def register_callbacks(app):
             ndf = no_data_fig(height=380, msg="NO MARKET DATA")
             empty_table = html.Div("No market data", style={"color": COLORS["text_muted"],
                                    "fontSize": "11px", "padding": "8px"})
-            empty_stats = [html.Div("--", style=STAT_BOX_STYLE) for _ in range(8)]
-            return ([empty_stats, ndf, ndf, ndf, ndf, empty_table, ndf, ndf]
+            empty_stats = [html.Div("--", style=STAT_BOX_STYLE) for _ in range(10)]
+            return ([empty_div, empty_stats, ndf, ndf, ndf, ndf, empty_table, ndf, ndf,
+                     empty_div, empty_div]
                     + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 
         try:
@@ -1466,8 +2270,46 @@ def register_callbacks(app):
             agg = _compute_aggregates(processed, S, T, r_d, r_f, notional, pip_size)
             atm_vol = _get_atm_vol(vol_surface, tenor)
 
-            # Build charts
-            payoff_fig = _build_payoff_chart(processed, agg, S, T, r_d, r_f, notional, atm_vol)
+            # ── NEW: Expected Value ──
+            ev_data = None
+            try:
+                ev_data = _compute_expected_value(
+                    processed, S, T, r_d, r_f, pair, tenor, notional, pip_size, vol_surface)
+            except Exception:
+                logger.debug("EV computation failed for %s %s", pair, tenor)
+
+            # ── NEW: Suggestions + Regime ──
+            suggestions_div = empty_div
+            try:
+                sugg_list, regime, signal_pcts = _build_suggestions(
+                    pair, tenor, vol_surface, spots, rates)
+                sugg_items = []
+                if regime:
+                    sugg_items.append(html.Span(
+                        f"REGIME: {regime['name']}",
+                        style={"color": regime["color"], "fontSize": "10px",
+                               "fontWeight": "700", "fontFamily": "'JetBrains Mono', monospace",
+                               "marginRight": "16px"}))
+                for sg in sugg_list[:4]:
+                    sugg_items.append(html.Span(
+                        f"\u2022 {sg['signal']}",
+                        style={"color": sg["color"], "fontSize": "9px",
+                               "fontFamily": "'JetBrains Mono', monospace",
+                               "marginRight": "12px"}))
+                if sugg_items:
+                    suggestions_div = html.Div(sugg_items, style={
+                        "display": "flex", "flexWrap": "wrap", "alignItems": "center",
+                        "padding": "6px 10px", "gap": "4px",
+                        "backgroundColor": COLORS["bg_secondary"],
+                        "borderLeft": f"3px solid {regime.get('color', COLORS['text_muted'])}",
+                        "borderRadius": "2px",
+                    })
+            except Exception:
+                logger.debug("Suggestions failed for %s", pair)
+
+            # ── Build charts (pass ev_data to payoff for probability overlay) ──
+            payoff_fig = _build_payoff_chart(processed, agg, S, T, r_d, r_f,
+                                             notional, atm_vol, ev_data=ev_data)
             greeks_fig = _build_greeks_chart(processed, S, T, r_d, r_f, notional)
             heatmap_fig = _build_pnl_heatmap(processed, S, T, r_d, r_f, notional)
             surface_fig = _build_3d_surface(processed, S, T, r_d, r_f, notional)
@@ -1475,19 +2317,87 @@ def register_callbacks(app):
             scenario_fig = _build_scenario_chart(processed, S, T, r_d, r_f, notional)
             smile_fig = _build_smile_chart(processed, vol_surface, tenor)
 
-            # Summary stat boxes (8)
+            # ── NEW: Tenor Scan ──
+            tenor_scan_div = empty_div
+            try:
+                ts_rows = _build_tenor_scan(legs_config, pair, notional, spots, rates, vol_surface)
+                hdr_s = {"color": COLORS["text_muted"], "fontSize": "9px", "fontWeight": "600",
+                         "padding": "4px 6px", "textTransform": "uppercase",
+                         "fontFamily": "'JetBrains Mono', monospace",
+                         "borderBottom": f"1px solid {COLORS['border_subtle']}"}
+                cell_s = {"color": COLORS["text_primary"], "fontSize": "10px",
+                          "padding": "4px 6px", "fontFamily": "'JetBrains Mono', monospace",
+                          "borderBottom": f"1px solid {COLORS['border_subtle']}"}
+                # Find cheapest vol percentile
+                min_pct = min((r["vol_pctile"] for r in ts_rows), default=50)
+                t_head = html.Tr([html.Th(h, style=hdr_s) for h in
+                                  ["Tenor", "Prem (pips)", "POP", "Θ/day", "Vol %ile", "Breakeven"]])
+                t_rows = []
+                for r in ts_rows:
+                    is_cheapest = r["vol_pctile"] <= min_pct + 1
+                    row_color = COLORS["accent_green"] if is_cheapest else COLORS["text_primary"]
+                    be_s = f"{r['be']:.5f}" if r["be"] else "--"
+                    pct_color = (COLORS["accent_green"] if r["vol_pctile"] < 25
+                                 else COLORS["accent_red"] if r["vol_pctile"] > 75
+                                 else COLORS["text_secondary"])
+                    t_rows.append(html.Tr([
+                        html.Td(r["tenor"], style={**cell_s, "color": row_color, "fontWeight": "600" if is_cheapest else "400"}),
+                        html.Td(f"{r['premium_pips']:.1f}", style=cell_s),
+                        html.Td(f"{r['pop']:.0f}%", style=cell_s),
+                        html.Td(f"{r['theta_day']:,.0f}", style=cell_s),
+                        html.Td(f"{r['vol_pctile']:.0f}th", style={**cell_s, "color": pct_color}),
+                        html.Td(be_s, style=cell_s),
+                    ]))
+                tenor_scan_div = html.Div([
+                    html.Div("TENOR SCAN", style={"color": COLORS["text_primary"],
+                             "fontSize": "11px", "fontWeight": "700", "marginBottom": "6px",
+                             "fontFamily": "'JetBrains Mono', monospace",
+                             "letterSpacing": "1.5px", "textTransform": "uppercase"}),
+                    html.Table([html.Thead(t_head), html.Tbody(t_rows)],
+                               style={"width": "100%", "borderCollapse": "collapse"}),
+                ])
+            except Exception:
+                logger.debug("Tenor scan failed for %s", pair)
+
+            # ── NEW: Trade Analysis ──
+            trade_analysis_div = empty_div
+            try:
+                trade_analysis_div = _build_trade_analysis(
+                    processed, agg, ev_data, pair, tenor, notional,
+                    preset_name or "Custom", S, T, r_d, r_f, pip_size, vol_surface)
+            except Exception:
+                logger.debug("Trade analysis failed for %s", pair)
+
+            # ── Summary stat boxes (10: original 8 + implied move + EV) ──
             be_str = " / ".join(f"{b:.5f}" for b in agg["breakevens"]) if agg["breakevens"] else "--"
             prem_color = COLORS["pnl_profit"] if agg["net_premium"] < 0 else COLORS["pnl_loss"]
             pop_color = COLORS["accent_green"] if agg["pop"] > 50 else COLORS["accent_red"]
 
+            # Implied move from ATM straddle
+            atm_straddle = (float(_gk_price(S, S, T, r_d, r_f, atm_vol, 1))
+                            + float(_gk_price(S, S, T, r_d, r_f, atm_vol, -1)))
+            implied_move_pct = atm_straddle / S * 100 if S > 0 else 0
+            implied_move_pips = atm_straddle / pip_size if pip_size > 0 else 0
+
+            # Cost vs straddle
+            structure_cost = abs(agg["net_premium"])
+            straddle_cost = atm_straddle * notional
+            cost_vs_straddle = (structure_cost / straddle_cost * 100) if straddle_cost > 0 else 0
+
+            ev_stat_val = f"{ev_data['ev']:+,.0f}" if ev_data else "--"
+            ev_stat_color = ev_data["edge_color"] if ev_data else COLORS["text_muted"]
+
             stats = [
-                _stat_box("NET PREMIUM (CCY2)", f"{agg['net_premium']:,.0f}", prem_color),
                 _stat_box("NET PREMIUM (PIPS)", f"{agg['net_premium_pips']:.1f}", prem_color),
                 _stat_box("NET DELTA", f"{agg['net_delta']:.4f}", COLORS["accent_cyan"]),
                 _stat_box("NET VEGA", f"{agg['net_vega'] * notional:.0f}", COLORS["accent_purple"]),
                 _stat_box("DAILY THETA", f"{agg['net_theta'] * notional:.0f}", COLORS["accent_orange"]),
                 _stat_box("BREAK-EVEN", be_str, COLORS["accent_blue"]),
                 _stat_box("PROB OF PROFIT", f"{agg['pop']:.1f}%", pop_color),
+                _stat_box("IMPLIED MOVE", f"\u00b1{implied_move_pct:.1f}% ({implied_move_pips:.0f}p)",
+                          COLORS["accent_blue"]),
+                _stat_box("EXPECTED VALUE", ev_stat_val, ev_stat_color),
+                _stat_box(f"COST vs STRADDLE", f"{cost_vs_straddle:.0f}%", COLORS["text_secondary"]),
                 _stat_box("MAX LOSS", f"{agg['max_loss']:,.0f}", COLORS["accent_red"]),
             ]
 
@@ -1506,18 +2416,19 @@ def register_callbacks(app):
                     vol_disps.append("")
                     prem_disps.append("")
 
-            return ([stats, payoff_fig, greeks_fig, heatmap_fig, surface_fig,
-                     premium_table, scenario_fig, smile_fig]
+            return ([suggestions_div, stats, payoff_fig, greeks_fig, heatmap_fig,
+                     surface_fig, premium_table, scenario_fig, smile_fig,
+                     tenor_scan_div, trade_analysis_div]
                     + strike_disps + vol_disps + prem_disps)
 
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).error("Structure builder callback failed: %s", e, exc_info=True)
-            err_fig = no_data_fig(height=380, msg=f"Error: {type(e).__name__}: {e}")
+            logger.error("Structure builder callback failed: %s", e, exc_info=True)
+            err_fig = no_data_fig(height=380, msg=f"Error: {type(e).__name__}: {str(e)[:100]}")
             empty_table = html.Div(f"Error: {e}", style={"color": COLORS["accent_red"],
                                    "fontSize": "11px", "padding": "8px"})
-            empty_stats = [html.Div("--", style=STAT_BOX_STYLE) for _ in range(8)]
-            return ([empty_stats, err_fig, err_fig, err_fig, err_fig, empty_table, err_fig, err_fig]
+            empty_stats = [html.Div("--", style=STAT_BOX_STYLE) for _ in range(10)]
+            return ([empty_div, empty_stats, err_fig, err_fig, err_fig, err_fig,
+                     empty_table, err_fig, err_fig, empty_div, empty_div]
                     + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 
     # -- Historical cost context callback --
@@ -1641,3 +2552,321 @@ def register_callbacks(app):
         if not fig:
             return no_update
         return export_csv(fig, panel, chart_type)
+
+    # ── Helper: extract legs config from State values ──────────────────
+    def _extract_legs(num_legs, leg_states):
+        """Parse the flat list of leg State values into legs_config."""
+        n = max(1, min(num_legs or 1, MAX_LEGS))
+        cp_v = list(leg_states[0:MAX_LEGS])
+        side_v = list(leg_states[MAX_LEGS:2*MAX_LEGS])
+        delta_v = list(leg_states[2*MAX_LEGS:3*MAX_LEGS])
+        ratio_v = list(leg_states[3*MAX_LEGS:4*MAX_LEGS])
+        tmult_v = list(leg_states[4*MAX_LEGS:5*MAX_LEGS])
+        cfg = []
+        for i in range(n):
+            cfg.append({
+                "cp": cp_v[i] or "call",
+                "side": side_v[i] or "buy",
+                "delta": float(delta_v[i]) if delta_v[i] is not None else 0.25,
+                "ratio": int(ratio_v[i]) if ratio_v[i] is not None else 1,
+                "tenor_mult": float(tmult_v[i]) if tmult_v[i] is not None else 1.0,
+            })
+        return cfg
+
+    # All leg States used by multiple callbacks
+    _LEG_STATES = (
+        [State({"type": "stb-cp", "index": i}, "value") for i in range(MAX_LEGS)] +
+        [State({"type": "stb-side", "index": i}, "value") for i in range(MAX_LEGS)] +
+        [State({"type": "stb-delta", "index": i}, "value") for i in range(MAX_LEGS)] +
+        [State({"type": "stb-ratio", "index": i}, "value") for i in range(MAX_LEGS)] +
+        [State({"type": "stb-tenor-mult", "index": i}, "value") for i in range(MAX_LEGS)]
+    )
+
+    # ══════════════════════════════════════════════════════════════════════
+    # SOLVER CALLBACKS
+    # ══════════════════════════════════════════════════════════════════════
+
+    @app.callback(
+        [Output("stb-solver-result", "children"),
+         Output("stb-solver-apply-btn", "style"),
+         Output("stb-solver-store", "data")],
+        Input("stb-solve-btn", "n_clicks"),
+        [State("stb-solver-target", "value"),
+         State("stb-solver-value", "value"),
+         State("stb-solver-leg", "value"),
+         State("stb-solver-param", "value"),
+         State("stb-pair", "value"),
+         State("stb-tenor", "value"),
+         State("stb-notional", "value"),
+         State("stb-num-legs", "value")] + _LEG_STATES,
+        prevent_initial_call=True,
+    )
+    def solve_parameter(n_clicks, target_metric, target_value, solve_leg,
+                        solve_param, pair, tenor, notional, num_legs, *leg_states):
+        if not n_clicks:
+            raise PreventUpdate
+        hidden = {"display": "none"}
+        shown = {**BUTTON_STYLE, "fontSize": "9px", "padding": "5px 12px", "flex": "1"}
+
+        pair = pair or "EURUSD"
+        tenor = tenor or "1M"
+        notional = max(1_000, min(float(notional or 10_000_000), 1e12))
+        target_value = float(target_value or 0)
+        solve_leg = int(solve_leg or 0)
+
+        legs_config = _extract_legs(num_legs, leg_states)
+        if solve_leg >= len(legs_config):
+            return "Leg out of range", hidden, None
+
+        spots = get_fx_spots([pair]) or {}
+        rates = get_fx_rates(pair) or {}
+        vol_surface = get_fx_vol_surface(pair) or {}
+        spot_data = spots.get(pair, {"mid": 1.0})
+
+        result = _solve_for_parameter(
+            target_metric, target_value, solve_leg, solve_param,
+            legs_config, pair, tenor, notional, spot_data, rates, vol_surface)
+
+        if result["success"]:
+            store = {"leg": solve_leg, "param": solve_param, "value": result["value"]}
+            return (
+                html.Span(f"\u2713 {result['message']}",
+                          style={"color": COLORS["accent_green"]}),
+                shown,
+                store,
+            )
+        return (
+            html.Span(f"\u2716 {result['message']}",
+                      style={"color": COLORS["accent_red"]}),
+            hidden,
+            None,
+        )
+
+    @app.callback(
+        [Output({"type": "stb-delta", "index": i}, "value", allow_duplicate=True)
+         for i in range(MAX_LEGS)] +
+        [Output({"type": "stb-ratio", "index": i}, "value", allow_duplicate=True)
+         for i in range(MAX_LEGS)],
+        Input("stb-solver-apply-btn", "n_clicks"),
+        State("stb-solver-store", "data"),
+        prevent_initial_call=True,
+    )
+    def apply_solver(n_clicks, store):
+        if not n_clicks or not store:
+            raise PreventUpdate
+        leg_idx = store["leg"]
+        param = store["param"]
+        val = store["value"]
+        delta_out = [no_update] * MAX_LEGS
+        ratio_out = [no_update] * MAX_LEGS
+        if param == "delta" and 0 <= leg_idx < MAX_LEGS:
+            delta_out[leg_idx] = val
+        elif param == "ratio" and 0 <= leg_idx < MAX_LEGS:
+            ratio_out[leg_idx] = val
+        return delta_out + ratio_out
+
+    # ══════════════════════════════════════════════════════════════════════
+    # QUICK ACTION CALLBACKS
+    # ══════════════════════════════════════════════════════════════════════
+
+    @app.callback(
+        [Output({"type": "stb-side", "index": i}, "value", allow_duplicate=True)
+         for i in range(MAX_LEGS)],
+        Input("stb-flip-btn", "n_clicks"),
+        [State({"type": "stb-side", "index": i}, "value") for i in range(MAX_LEGS)] +
+        [State("stb-num-legs", "value")],
+        prevent_initial_call=True,
+    )
+    def flip_sides(n_clicks, *args):
+        if not n_clicks:
+            raise PreventUpdate
+        sides = args[:MAX_LEGS]
+        num_legs = args[MAX_LEGS] or 1
+        return [("sell" if sides[i] == "buy" else "buy") if i < num_legs
+                else no_update for i in range(MAX_LEGS)]
+
+    @app.callback(
+        [Output({"type": "stb-cp", "index": i}, "value", allow_duplicate=True)
+         for i in range(MAX_LEGS)],
+        Input("stb-mirror-btn", "n_clicks"),
+        [State({"type": "stb-cp", "index": i}, "value") for i in range(MAX_LEGS)] +
+        [State("stb-num-legs", "value")],
+        prevent_initial_call=True,
+    )
+    def mirror_cp(n_clicks, *args):
+        if not n_clicks:
+            raise PreventUpdate
+        cps = args[:MAX_LEGS]
+        num_legs = args[MAX_LEGS] or 1
+        return [("put" if cps[i] == "call" else "call") if i < num_legs
+                else no_update for i in range(MAX_LEGS)]
+
+    @app.callback(
+        [Output({"type": "stb-delta", "index": i}, "value", allow_duplicate=True)
+         for i in range(MAX_LEGS)] +
+        [Output("stb-solver-result", "children", allow_duplicate=True)],
+        Input("stb-zero-cost-btn", "n_clicks"),
+        [State("stb-pair", "value"),
+         State("stb-tenor", "value"),
+         State("stb-notional", "value"),
+         State("stb-num-legs", "value")] + _LEG_STATES,
+        prevent_initial_call=True,
+    )
+    def zero_cost(n_clicks, pair, tenor, notional, num_legs, *leg_states):
+        if not n_clicks:
+            raise PreventUpdate
+        pair = pair or "EURUSD"
+        tenor = tenor or "1M"
+        notional = max(1_000, min(float(notional or 10_000_000), 1e12))
+
+        legs_config = _extract_legs(num_legs, leg_states)
+
+        # Find first short leg
+        sell_idx = next((i for i, lg in enumerate(legs_config) if lg["side"] == "sell"), None)
+        if sell_idx is None:
+            return [no_update] * MAX_LEGS + [
+                html.Span("No short leg to adjust", style={"color": COLORS["accent_red"]})]
+
+        spots = get_fx_spots([pair]) or {}
+        rates = get_fx_rates(pair) or {}
+        vol_surface = get_fx_vol_surface(pair) or {}
+        spot_data = spots.get(pair, {"mid": 1.0})
+
+        result = _solve_for_parameter(
+            "net_premium_pips", 0.0, sell_idx, "delta",
+            legs_config, pair, tenor, notional, spot_data, rates, vol_surface)
+
+        delta_out = [no_update] * MAX_LEGS
+        if result["success"]:
+            delta_out[sell_idx] = result["value"]
+            msg = html.Span(f"\u2713 Zero-cost: L{sell_idx+1} \u0394={result['value']}",
+                            style={"color": COLORS["accent_green"]})
+        else:
+            msg = html.Span(f"\u2716 {result['message']}",
+                            style={"color": COLORS["accent_red"]})
+        return delta_out + [msg]
+
+    # ══════════════════════════════════════════════════════════════════════
+    # COMPARE MODE CALLBACKS
+    # ══════════════════════════════════════════════════════════════════════
+
+    @app.callback(
+        [Output("stb-compare-a", "data"),
+         Output("stb-compare-status", "children", allow_duplicate=True)],
+        Input("stb-save-a", "n_clicks"),
+        [State("stb-pair", "value"), State("stb-tenor", "value"),
+         State("stb-notional", "value"), State("stb-preset", "value"),
+         State("stb-num-legs", "value")] + _LEG_STATES,
+        prevent_initial_call=True,
+    )
+    def save_compare_a(n_clicks, pair, tenor, notional, preset, num_legs, *leg_states):
+        if not n_clicks:
+            raise PreventUpdate
+        pair = pair or "EURUSD"
+        tenor = tenor or "1M"
+        notional = max(1_000, min(float(notional or 10_000_000), 1e12))
+        legs_config = _extract_legs(num_legs, leg_states)
+
+        spots = get_fx_spots([pair]) or {}
+        rates = get_fx_rates(pair) or {}
+        vol_surface = get_fx_vol_surface(pair) or {}
+        spot_data = spots.get(pair, {"mid": 1.0})
+        S = spot_data.get("mid", 1.0)
+        T = tenor_to_years(tenor)
+        r_d = rates.get("r_dom", 0.03)
+        r_f = rates.get("r_for", 0.01)
+        pip_size = FX_PAIR_REGISTRY[pair].pip if pair in FX_PAIR_REGISTRY else 0.0001
+
+        proc = _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surface)
+        agg = _compute_aggregates(proc, S, T, r_d, r_f, notional, pip_size)
+
+        snap = {
+            "label": f"{tenor} {pair} {preset or 'Custom'}",
+            "spot_range": agg["spot_range"].tolist(),
+            "expiry_pnl": agg["expiry_pnl"].tolist(),
+            "breakevens": agg["breakevens"],
+            "prem_pips": agg["net_premium_pips"],
+            "pop": agg["pop"],
+            "net_delta": agg["net_delta"],
+            "net_vega": agg["net_vega"] * notional,
+            "daily_theta": agg["net_theta"] * notional,
+            "max_loss": agg["max_loss"],
+        }
+        return snap, f"A: {snap['label']}"
+
+    @app.callback(
+        [Output("stb-compare-b", "data"),
+         Output("stb-compare-status", "children", allow_duplicate=True)],
+        Input("stb-save-b", "n_clicks"),
+        [State("stb-pair", "value"), State("stb-tenor", "value"),
+         State("stb-notional", "value"), State("stb-preset", "value"),
+         State("stb-num-legs", "value")] + _LEG_STATES,
+        prevent_initial_call=True,
+    )
+    def save_compare_b(n_clicks, pair, tenor, notional, preset, num_legs, *leg_states):
+        if not n_clicks:
+            raise PreventUpdate
+        pair = pair or "EURUSD"
+        tenor = tenor or "1M"
+        notional = max(1_000, min(float(notional or 10_000_000), 1e12))
+        legs_config = _extract_legs(num_legs, leg_states)
+
+        spots = get_fx_spots([pair]) or {}
+        rates = get_fx_rates(pair) or {}
+        vol_surface = get_fx_vol_surface(pair) or {}
+        spot_data = spots.get(pair, {"mid": 1.0})
+        S = spot_data.get("mid", 1.0)
+        T = tenor_to_years(tenor)
+        r_d = rates.get("r_dom", 0.03)
+        r_f = rates.get("r_for", 0.01)
+        pip_size = FX_PAIR_REGISTRY[pair].pip if pair in FX_PAIR_REGISTRY else 0.0001
+
+        proc = _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surface)
+        agg = _compute_aggregates(proc, S, T, r_d, r_f, notional, pip_size)
+
+        snap = {
+            "label": f"{tenor} {pair} {preset or 'Custom'}",
+            "spot_range": agg["spot_range"].tolist(),
+            "expiry_pnl": agg["expiry_pnl"].tolist(),
+            "breakevens": agg["breakevens"],
+            "prem_pips": agg["net_premium_pips"],
+            "pop": agg["pop"],
+            "net_delta": agg["net_delta"],
+            "net_vega": agg["net_vega"] * notional,
+            "daily_theta": agg["net_theta"] * notional,
+            "max_loss": agg["max_loss"],
+        }
+        return snap, f"B: {snap['label']}"
+
+    @app.callback(
+        [Output("stb-compare-section", "style"),
+         Output("stb-compare-section", "children")],
+        Input("stb-compare-toggle", "n_clicks"),
+        [State("stb-compare-a", "data"),
+         State("stb-compare-b", "data"),
+         State("stb-notional", "value")],
+        prevent_initial_call=True,
+    )
+    def toggle_compare(n_clicks, snap_a, snap_b, notional):
+        if not n_clicks:
+            raise PreventUpdate
+        # Toggle on odd clicks
+        show = (n_clicks % 2) == 1
+        if not show or not snap_a or not snap_b:
+            return {"display": "none"}, html.Div()
+        notional = float(notional or 10_000_000)
+        content = _build_compare_overlay(snap_a, snap_b, notional)
+        return {**CARD_STYLE, "padding": "12px", "marginTop": "12px"}, content
+
+    @app.callback(
+        [Output("stb-compare-a", "data", allow_duplicate=True),
+         Output("stb-compare-b", "data", allow_duplicate=True),
+         Output("stb-compare-section", "style", allow_duplicate=True),
+         Output("stb-compare-status", "children", allow_duplicate=True)],
+        Input("stb-compare-clear", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def clear_compare(n_clicks):
+        if not n_clicks:
+            raise PreventUpdate
+        return None, None, {"display": "none"}, ""
