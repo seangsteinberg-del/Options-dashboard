@@ -1120,6 +1120,9 @@ def _build_named_scenarios(processed_legs, S, T, r_d, r_f, notional, atm_vol,
 
     results = []
     for sc in NAMED_SCENARIOS:
+        # Skip time-decay scenarios that exceed remaining life
+        if sc["dt"] > 0 and sc["dt"] >= T * 0.95:
+            continue
         s_new = S * (1.0 + sc["spot"])
         t_new = max(T - sc["dt"], 1e-6)
 
@@ -1188,9 +1191,14 @@ def _build_efficiency_table(processed_legs, agg, ev_data, preset_name, view_info
     # Current structure metrics
     current_prem = agg.get("net_premium_pips", 0)
     current_vega = agg.get("net_vega", 0) * notional
-    current_prem_abs = abs(current_prem) * pip_size * notional if pip_size > 0 else 1
 
     rows = []
+
+    def _safe_vega_per_pip(vega, prem_pips):
+        """Vega per pip of premium; 'N/A' for zero-cost structures."""
+        if abs(prem_pips) < 0.1:
+            return None  # zero-cost structure
+        return abs(vega / prem_pips)
 
     # Current structure row
     rows.append({
@@ -1198,7 +1206,7 @@ def _build_efficiency_table(processed_legs, agg, ev_data, preset_name, view_info
         "premium": current_prem,
         "max_loss": agg.get("max_loss", 0),
         "be": agg["breakevens"][0] if agg.get("breakevens") else None,
-        "vega_per_pip": abs(current_vega / max(abs(current_prem), 0.01)),
+        "vega_per_pip": _safe_vega_per_pip(current_vega, current_prem),
         "gamma_theta": abs(agg["net_gamma"] / max(abs(agg["net_theta"]), 1e-12)),
         "pop": agg.get("pop", 0),
         "ev": ev_data["ev"] if ev_data else 0,
@@ -1223,7 +1231,7 @@ def _build_efficiency_table(processed_legs, agg, ev_data, preset_name, view_info
                 "premium": alt_prem,
                 "max_loss": alt_agg.get("max_loss", 0),
                 "be": alt_agg["breakevens"][0] if alt_agg.get("breakevens") else None,
-                "vega_per_pip": abs(alt_vega / max(abs(alt_prem), 0.01)),
+                "vega_per_pip": _safe_vega_per_pip(alt_vega, alt_prem),
                 "gamma_theta": abs(alt_agg["net_gamma"] / max(abs(alt_agg["net_theta"]), 1e-12)),
                 "pop": alt_agg.get("pop", 0),
                 "ev": 0,  # Skip full EV for performance
@@ -1258,7 +1266,8 @@ def _build_efficiency_table(processed_legs, agg, ev_data, preset_name, view_info
             html.Td(f"{r['max_loss']:,.0f}" if r["max_loss"] > -1e12 else "UNLIM",
                      style={**cell_s, **highlight, "textAlign": "right"}),
             html.Td(be_str, style={**cell_s, **highlight, "textAlign": "right"}),
-            html.Td(f"{r['vega_per_pip']:.0f}", style={**cell_s, **highlight, "textAlign": "right"}),
+            html.Td(f"{r['vega_per_pip']:.0f}" if r['vega_per_pip'] is not None else "N/A",
+                     style={**cell_s, **highlight, "textAlign": "right"}),
             html.Td(f"{r['gamma_theta']:.1f}", style={**cell_s, **highlight, "textAlign": "right"}),
             html.Td(f"{r['pop']:.0f}%", style={**cell_s, **highlight, "textAlign": "right"}),
             html.Td(ev_str, style={**cell_s, **highlight, "textAlign": "right"}),
@@ -1278,18 +1287,17 @@ def _build_efficiency_table(processed_legs, agg, ev_data, preset_name, view_info
 # ============================================================================
 
 def _delta_to_vol_metric(delta_input, cp_sign):
-    """Map a leg's delta to the most relevant vol surface metric for percentile ranking."""
+    """Map a leg's delta to the most relevant vol surface metric for percentile ranking.
+    Wings (25D and below) use BF percentile — captures wing richness.
+    Near-ATM legs use ATM percentile."""
     d = abs(delta_input)
     if 0.40 <= d <= 0.60:
-        return "ATM", "ATM level"
+        return "ATM", "ATM"
     elif 0.20 <= d < 0.40:
-        if cp_sign > 0:
-            return "25D_BF", "25D wing"
-        else:
-            return "25D_BF", "25D wing"
+        return "25D_BF", "25D wing"
     elif d < 0.20:
-        return "25D_BF", "wing (10D)"
-    return "ATM", "ATM level"
+        return "25D_BF", "wing"
+    return "ATM", "ATM"
 
 
 def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
@@ -1380,9 +1388,11 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
         )
 
     # ── EV sensitivity chart ──
-    ev_sensitivity = html.Div()
+    ev_sensitivity = None
     try:
-        ev_sensitivity = _build_ev_sensitivity_chart(ev_data)
+        chart = _build_ev_sensitivity_chart(ev_data)
+        if chart and not isinstance(chart, html.Div):
+            ev_sensitivity = chart
     except Exception:
         pass
 
@@ -1460,7 +1470,7 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
         ], style=section_style),
 
         # EV sensitivity
-        html.Div([ev_sensitivity], style=section_style) if ev_sensitivity else html.Div(),
+        html.Div([ev_sensitivity], style=section_style) if ev_sensitivity is not None else html.Div(),
 
         # Named scenario table
         html.Div([
