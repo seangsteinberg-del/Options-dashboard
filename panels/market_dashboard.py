@@ -436,7 +436,7 @@ def _build_skew_chart(pairs):
                 continue
 
         if not data:
-            return _empty_fig("SKEW MONITOR")
+            return _empty_fig("SKEW MONITOR", _SMALL_H)
 
         data.sort(key=lambda d: d["rr"])
         pairs_l = [d["pair"] for d in data]
@@ -455,7 +455,7 @@ def _build_skew_chart(pairs):
                           yaxis=dict(tickfont=dict(size=8, color="#d4d4d4"))))
         return fig
     except Exception:
-        return _empty_fig("SKEW MONITOR")
+        return _empty_fig("SKEW MONITOR", _SMALL_H)
 
 
 def _build_term_chart(pairs):
@@ -475,7 +475,7 @@ def _build_term_chart(pairs):
                 continue
 
         if not data:
-            return _empty_fig("TERM SHAPE")
+            return _empty_fig("TERM SHAPE", _SMALL_H)
 
         data.sort(key=lambda d: d["spread"])
         pairs_l = [d["pair"] for d in data]
@@ -495,7 +495,7 @@ def _build_term_chart(pairs):
                           yaxis=dict(tickfont=dict(size=8, color="#d4d4d4"))))
         return fig
     except Exception:
-        return _empty_fig("TERM SHAPE")
+        return _empty_fig("TERM SHAPE", _SMALL_H)
 
 
 def _build_vol_richness_heatmap(pairs):
@@ -528,7 +528,7 @@ def _build_vol_richness_heatmap(pairs):
             text_vals.append(row_t)
 
         if not z_vals:
-            return _empty_fig("VOL RICHNESS")
+            return _empty_fig("VOL RICHNESS", _SMALL_H)
 
         fig = go.Figure(go.Heatmap(
             z=z_vals, x=tenors, y=pair_list, text=text_vals,
@@ -547,7 +547,7 @@ def _build_vol_richness_heatmap(pairs):
         ))
         return fig
     except Exception:
-        return _empty_fig("VOL RICHNESS")
+        return _empty_fig("VOL RICHNESS", _SMALL_H)
 
 
 def _chart_layout(**overrides):
@@ -556,10 +556,10 @@ def _chart_layout(**overrides):
     return chart_layout(**overrides)
 
 
-def _empty_fig(title=""):
+def _empty_fig(title="", height=_CHART_H):
     fig = go.Figure()
     fig.update_layout(**_chart_layout(
-        height=_CHART_H, margin=dict(l=20, r=10, t=30, b=10),
+        height=height, margin=dict(l=20, r=10, t=30, b=10),
         title=dict(text=title, font=dict(size=10, color="#808080")),
         annotations=[dict(text="No data", x=0.5, y=0.5, showarrow=False,
                           font=dict(color="#808080", size=11), xref="paper", yref="paper")]))
