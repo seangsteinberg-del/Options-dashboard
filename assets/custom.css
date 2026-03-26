@@ -295,12 +295,23 @@ button, .btn {
     border-radius: 0 !important;
     font-family: var(--font) !important;
     transition: none !important;
+    cursor: pointer;
 }
 button:hover {
     filter: brightness(1.15);
 }
 button:active {
     filter: brightness(0.9);
+}
+button:disabled, button[disabled] {
+    color: #333355 !important;
+    opacity: 0.5 !important;
+    cursor: not-allowed !important;
+    filter: none !important;
+}
+button:focus-visible {
+    outline: 1px solid #ff8800 !important;
+    outline-offset: 1px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -357,6 +368,7 @@ button:active {
 }
 .stat-box:hover {
     background-color: #0c0c18 !important;
+    box-shadow: inset 0 0 0 1px rgba(255, 136, 0, 0.15) !important;
 }
 .stat-value {
     font-family: var(--font);
@@ -657,20 +669,34 @@ button:active {
     cursor: pointer;
     letter-spacing: 0.5px;
     padding: 1px 4px;
-    border: 1px solid transparent;
+    border: 1px solid #333355;
 }
 .lab-link-btn:hover {
     color: #ff8800;
-    border-color: #222240;
+    border-color: #ff8800;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Links
+   ═══════════════════════════════════════════════════════════════════════════ */
+a { color: #ff8800; text-decoration: none; }
+a:hover { text-decoration: underline; color: #ffaa33; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Slider Hover
+   ═══════════════════════════════════════════════════════════════════════════ */
+.rc-slider-handle:hover {
+    box-shadow: 0 0 0 3px rgba(255, 136, 0, 0.2) !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Print Styles
    ═══════════════════════════════════════════════════════════════════════════ */
 @media print {
-    body { background: white !important; color: black !important; }
+    ._dash-loading { display: none !important; }
     .ticker-tape { display: none !important; }
     .modebar { display: none !important; }
+    .command-palette-overlay { display: none !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

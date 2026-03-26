@@ -408,7 +408,8 @@ def _build_vol_index_chart(pairs):
         # Index line
         fig.add_trace(go.Scatter(x=x, y=index.tolist(),
                                  mode="lines", line=dict(color="#ff8800", width=2.5),
-                                 name="G10 Vol Index"))
+                                 name="G10 Vol Index",
+                                 hovertemplate="Day %{x}: %{y:.2f}v<extra></extra>"))
         # Current dot
         fig.add_trace(go.Scatter(x=[len(index)-1], y=[float(index[-1])],
                                  mode="markers", marker=dict(color="#ff8800", size=7),
@@ -418,7 +419,7 @@ def _build_vol_index_chart(pairs):
                           title=dict(text="G10 VOL INDEX (60D)", font=dict(size=10, color="#808080"))))
         return fig
     except Exception:
-        return _empty_fig("G10 VOL INDEX")
+        return _empty_fig("G10 VOL INDEX", msg="Insufficient vol history")
 
 
 def _build_skew_chart(pairs):
@@ -436,7 +437,7 @@ def _build_skew_chart(pairs):
                 continue
 
         if not data:
-            return _empty_fig("SKEW MONITOR", _SMALL_H)
+            return _empty_fig("SKEW MONITOR", _SMALL_H, "No RR data available")
 
         data.sort(key=lambda d: d["rr"])
         pairs_l = [d["pair"] for d in data]
@@ -455,7 +456,7 @@ def _build_skew_chart(pairs):
                           yaxis=dict(tickfont=dict(size=8, color="#d4d4d4"))))
         return fig
     except Exception:
-        return _empty_fig("SKEW MONITOR", _SMALL_H)
+        return _empty_fig("SKEW MONITOR", _SMALL_H, "No RR data available")
 
 
 def _build_term_chart(pairs):
@@ -475,7 +476,7 @@ def _build_term_chart(pairs):
                 continue
 
         if not data:
-            return _empty_fig("TERM SHAPE", _SMALL_H)
+            return _empty_fig("TERM SHAPE", _SMALL_H, "No term structure data")
 
         data.sort(key=lambda d: d["spread"])
         pairs_l = [d["pair"] for d in data]
@@ -495,7 +496,7 @@ def _build_term_chart(pairs):
                           yaxis=dict(tickfont=dict(size=8, color="#d4d4d4"))))
         return fig
     except Exception:
-        return _empty_fig("TERM SHAPE", _SMALL_H)
+        return _empty_fig("TERM SHAPE", _SMALL_H, "No term structure data")
 
 
 def _build_vol_richness_heatmap(pairs):
@@ -528,7 +529,7 @@ def _build_vol_richness_heatmap(pairs):
             text_vals.append(row_t)
 
         if not z_vals:
-            return _empty_fig("VOL RICHNESS", _SMALL_H)
+            return _empty_fig("VOL RICHNESS", _SMALL_H, "No percentile data")
 
         fig = go.Figure(go.Heatmap(
             z=z_vals, x=tenors, y=pair_list, text=text_vals,
@@ -547,7 +548,7 @@ def _build_vol_richness_heatmap(pairs):
         ))
         return fig
     except Exception:
-        return _empty_fig("VOL RICHNESS", _SMALL_H)
+        return _empty_fig("VOL RICHNESS", _SMALL_H, "No percentile data")
 
 
 def _chart_layout(**overrides):
@@ -556,12 +557,12 @@ def _chart_layout(**overrides):
     return chart_layout(**overrides)
 
 
-def _empty_fig(title="", height=_CHART_H):
+def _empty_fig(title="", height=_CHART_H, msg="Awaiting data"):
     fig = go.Figure()
     fig.update_layout(**_chart_layout(
         height=height, margin=dict(l=20, r=10, t=30, b=10),
         title=dict(text=title, font=dict(size=10, color="#808080")),
-        annotations=[dict(text="No data", x=0.5, y=0.5, showarrow=False,
+        annotations=[dict(text=msg, x=0.5, y=0.5, showarrow=False,
                           font=dict(color="#808080", size=11), xref="paper", yref="paper")]))
     return fig
 

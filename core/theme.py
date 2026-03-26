@@ -98,6 +98,7 @@ CHART_TEMPLATE = {
             "#ffaa33",   # light orange
             "#88ff88",   # light green
         ],
+        "hovermode": "closest",
         "hoverlabel": {
             "bgcolor": "#0a0a14",
             "bordercolor": "#222240",
@@ -118,9 +119,11 @@ CHART_LG = 400    # hero charts, heatmaps, 3D surfaces
 
 # Default axis styling — apply separately via xaxis=AXIS_DEFAULTS etc.
 AXIS_DEFAULTS = {
+    "showgrid": True,
     "gridcolor": "#1a1a30",
     "zerolinecolor": "#333355",
-    "tickfont": {"size": 9, "color": "#888888"},
+    "zerolinewidth": 1,
+    "tickfont": {"size": 9, "color": "#808080"},
     "linecolor": "#333355",
 }
 
