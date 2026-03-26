@@ -11,6 +11,7 @@ Four sub-tabs:
 """
 
 import json
+import logging
 import numpy as np
 import pandas as pd
 from dash import html, dcc, Input, Output, State, callback_context, ALL, MATCH, dash_table, no_update
@@ -54,14 +55,14 @@ LOOKBACK_OPTIONS = [
 ]
 
 _CB_BANKS = {
-    "FED":  {"rate": 5.25, "direction": "HOLD"},
-    "ECB":  {"rate": 4.50, "direction": "CUTTING"},
-    "BOE":  {"rate": 5.25, "direction": "HOLD"},
-    "BOJ":  {"rate": 0.25, "direction": "HIKING"},
-    "SNB":  {"rate": 1.75, "direction": "CUTTING"},
-    "RBA":  {"rate": 4.35, "direction": "HOLD"},
-    "RBNZ": {"rate": 5.50, "direction": "CUTTING"},
-    "BOC":  {"rate": 5.00, "direction": "CUTTING"},
+    "FED":  {"rate": 4.25, "direction": "HOLD"},
+    "ECB":  {"rate": 2.75, "direction": "HOLD"},
+    "BOE":  {"rate": 4.25, "direction": "CUTTING"},
+    "BOJ":  {"rate": 0.50, "direction": "HIKING"},
+    "SNB":  {"rate": 0.75, "direction": "HOLD"},
+    "RBA":  {"rate": 3.85, "direction": "HOLD"},
+    "RBNZ": {"rate": 3.75, "direction": "CUTTING"},
+    "BOC":  {"rate": 2.75, "direction": "HOLD"},
 }
 
 
@@ -420,7 +421,7 @@ def _build_breakdown_table(window_short=20, window_long=120):
     header = html.Tr([html.Th(h, style={**TABLE_HEADER_STYLE, "fontSize": "8px"})
                        for h in ["PAIR A", "PAIR B", "20D", "120D", "GAP", "SIGNAL"]])
     body = []
-    for d in divergences[:10]:
+    for d in divergences[:min(len(divergences), 10)]:
         gap_color = "#ff3333" if abs(d["gap"]) > 0.4 else "#ff8800"
         sig_color = "#ff3333" if d["signal"] == "DIVERGING" else "#00cc66"
         body.append(html.Tr([
@@ -1032,15 +1033,20 @@ def register_callbacks(app):
         ],
     )
     def update_cross_pair(pair_a, pair_b, tenor, lookback):
-        pa, pb = pair_a or "EURUSD", pair_b or "USDJPY"
-        t = tenor or "3M"
-        lb = lookback or 252
-        return (
-            _build_vol_spread_ts(pa, pb, t, lb),
-            _build_skew_scatter(pa, pb, t, lb),
-            _build_zscore_matrix(lb),
-            _build_ivrv_panel(pa, t, lb),
-        )
+        try:
+            pa, pb = pair_a or "EURUSD", pair_b or "USDJPY"
+            t = tenor or "3M"
+            lb = lookback or 252
+            return (
+                _build_vol_spread_ts(pa, pb, t, lb),
+                _build_skew_scatter(pa, pb, t, lb),
+                _build_zscore_matrix(lb),
+                _build_ivrv_panel(pa, t, lb),
+            )
+        except Exception as exc:
+            logging.exception("update_cross_pair failed")
+            empty = no_data_fig("Error")
+            return empty, empty, empty, empty
 
     @app.callback(
         Output(f"{_P}-signal-table", "children"),
@@ -1163,12 +1169,17 @@ def register_callbacks(app):
     def update_macro(n, lookback, tab):
         if tab != "macro":
             raise PreventUpdate
-        return (
-            _build_rate_table(),
-            _build_risk_sentiment(),
-            _build_cb_chart(),
-            _build_dxy_chart(lookback or 252),
-        )
+        try:
+            return (
+                _build_rate_table(),
+                _build_risk_sentiment(),
+                _build_cb_chart(),
+                _build_dxy_chart(lookback or 252),
+            )
+        except Exception as exc:
+            logging.exception("update_macro failed")
+            empty = no_data_fig("Error")
+            return html.Div("Macro data error", style={"color": "#ff3333"}), empty, empty, empty
 
     # ══════════ CARRY CALLBACKS ══════════
 
@@ -1179,34 +1190,38 @@ def register_callbacks(app):
     def update_carry_table(n, tab):
         if tab != "carry":
             raise PreventUpdate
-        rows = _build_carry_data()
-        if not rows:
-            return html.Div("No carry data", style={"color": "#808080"})
+        try:
+            rows = _build_carry_data()
+            if not rows:
+                return html.Div("No carry data", style={"color": "#808080"})
 
-        header = html.Tr([html.Th(h, style={**TABLE_HEADER_STYLE, "fontSize": "8px"})
-                           for h in ["PAIR", "ATM 1M", "ATM 3M", "ATM 1Y", "TERM", "FWD 3×3",
-                                     "CARRY/D", "CARRY/VOL", "SIGNAL"]])
-        body = []
-        for r in rows:
-            sig_color = "#00cc66" if "SELL" in r.get("signal", "") else "#ff3333" if "BUY" in r.get("signal", "") else "#808080"
-            body.append(html.Tr([
-                html.Td(r["pair"], style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
-                html.Td(f"{r['atm_1m']:.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
-                html.Td(f"{r['atm_3m']:.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
-                html.Td(f"{r['atm_1y']:.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
-                html.Td(f"{r['term_spread']:+.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right",
-                         "color": "#ff3333" if r['term_spread'] > 0.5 else "#00cc66" if r['term_spread'] < -0.5 else "#d4d4d4"}),
-                html.Td(f"{r['fwd_3x3']:.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
-                html.Td(f"{r['carry_day']:.3f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
-                html.Td(f"{r['carry_vol']:.1f}%", style={**TABLE_CELL_STYLE, "textAlign": "right",
-                         "fontWeight": "700",
-                         "color": "#00cc66" if r['carry_vol'] > 2 else "#ff3333" if r['carry_vol'] < -1 else "#d4d4d4"}),
-                html.Td(r["signal"], style={**TABLE_CELL_STYLE, "color": sig_color, "fontWeight": "600"}),
-            ]))
+            header = html.Tr([html.Th(h, style={**TABLE_HEADER_STYLE, "fontSize": "8px"})
+                               for h in ["PAIR", "ATM 1M", "ATM 3M", "ATM 1Y", "TERM", "FWD 3×3",
+                                         "CARRY/D", "CARRY/VOL", "SIGNAL"]])
+            body = []
+            for r in rows:
+                sig_color = "#00cc66" if "SELL" in r.get("signal", "") else "#ff3333" if "BUY" in r.get("signal", "") else "#808080"
+                body.append(html.Tr([
+                    html.Td(r["pair"], style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
+                    html.Td(f"{r['atm_1m']:.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(f"{r['atm_3m']:.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(f"{r['atm_1y']:.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(f"{r['term_spread']:+.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right",
+                             "color": "#ff3333" if r['term_spread'] > 0.5 else "#00cc66" if r['term_spread'] < -0.5 else "#d4d4d4"}),
+                    html.Td(f"{r['fwd_3x3']:.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(f"{r['carry_day']:.3f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(f"{r['carry_vol']:.1f}%", style={**TABLE_CELL_STYLE, "textAlign": "right",
+                             "fontWeight": "700",
+                             "color": "#00cc66" if r['carry_vol'] > 2 else "#ff3333" if r['carry_vol'] < -1 else "#d4d4d4"}),
+                    html.Td(r["signal"], style={**TABLE_CELL_STYLE, "color": sig_color, "fontWeight": "600"}),
+                ]))
 
-        return html.Table([html.Thead(header), html.Tbody(body)],
-                          style={"width": "100%", "borderCollapse": "collapse",
-                                 "fontFamily": _MONO, "fontSize": "10px"})
+            return html.Table([html.Thead(header), html.Tbody(body)],
+                              style={"width": "100%", "borderCollapse": "collapse",
+                                     "fontFamily": _MONO, "fontSize": "10px"})
+        except Exception as exc:
+            logging.exception("update_carry_table failed")
+            return html.Div("Carry data error", style={"color": "#ff3333", "padding": "8px"})
 
     @app.callback(
         [Output(f"{_P}-carry-term", "figure"), Output(f"{_P}-carry-fwd", "figure"),
@@ -1214,8 +1229,13 @@ def register_callbacks(app):
         [Input(f"{_P}-carry-pair-dd", "value"), Input(f"{_P}-carry-comp-dd", "value")],
     )
     def update_carry_charts(pair, comp):
-        p = pair or "EURUSD"
-        return _build_term_chart(p, comp), _build_fwd_vol(p), _build_calendar_spread(p)
+        try:
+            p = pair or "EURUSD"
+            return _build_term_chart(p, comp), _build_fwd_vol(p), _build_calendar_spread(p)
+        except Exception as exc:
+            logging.exception("update_carry_charts failed")
+            empty = no_data_fig("Error")
+            return empty, empty, empty
 
     # ── CSV Export ──────────────────────────────────────────────────────
     @app.callback(

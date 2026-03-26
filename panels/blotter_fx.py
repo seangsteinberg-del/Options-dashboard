@@ -99,20 +99,14 @@ def _get_market_params(pair, tenor):
     try:
         spots = get_fx_spots([pair]) or {}
         S = spots.get(pair, {}).get("mid", 1.0)
-    except Exception:
-        S = 1.0
-    try:
         rates = get_fx_rates(pair) or {}
         r_d = rates.get("r_dom", 0.04)
         r_f = rates.get("r_for", 0.03)
-    except Exception:
-        r_d, r_f = 0.04, 0.03
-    try:
         vol_surf = get_fx_vol_surface(pair) or {}
         atm_vol_raw = vol_surf.get(tenor, {}).get("atm", 8.0)
         atm_vol = atm_vol_raw / 100.0 if atm_vol_raw > 1.0 else atm_vol_raw
     except Exception:
-        atm_vol = 0.08
+        S, r_d, r_f, atm_vol = 1.0, 0.04, 0.03, 0.08
     T = tenor_to_years(tenor)
     return S, T, r_d, r_f, atm_vol
 
@@ -503,28 +497,24 @@ def register_callbacks(app):
                     "notes": notes or "",
                     "status": "FILLED",
                 }
+                # Add to portfolio engine — only prepend trade if validation succeeds
+                add_position(book, {
+                    "pair": pair,
+                    "option_type": cp_str,
+                    "direction": side,
+                    "strike": round(K, 5),
+                    "expiry": expiry_date.strftime("%Y-%m-%d"),
+                    "notional": notional,
+                    "entry_vol": sigma,
+                    "entry_premium": round(prem_total, 2),
+                    "delta_at_entry": round(actual_delta, 4),
+                    "cut": cut or "NY",
+                    "counterparty": cpty or "INTERBANK",
+                    "strategy": strategy or "Prop",
+                    "notes": notes or "",
+                })
+
                 trades = [new_trade] + trades
-
-                # Add to portfolio engine
-                try:
-                    add_position(book, {
-                        "pair": pair,
-                        "option_type": cp_str,
-                        "direction": side,
-                        "strike": round(K, 5),
-                        "expiry": expiry_date.strftime("%Y-%m-%d"),
-                        "notional": notional,
-                        "entry_vol": sigma,
-                        "entry_premium": round(prem_total, 2),
-                        "delta_at_entry": round(actual_delta, 4),
-                        "cut": cut or "NY",
-                        "counterparty": cpty or "INTERBANK",
-                        "strategy": strategy or "Prop",
-                        "notes": notes or "",
-                    })
-                except Exception:
-                    pass
-
                 new_store = json.dumps(trades)
                 exec_msg = f"FILLED  {pair} {tenor} {K:.5g} {side.upper()}"
                 exec_style = {**exec_style, "color": COLORS["accent_green"]}
@@ -830,4 +820,7 @@ def register_callbacks(app):
         fig, panel, chart_type = mapping[btn]
         if not fig:
             return no_update
-        return export_csv(fig, panel, chart_type)
+        try:
+            return export_csv(fig, panel, chart_type)
+        except Exception:
+            return no_update

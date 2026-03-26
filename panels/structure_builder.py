@@ -361,6 +361,10 @@ def _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surf
         target_delta = delta_abs * cp_sign
         K = delta_to_strike(target_delta, S, leg_T, r_d, r_f, vol, cp_sign)
         if np.isnan(K) or K <= 0:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Leg %d: delta_to_strike returned invalid K=%.6f for delta=%.2f, "
+                "falling back to forward", i + 1, K if not np.isnan(K) else 0, target_delta)
             F = fx_forward(S, r_d, r_f, leg_T)
             K = F
 
@@ -899,12 +903,14 @@ def _build_smile_chart(processed_legs, vol_surface, tenor):
         delta_abs = lg["delta_input"]
         cp_str = lg["cp"]
         # Map leg delta to nearest smile label
-        if abs(delta_abs - 0.50) < 0.02:
+        if abs(delta_abs - 0.50) < 0.05:
             x_label = "ATM"
-        elif abs(delta_abs - 0.25) < 0.03:
+        elif abs(delta_abs - 0.25) < 0.08:
             x_label = "25C" if cp_str == "call" else "25P"
-        elif delta_abs <= 0.12:
+        elif delta_abs <= 0.17:
             x_label = "10C" if cp_str == "call" else "10P"
+        elif delta_abs > 0.50:
+            x_label = "ATM"  # deep ITM — closest to ATM
         else:
             x_label = "25C" if cp_str == "call" else "25P"
 
@@ -1390,7 +1396,7 @@ def register_callbacks(app):
                          *leg_inputs):
         pair = pair or "EURUSD"
         tenor = tenor or "1M"
-        notional = notional or 10_000_000
+        notional = max(1_000, min(float(notional or 10_000_000), 1e12))
         num_legs = max(1, min(num_legs or 1, MAX_LEGS))
 
         # Parse leg inputs (5 groups of MAX_LEGS each)
@@ -1420,7 +1426,7 @@ def register_callbacks(app):
             ndf = no_data_fig(height=380, msg="NO MARKET DATA")
             empty_table = html.Div("No market data", style={"color": COLORS["text_muted"],
                                    "fontSize": "11px", "padding": "8px"})
-            empty_stats = [html.Div("--", style=STAT_BOX_STYLE)]
+            empty_stats = [html.Div("--", style=STAT_BOX_STYLE) for _ in range(8)]
             return ([empty_stats, ndf, ndf, ndf, ndf, empty_table, ndf, ndf]
                     + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 
@@ -1494,7 +1500,7 @@ def register_callbacks(app):
             err_fig = no_data_fig(height=380, msg=f"Error: {type(e).__name__}: {e}")
             empty_table = html.Div(f"Error: {e}", style={"color": COLORS["accent_red"],
                                    "fontSize": "11px", "padding": "8px"})
-            empty_stats = [html.Div("ERR", style=STAT_BOX_STYLE)]
+            empty_stats = [html.Div("--", style=STAT_BOX_STYLE) for _ in range(8)]
             return ([empty_stats, err_fig, err_fig, err_fig, err_fig, empty_table, err_fig, err_fig]
                     + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 

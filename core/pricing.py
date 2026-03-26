@@ -286,8 +286,9 @@ def sabr_vol(F, K, T, alpha, beta, rho_sabr, nu):
     F = forward, K = strike, T = expiry, alpha = vol-of-vol base,
     beta = CEV exponent, rho = correlation, nu = vol-of-vol.
     """
-    if abs(F - K) < 1e-12:
-        # ATM formula
+    # Use wider ATM band to avoid discontinuity between ATM and off-ATM formulas
+    if abs(F - K) / max(F, 1e-10) < 1e-6:
+        # ATM formula (Hagan et al. limiting case)
         FK_beta = F ** (1 - beta)
         v = (alpha / FK_beta) * (
             1 + ((1 - beta) ** 2 / 24 * alpha ** 2 / FK_beta ** 2
@@ -300,8 +301,11 @@ def sabr_vol(F, K, T, alpha, beta, rho_sabr, nu):
     FK_beta2 = FK ** ((1 - beta) / 2)
     log_FK = np.log(F / K)
 
-    z = nu / alpha * FK_beta2 * log_FK
-    x_z = np.log((np.sqrt(1 - 2 * rho_sabr * z + z ** 2) + z - rho_sabr) / (1 - rho_sabr))
+    z = nu / alpha * FK_beta2 * log_FK if abs(alpha) > 1e-12 else 0.0
+    denom = 1 - 2 * rho_sabr * z + z ** 2
+    if denom < 0:
+        denom = 1e-12
+    x_z = np.log((np.sqrt(denom) + z - rho_sabr) / (1 - rho_sabr))
 
     if abs(x_z) < 1e-12:
         x_z = 1e-12
@@ -327,14 +331,20 @@ def fit_sabr(strikes, market_vols, F, T, beta=0.5):
         model_vols = np.array([sabr_vol(F, K, T, alpha, beta, rho_s, nu) for K in strikes])
         return np.sum((model_vols - market_vols) ** 2)
 
-    # Initial guess
+    # Initial guess: derive alpha from ATM vol, estimate rho from skew direction
     atm_idx = np.argmin(np.abs(strikes - F))
-    alpha0 = market_vols[atm_idx] * F ** (1 - beta)
-    result = minimize(objective, [alpha0, -0.3, 0.4],
+    alpha0 = max(market_vols[atm_idx] * F ** (1 - beta), 1e-6)
+    # Estimate rho sign from skew: negative skew (puts > calls) → negative rho
+    rho0 = -0.3 if len(market_vols) < 3 else np.clip(
+        -0.5 * np.sign(market_vols[0] - market_vols[-1]), -0.7, 0.7)
+    nu0 = max(0.3, 2.0 * np.std(market_vols) / max(np.mean(market_vols), 1e-6))
+    result = minimize(objective, [alpha0, rho0, nu0],
                       method="Nelder-Mead",
-                      options={"maxiter": 2000, "xatol": 1e-8})
+                      options={"maxiter": 3000, "xatol": 1e-8, "fatol": 1e-10})
     alpha, rho_s, nu = result.x
+    alpha = max(alpha, 1e-8)
     rho_s = np.clip(rho_s, -0.999, 0.999)
+    nu = max(nu, 1e-6)
     return {"alpha": alpha, "beta": beta, "rho": rho_s, "nu": nu, "error": result.fun}
 
 

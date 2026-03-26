@@ -10,7 +10,10 @@ Three view tabs inside one panel:
 """
 
 import json
+import logging
 import numpy as np
+
+logger = logging.getLogger(__name__)
 from dash import html, dcc, Input, Output, State, callback_context, ALL, MATCH, dash_table, no_update
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
@@ -175,7 +178,8 @@ def _build_scanner_rows(pairs, lookback):
     try:
         from core.bloomberg_fx import get_fx_spots, get_fx_vol_surface
         from core.fx_analytics import vol_percentile, vol_zscore, iv_rv_spread
-    except Exception:
+    except Exception as exc:
+        logger.warning("Scanner imports failed: %s", exc)
         return []
 
     spots = get_fx_spots() or {}
@@ -197,12 +201,14 @@ def _build_scanner_rows(pairs, lookback):
             try:
                 p_info = vol_percentile(pair, "3M", "ATM", lookback)
                 atm3m_pct = _sf(p_info.get("percentile", 50) if isinstance(p_info, dict) else 50)
-            except Exception:
+            except Exception as exc:
+                logger.warning("ATM percentile failed for %s: %s", pair, exc)
                 atm3m_pct = 50
             try:
                 z_info = vol_zscore(pair, "3M", "ATM", lookback)
                 z_atm3m = _sf(z_info.get("zscore", 0) if isinstance(z_info, dict) else z_info)
-            except Exception:
+            except Exception as exc:
+                logger.warning("Vol z-score failed for %s: %s", pair, exc)
                 z_atm3m = 0
 
             # IV-RV
@@ -212,14 +218,16 @@ def _build_scanner_rows(pairs, lookback):
                     ivrv_3m = _sf(ivrv_info["spread"].iloc[-1] if "spread" in ivrv_info.columns else 0)
                 else:
                     ivrv_3m = 0
-            except Exception:
+            except Exception as exc:
+                logger.warning("IV-RV spread failed for %s: %s", pair, exc)
                 ivrv_3m = 0
 
             # RR percentile
             try:
                 rr_info = vol_percentile(pair, "3M", "25D_RR", lookback)
                 rr3m_pct = _sf(rr_info.get("percentile", 50) if isinstance(rr_info, dict) else 50)
-            except Exception:
+            except Exception as exc:
+                logger.warning("RR percentile failed for %s: %s", pair, exc)
                 rr3m_pct = 50
 
             term_spread = atm_1m - atm_1y if (atm_1m > 0 and atm_1y > 0) else 0
@@ -248,7 +256,8 @@ def _build_scanner_rows(pairs, lookback):
                 "term_spread": round(term_spread, 2),
                 "signal": signal,
             })
-        except Exception:
+        except Exception as exc:
+            logger.warning("Scanner row failed for %s: %s", pair, exc)
             rows.append({
                 "pair": pair, "group": "—", "spot": 0, "chg_pct": 0,
                 "atm_1m": 0, "atm_3m": 0, "atm_1y": 0,
@@ -316,15 +325,19 @@ def _build_heatmap(metric, lookback):
                         val = _extract_atm(surf, tenor) if metric == "ATM" else _extract_rr(surf, tenor)
                         vol_row.append(_sf(val))
                         pct_row.append(50.0)
-                except Exception:
+                except Exception as exc:
+                    logger.warning("Heatmap cell %s/%s failed: %s", pair, tenor, exc)
                     vol_row.append(0)
-                    pct_row.append(50)
+                    pct_row.append(50.0)
             vol_matrix.append(vol_row)
             pct_matrix.append(pct_row)
 
         z = np.array(pct_matrix)
         custom = np.array(vol_matrix)
         text = [[f"{custom[i][j]:.1f}<br><sub>{z[i][j]:.0f}%</sub>"
+                 if (custom[i][j] is not None and not np.isnan(custom[i][j])
+                     and z[i][j] is not None and not np.isnan(z[i][j]))
+                 else "—"
                  for j in range(len(HEATMAP_TENORS))] for i in range(len(ALL_PAIRS))]
 
         fig = go.Figure(go.Heatmap(
@@ -342,7 +355,8 @@ def _build_heatmap(metric, lookback):
                           yaxis=dict(autorange="reversed", tickfont=dict(size=8)),
                           xaxis=dict(tickfont=dict(size=9))))
         return fig
-    except Exception:
+    except Exception as exc:
+        logger.warning("Vol richness heatmap failed: %s", exc)
         return _empty_fig("VOL RICHNESS")
 
 
@@ -356,7 +370,8 @@ def _build_cross_bar(metric, lookback):
                 info = vol_percentile(pair, "3M", metric, lookback)
                 pct = _sf(info.get("percentile", 50) if isinstance(info, dict) else 50)
                 data.append({"pair": pair, "pct": pct})
-            except Exception:
+            except Exception as exc:
+                logger.warning("Cross-bar percentile failed for %s: %s", pair, exc)
                 data.append({"pair": pair, "pct": 50})
 
         data.sort(key=lambda d: d["pct"])
@@ -375,7 +390,8 @@ def _build_cross_bar(metric, lookback):
                           xaxis=dict(range=[0, 105], tickfont=dict(size=8)),
                           yaxis=dict(tickfont=dict(size=7))))
         return fig
-    except Exception:
+    except Exception as exc:
+        logger.warning("Cross-pair bar chart failed: %s", exc)
         return _empty_fig("CROSS-PAIR BAR")
 
 
@@ -417,7 +433,8 @@ def _build_atm_history(pair, tenor, lookback):
                           title=dict(text=f"{pair} ATM {tenor} HISTORY",
                                      font=dict(size=9, color="#808080"))))
         return fig
-    except Exception:
+    except Exception as exc:
+        logger.warning("ATM history chart failed for %s %s: %s", pair, tenor, exc)
         return _empty_fig(f"{pair} ATM HISTORY")
 
 
@@ -444,7 +461,8 @@ def _build_ivrv_chart(pair, tenor, lookback):
                           title=dict(text=f"{pair} IV vs RV ({tenor})",
                                      font=dict(size=9, color="#808080"))))
         return fig
-    except Exception:
+    except Exception as exc:
+        logger.warning("IV-RV chart failed for %s: %s", pair, exc)
         return _empty_fig(f"{pair} IV-RV")
 
 
@@ -491,7 +509,8 @@ def _build_volcone_chart(pair, lookback):
                           title=dict(text=f"{pair} VOL CONE",
                                      font=dict(size=9, color="#808080"))))
         return fig
-    except Exception:
+    except Exception as exc:
+        logger.warning("Vol cone chart failed for %s: %s", pair, exc)
         return _empty_fig(f"{pair} VOL CONE")
 
 
@@ -508,14 +527,16 @@ def _build_drill_stats(pair, tenor, lookback):
             from core.fx_analytics import iv_rv_percentile
             ivrv_info = iv_rv_percentile(pair, tenor, lookback=lookback)
             ivrv_pct = _sf(ivrv_info.get("percentile", 50) if isinstance(ivrv_info, dict) else 50)
-        except Exception:
+        except Exception as exc:
+            logger.warning("IV-RV percentile failed for %s %s: %s", pair, tenor, exc)
             ivrv_pct = 50
 
         try:
             be = breakeven_vol(pair, tenor, tenor_to_days(tenor))
             be_rv = _sf(be.get("breakeven_rv", 0) if isinstance(be, dict) else 0)
             cushion = _sf(be.get("iv_rv_cushion", 0) if isinstance(be, dict) else 0)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Breakeven vol failed for %s %s: %s", pair, tenor, exc)
             be_rv = 0
             cushion = 0
 
@@ -523,7 +544,8 @@ def _build_drill_stats(pair, tenor, lookback):
             regime = vol_regime_detect(pair)
             regime_label = regime.get("regime", "NORMAL") if isinstance(regime, dict) else "NORMAL"
             regime_color = regime.get("color", "#d4d4d4") if isinstance(regime, dict) else "#d4d4d4"
-        except Exception:
+        except Exception as exc:
+            logger.warning("Vol regime detect failed for %s: %s", pair, exc)
             regime_label = "NORMAL"
             regime_color = "#d4d4d4"
 
@@ -543,7 +565,8 @@ def _build_drill_stats(pair, tenor, lookback):
                                        "letterSpacing": "1px", "fontFamily": _MONO}),
             ], style={**STAT_BOX_STYLE, "marginBottom": "4px"}))
         return boxes
-    except Exception:
+    except Exception as exc:
+        logger.warning("Drill stats failed: %s", exc)
         return [html.Div("Error loading stats", style={"color": "#808080", "fontSize": "10px"})]
 
 
@@ -583,7 +606,8 @@ def _build_skew_surface():
                           yaxis=dict(autorange="reversed", tickfont=dict(size=8)),
                           xaxis=dict(tickfont=dict(size=9))))
         return fig
-    except Exception:
+    except Exception as exc:
+        logger.warning("Skew surface failed: %s", exc)
         return _empty_fig("SKEW SURFACE")
 
 
@@ -630,7 +654,8 @@ def _build_rr_spot_chart(pair, tenor):
                           title=dict(text=f"{pair} RR vs SPOT ({tenor})",
                                      font=dict(size=9, color="#808080"))))
         return fig
-    except Exception:
+    except Exception as exc:
+        logger.warning("RR vs spot chart failed for %s: %s", pair, exc)
         return _empty_fig(f"{pair} RR vs SPOT")
 
 
@@ -673,7 +698,8 @@ def _build_smile_comparison(pair):
                           title=dict(text=f"{pair} SMILE COMPARISON",
                                      font=dict(size=9, color="#808080"))))
         return fig
-    except Exception:
+    except Exception as exc:
+        logger.warning("Smile comparison failed for %s: %s", pair, exc)
         return _empty_fig(f"{pair} SMILE")
 
 
@@ -687,7 +713,8 @@ def _build_bf_map():
                 surf = get_fx_vol_surface(pair) or {}
                 bf = _extract_bf(surf, "3M")
                 data.append({"pair": pair, "bf": bf})
-            except Exception:
+            except Exception as exc:
+                logger.warning("BF map data failed for %s: %s", pair, exc)
                 continue
 
         if not data:
@@ -709,7 +736,8 @@ def _build_bf_map():
                           xaxis=dict(tickfont=dict(size=8)),
                           yaxis=dict(tickfont=dict(size=7))))
         return fig
-    except Exception:
+    except Exception as exc:
+        logger.warning("Butterfly map failed: %s", exc)
         return _empty_fig("BUTTERFLY MAP")
 
 
@@ -731,7 +759,8 @@ def _build_tail_table(pair, tenor):
                     dn = _sf(tp["prob_down"].iloc[0] if "prob_down" in tp.columns else 0)
                 else:
                     up, dn = 0, 0
-            except Exception:
+            except Exception as exc:
+                logger.warning("Tail probability failed for %s: %s", pair, exc)
                 up, dn = 0, 0
 
             up_color = "#ff3333" if up > 15 else "#ff8800" if up > 5 else "#808080"
@@ -744,7 +773,8 @@ def _build_tail_table(pair, tenor):
         return html.Table([html.Thead(header), html.Tbody(body)],
                           style={"width": "100%", "borderCollapse": "collapse",
                                  "fontFamily": _MONO, "fontSize": "10px"})
-    except Exception:
+    except Exception as exc:
+        logger.warning("Tail table failed: %s", exc)
         return html.Div("No tail data", style={"color": "#808080", "fontSize": "10px"})
 
 
@@ -773,7 +803,8 @@ def _spark_term_structure(pair):
                           title=dict(text=f"{pair} TERM STRUCTURE",
                                      font=dict(size=9, color="#808080"))))
         return fig
-    except Exception:
+    except Exception as exc:
+        logger.warning("Term structure chart failed for %s: %s", pair, exc)
         return _empty_fig(f"{pair} TERM")
 
 

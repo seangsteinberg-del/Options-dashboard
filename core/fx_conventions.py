@@ -815,7 +815,8 @@ def fx_spot_date(trade_date, pair=None):
             spec = get_pair(pair)
             spot_rule = spec.spot_date_rule
         except KeyError:
-            pass
+            import logging
+            logging.getLogger(__name__).debug("fx_spot_date: pair %s not in registry, using T+2", pair)
 
     spot = trade_date
     bdays_added = 0
@@ -858,7 +859,8 @@ def fx_delivery_date(expiry_date, pair=None):
             spec = get_pair(pair)
             spot_rule = spec.spot_date_rule
         except KeyError:
-            pass
+            import logging
+            logging.getLogger(__name__).debug("fx_expiry_date: pair %s not in registry, using T+2", pair)
 
     delivery = expiry_date
     bdays_added = 0

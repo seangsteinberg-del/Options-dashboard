@@ -883,8 +883,10 @@ def get_fx_deposit_rates(ccy: str, tenors: List[str] = None) -> Dict[str, float]
 
 def get_cftc_positioning(pair: str) -> dict:
     """
-    CFTC Commitments of Traders positioning data.
-    Returns {net_spec, commercial, non_reportable, total_oi}.
+    CFTC Commitments of Traders positioning proxy.
+    When live CFTC data is unavailable, derives positioning estimate from
+    historical spot momentum, vol percentile, and carry direction.
+    Returns {net_spec, z_score, signal, confidence}.
     """
     ck = f"cftc_{pair}"
     cached = _cache_get(ck, "positioning")
@@ -893,11 +895,29 @@ def get_cftc_positioning(pair: str) -> dict:
     if not _may_fetch():
         return {}
 
-    if _HAS_EQUITY_BBG and is_connected():
-        # CFTC data not available via Bloomberg real-time — return empty
+    try:
+        hist = get_fx_historical_spot(pair, 90)
+        if hist.empty or len(hist) < 30:
+            return {}
+        close = hist["close"].values
+        # Momentum: 1M vs 3M return z-score as positioning proxy
+        ret_1m = (close[-1] / close[-22] - 1) if len(close) > 22 else 0.0
+        ret_3m = (close[-1] / close[0] - 1) if len(close) > 60 else ret_1m
+        ret_std = float(np.std(np.diff(np.log(close[-60:]))))
+        z = ret_1m / max(ret_std * np.sqrt(22), 1e-6)
+        # Estimate: positive z = long positioning (USD strength for USD/XXX)
+        result = {
+            "net_spec": round(float(z * 30), 1),  # synthetic net speculative (scaled)
+            "z_score": round(float(z), 2),
+            "signal": "LONG" if z > 1.0 else "SHORT" if z < -1.0 else "NEUTRAL",
+            "confidence": "proxy",
+        }
+        _cache_set(ck, result, "positioning")
+        _cache_done(ck)
+        return result
+    except Exception as e:
+        logger.debug("CFTC positioning proxy failed for %s: %s", pair, e)
         return {}
-
-    return {}
 
 
 def get_fx_realized_vol(pair: str, window: int = 20,
@@ -958,32 +978,32 @@ def get_central_bank_dates(bank: str) -> List[dict]:
     Returns [{date, bank, consensus, prev_rate}].
     """
     _CB_SCHEDULE = {
-        "FED": {"dates": [7, 14, 21, 49, 77, 112, 147, 175],
-                "rate": 5.30, "consensus": "hold"},
+        "FED": {"dates": [7, 14, 42, 77, 112, 147, 175],
+                "rate": 4.25, "consensus": "hold"},
         "ECB": {"dates": [10, 42, 70, 105, 140, 175],
-                "rate": 3.90, "consensus": "-25bp"},
+                "rate": 2.75, "consensus": "hold"},
         "BOJ": {"dates": [12, 56, 91, 140, 182],
-                "rate": -0.10, "consensus": "hold"},
+                "rate": 0.50, "consensus": "hold"},
         "BOE": {"dates": [14, 49, 84, 119, 154, 182],
-                "rate": 5.20, "consensus": "hold"},
+                "rate": 4.25, "consensus": "-25bp"},
         "RBA": {"dates": [8, 42, 77, 112, 147, 175],
-                "rate": 4.35, "consensus": "hold"},
+                "rate": 3.85, "consensus": "hold"},
         "RBNZ": {"dates": [21, 63, 105, 147, 182],
-                 "rate": 5.50, "consensus": "hold"},
+                 "rate": 3.75, "consensus": "-25bp"},
         "BOC": {"dates": [10, 42, 77, 112, 147, 175],
-                "rate": 5.00, "consensus": "-25bp"},
+                "rate": 2.75, "consensus": "hold"},
         "SNB": {"dates": [35, 91, 147, 182],
-                "rate": 1.75, "consensus": "hold"},
+                "rate": 0.75, "consensus": "hold"},
         "RIKSBANK": {"dates": [28, 70, 119, 168],
-                     "rate": 4.00, "consensus": "-25bp"},
+                     "rate": 2.75, "consensus": "hold"},
         "NORGES": {"dates": [21, 63, 112, 161],
-                   "rate": 4.50, "consensus": "hold"},
+                   "rate": 4.00, "consensus": "hold"},
         "CBRT": {"dates": [14, 42, 70, 98, 126, 154, 182],
-                 "rate": 45.00, "consensus": "hold"},
+                 "rate": 42.50, "consensus": "-50bp"},
         "SARB": {"dates": [21, 77, 133, 175],
-                 "rate": 8.25, "consensus": "hold"},
+                 "rate": 7.75, "consensus": "hold"},
         "BANXICO": {"dates": [14, 56, 98, 140, 175],
-                    "rate": 11.25, "consensus": "-25bp"},
+                    "rate": 9.50, "consensus": "-25bp"},
     }
     now = datetime.now()
     info = _CB_SCHEDULE.get(bank.upper(), {"dates": [30, 90, 150],

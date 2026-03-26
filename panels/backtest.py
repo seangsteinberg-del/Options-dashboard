@@ -179,9 +179,27 @@ def _generate_backtest_data(pair, lookback_years):
     spot_series = spot_series[-common_len:]
     vol_series = vol_series[-common_len:]
 
-    # RR25 and BF25: use zero placeholders (not synthetic noise)
-    rr25_series = np.zeros(common_len)
-    bf25_series = np.full(common_len, 0.25)
+    # RR25 and BF25: fetch from Bloomberg historical vol, fallback to synthetic estimate
+    rr25_raw = get_fx_historical_vol(pair, "1M", "25D_RR", actual_days)
+    bf25_raw = get_fx_historical_vol(pair, "1M", "25D_BF", actual_days)
+    if len(rr25_raw) >= common_len // 2:
+        rr25_arr = np.array(rr25_raw, dtype=float)[-common_len:]
+        if len(rr25_arr) < common_len:
+            rr25_arr = np.pad(rr25_arr, (common_len - len(rr25_arr), 0), mode='edge')
+        rr25_series = np.nan_to_num(rr25_arr, nan=0.0)
+    else:
+        # Synthetic: estimate RR from spot momentum (negative momentum → negative skew)
+        log_ret = np.diff(np.log(spot_series), prepend=np.log(spot_series[0]))
+        rr25_series = pd.Series(log_ret).rolling(22, min_periods=5).mean().fillna(0).values * -500
+        rr25_series = np.clip(rr25_series, -3.0, 3.0)
+    if len(bf25_raw) >= common_len // 2:
+        bf25_arr = np.array(bf25_raw, dtype=float)[-common_len:]
+        if len(bf25_arr) < common_len:
+            bf25_arr = np.pad(bf25_arr, (common_len - len(bf25_arr), 0), mode='edge')
+        bf25_series = np.nan_to_num(bf25_arr, nan=0.25)
+    else:
+        # Synthetic: BF correlates with vol level (higher vol → wider smile)
+        bf25_series = np.clip(vol_series * 0.03, 0.05, 1.5)
 
     # Rates
     rates_data = get_fx_rates(pair) or {}
@@ -505,7 +523,11 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
                 vol_exit / 100,
             )
 
-        trade_pnl = (exit_value - entry_premium) * notional
+        # Transaction costs: bid-ask spread ~ 0.3 vega for vanilla strategies
+        # Approximation: 0.1% of notional per leg at entry + exit
+        n_legs = len(legs)
+        tc_per_trade = notional * 0.001 * n_legs * 2  # entry + exit
+        trade_pnl = (exit_value - entry_premium) * notional - tc_per_trade
         hold_d = exit_idx - entry_idx
 
         # Determine entry signal label
@@ -566,6 +588,21 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
         sharpe = 0.0
         avg_hold = float(np.mean(trades_df["hold_days"])) if n_trades > 0 else 0.0
 
+    # Sortino (downside deviation only)
+    if len(pnls) > 1:
+        neg_pnls = pnls[pnls < 0]
+        downside_std = np.std(neg_pnls) if len(neg_pnls) > 1 else np.std(pnls)
+        avg_hold_sort = float(np.mean(trades_df["hold_days"]))
+        tpy = 252.0 / max(avg_hold_sort, 1)
+        sortino = (np.mean(pnls) / max(downside_std, 1e-6)) * np.sqrt(tpy) if downside_std > 0 else 0.0
+    else:
+        sortino = 0.0
+
+    # Profit factor
+    gross_profit = float(np.sum(wins)) if len(wins) > 0 else 0.0
+    gross_loss = abs(float(np.sum(losses))) if len(losses) > 0 else 0.0
+    profit_factor = gross_profit / max(gross_loss, 1e-6)
+
     # Calmar
     calmar = total_pnl / abs(max_dd) if abs(max_dd) > 0 else 0.0
 
@@ -606,6 +643,8 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
         "worst_trade": float(np.min(pnls)),
         "monthly_pnl": monthly_pnl,
         "regime_stats": regime_stats,
+        "sortino": sortino,
+        "profit_factor": profit_factor,
     }
 
 
@@ -1001,15 +1040,18 @@ def _build_stats_row(results):
     wr_color = COLORS["accent_green"] if results["win_rate"] >= 50 else COLORS["accent_orange"]
     dd_color = COLORS["accent_red"]
 
+    sr_color = COLORS["accent_purple"] if results["sharpe"] > 0.5 else COLORS["accent_orange"]
     return [
         _build_stat_box("TOTAL P&L", results["total_pnl"], ",.0f", pnl_color),
         _build_stat_box("# TRADES", results["n_trades"], ".0f", COLORS["accent_cyan"]),
         _build_stat_box("WIN RATE", results["win_rate"], ".1f", wr_color),
-        _build_stat_box("AVG WIN", results["avg_win"], ",.0f", COLORS["accent_green"]),
-        _build_stat_box("AVG LOSS", results["avg_loss"], ",.0f", COLORS["accent_red"]),
-        _build_stat_box("SHARPE", results["sharpe"], ".2f", COLORS["accent_purple"]),
+        _build_stat_box("PROFIT FACTOR", results.get("profit_factor", 0), ".2f", pnl_color),
+        _build_stat_box("SHARPE", results["sharpe"], ".2f", sr_color),
+        _build_stat_box("SORTINO", results.get("sortino", 0), ".2f", sr_color),
         _build_stat_box("MAX DD", results["max_dd"], ",.0f", dd_color),
         _build_stat_box("CALMAR", results["calmar"], ".2f", COLORS["accent_teal"]),
+        _build_stat_box("AVG WIN", results["avg_win"], ",.0f", COLORS["accent_green"]),
+        _build_stat_box("AVG LOSS", results["avg_loss"], ",.0f", COLORS["accent_red"]),
         _build_stat_box("AVG HOLD (D)", results["avg_hold"], ".0f", COLORS["accent_blue"]),
         _build_stat_box("BEST TRADE", results["best_trade"], ",.0f", COLORS["accent_green"]),
         _build_stat_box("WORST TRADE", results["worst_trade"], ",.0f", COLORS["accent_red"]),

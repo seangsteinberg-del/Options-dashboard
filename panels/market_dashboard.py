@@ -90,6 +90,18 @@ def _sf(v, d=0.0):
         return d
 
 
+def _fmt_spot(pair: str, spot: float) -> str:
+    """Format spot price using pair convention (pip precision)."""
+    from core.fx_conventions import FX_PAIR_REGISTRY
+    spec = FX_PAIR_REGISTRY.get(pair.upper()) if pair else None
+    if spec and spec.pip == 0.01:
+        return f"{spot:.3f}"  # JPY pairs: 3 decimals
+    elif spot >= 100:
+        return f"{spot:.2f}"  # High-value pairs (e.g., USDJPY at 148)
+    else:
+        return f"{spot:.5f}"  # Standard 5-decimal pairs
+
+
 def _pairs_for(group):
     if group == "G10":
         return G10_PAIRS
@@ -214,16 +226,16 @@ def _build_kpi_data(rows):
     try:
         from core.bloomberg_fx import get_fx_spots
         spots = get_fx_spots() or {}
-        # Baselines are roughly "neutral" mid-2024 levels for scaling
+        # ICE DXY basket weights with neutral baselines (updated Q1 2026)
         _dxy_cfg = [
             # (pair,  weight, baseline, is_usd_base)
-            ("EURUSD", 0.576, 1.0800, False),   # XXX/USD — lower = stronger USD
-            ("USDJPY", 0.136, 150.00, True),     # USD/XXX — higher = stronger USD
-            ("GBPUSD", 0.119, 1.2700, False),    # XXX/USD
-            ("USDCAD", 0.091, 1.3600, True),     # USD/XXX
-            ("USDCHF", 0.036, 0.8800, True),     # USD/XXX
-            ("AUDUSD", 0.021, 0.6600, False),    # XXX/USD
-            ("NZDUSD", 0.021, 0.6100, False),    # XXX/USD
+            ("EURUSD", 0.576, 1.0500, False),   # XXX/USD — lower = stronger USD
+            ("USDJPY", 0.136, 148.00, True),     # USD/XXX — higher = stronger USD
+            ("GBPUSD", 0.119, 1.2600, False),    # XXX/USD
+            ("USDCAD", 0.091, 1.3800, True),     # USD/XXX
+            ("USDCHF", 0.036, 0.8900, True),     # USD/XXX
+            ("AUDUSD", 0.021, 0.6400, False),    # XXX/USD
+            ("NZDUSD", 0.021, 0.5700, False),    # XXX/USD
         ]
         index = 1.0
         for pair, weight, baseline, is_usd_base in _dxy_cfg:
@@ -310,10 +322,10 @@ def _gather_events():
         "RBNZ": [14, 56, 112, 168, 224, 280, 336],
         "BOC":  [21, 63, 105, 147, 189, 231, 273, 315],
     }
-    # Realistic current policy rates
+    # Approximate current policy rates (updated Q1 2026)
     _policy_rates = {
-        "FED": "5.25%", "ECB": "4.50%", "BOE": "5.25%", "BOJ": "0.25%",
-        "SNB": "1.75%", "RBA": "4.35%", "RBNZ": "5.50%", "BOC": "5.00%",
+        "FED": "4.25%", "ECB": "2.75%", "BOE": "4.25%", "BOJ": "0.50%",
+        "SNB": "0.75%", "RBA": "3.85%", "RBNZ": "3.75%", "BOC": "2.75%",
     }
 
     year_start = datetime(now.year, 1, 1)
@@ -734,8 +746,7 @@ def _render_movers_table(rows, sort_key):
             html.Td(r["pair"], style={**TABLE_CELL_STYLE, "fontWeight": "700",
                                        "color": "#d4d4d4", "cursor": "pointer"},
                     id={"type": f"{_P}-row-click", "index": r["pair"]}),
-            html.Td(f"{r['spot']:.4f}" if r['spot'] < 10 else f"{r['spot']:.2f}",
-                    style=TABLE_CELL_STYLE),
+            html.Td(_fmt_spot(r['pair'], r['spot']), style=TABLE_CELL_STYLE),
             html.Td(f"{r['chg_pct']:+.2f}%", style={**TABLE_CELL_STYLE, "color": chg_color}),
             html.Td(f"{r['atm_1m']:.1f}v", style=TABLE_CELL_STYLE),
             html.Td(f"{r.get('atm_3m', 0):.1f}v", style=TABLE_CELL_STYLE),
@@ -852,10 +863,16 @@ def register_callbacks(app):
         ],
     )
     def update_book_events(n, group):
-        pairs = _pairs_for(group or "ALL")
-        events = _gather_events()
-        positioning = _build_positioning(pairs)
-        return _render_events(events), _render_positioning(positioning)
+        try:
+            pairs = _pairs_for(group or "ALL")
+            events = _gather_events()
+            positioning = _build_positioning(pairs)
+            return _render_events(events), _render_positioning(positioning)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error("Book/events update failed: %s", e)
+            empty = html.Div("Data unavailable", style={"color": "#808080", "fontSize": "11px"})
+            return empty, empty
 
     # ── Row click → update store (which app.py propagates to global-pair) ──
     @app.callback(
@@ -901,4 +918,9 @@ def register_callbacks(app):
         fig, panel, chart_type = mapping[btn]
         if not fig:
             return no_update
-        return export_csv(fig, panel, chart_type)
+        try:
+            return export_csv(fig, panel, chart_type)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error("CSV export failed: %s", e)
+            return no_update

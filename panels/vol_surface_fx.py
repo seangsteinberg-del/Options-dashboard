@@ -1104,8 +1104,16 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
       - Regime: coloured badge
     """
     # -- Extract metrics safely --
-    atm_1m = sd["atm"][sd["tenors"].index("1M")] if "1M" in sd["tenors"] else (sd["atm"][0] if len(sd["atm"]) > 0 else 0)
-    atm_1y = sd["atm"][sd["tenors"].index("1Y")] if "1Y" in sd["tenors"] else (sd["atm"][-1] if len(sd["atm"]) > 0 else 0)
+    def _safe_tenor_idx(tenors, label):
+        try:
+            return tenors.index(label)
+        except ValueError:
+            return None
+
+    _idx_1m = _safe_tenor_idx(sd["tenors"], "1M")
+    atm_1m = sd["atm"][_idx_1m] if _idx_1m is not None else (sd["atm"][0] if len(sd["atm"]) > 0 else 0)
+    _idx_1y = _safe_tenor_idx(sd["tenors"], "1Y")
+    atm_1y = sd["atm"][_idx_1y] if _idx_1y is not None else (sd["atm"][-1] if len(sd["atm"]) > 0 else 0)
 
     # ATM 1M change
     atm_1m_delta = 0.0
@@ -1127,7 +1135,12 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
     rr_3m = 0.0
     rr_pctile = 50.0
     try:
-        idx = sd["tenors"].index("3M") if "3M" in sd["tenors"] else min(2, len(sd["tenors"]) - 1)
+        if "3M" in sd["tenors"]:
+            idx = sd["tenors"].index("3M")
+        elif len(sd["tenors"]) > 0:
+            idx = min(2, len(sd["tenors"]) - 1)
+        else:
+            idx = -1
         rr_3m = sd["rr25"][idx] if 0 <= idx < len(sd.get("rr25", [])) else 0.0
         p = vol_percentile(pair, "3M", "25D_RR")
         rr_pctile = p["percentile"]
@@ -1688,7 +1701,7 @@ def register_callbacks(app):
     )
     def set_refresh(interval_ms):
         if not interval_ms or interval_ms == 0:
-            return 60000, True
+            return 86400000, True
         return interval_ms, False
 
     # ------------------------------------------------------------------
@@ -1781,7 +1794,7 @@ def register_callbacks(app):
                         elif chart_type == "surface_3d":
                             _overlay_cross_surface_wireframe(fig, cross_pair, cross_sd)
         except Exception:
-            logger.exception("Comparison overlay failed for %s", pair)
+            logger.exception("Comparison overlay failed for %s (compare=%s, cross_pair=%s)", pair, compare, cross_pair)
 
         # Build stat boxes (always use full surface for KPIs)
         stats = _build_stat_boxes(pair, sd_full, spot, fwd_1m, r_dom, r_for)
@@ -1823,4 +1836,8 @@ def register_callbacks(app):
         fig, panel, chart_type = mapping[btn]
         if not fig:
             return no_update
-        return export_csv(fig, panel, chart_type)
+        try:
+            return export_csv(fig, panel, chart_type)
+        except Exception:
+            logger.exception("CSV export failed for %s/%s", panel, chart_type)
+            return no_update

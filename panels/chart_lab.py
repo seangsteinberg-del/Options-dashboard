@@ -939,7 +939,8 @@ def _build_comparison_figure(pairs, comp_type, tenor="3M"):
                                                   mode="lines+markers", name=pair,
                                                   line=dict(color=_CW[idx % len(_CW)], width=2),
                                                   marker=dict(size=5)))
-                except Exception: pass
+                except Exception as e:
+                    logger.warning("Comparison overlay failed for %s: %s", pair, e)
             fig.update_layout(**chart_layout(title=dict(text="ATM Vol Term Structure",
                               font=dict(size=11, color="#ff8800", family=_FONT)),
                               xaxis_title="Tenor", yaxis_title="ATM Vol (%)"))
@@ -954,7 +955,8 @@ def _build_comparison_figure(pairs, comp_type, tenor="3M"):
                             rr_vals.append(surface.get(t, {}).get("rr25", 0)); t_labels.append(t)
                         fig.add_trace(go.Scatter(x=t_labels, y=rr_vals, mode="lines+markers", name=pair,
                                                   line=dict(color=_CW[idx % len(_CW)], width=2)))
-                except Exception: pass
+                except Exception as e:
+                    logger.warning("Comparison overlay failed for %s: %s", pair, e)
             fig.update_layout(**chart_layout(title=dict(text="25D RR Skew Profile",
                               font=dict(size=11, color="#ff8800", family=_FONT)),
                               xaxis_title="Tenor", yaxis_title="25D RR (vol pts)"))
@@ -973,7 +975,8 @@ def _build_comparison_figure(pairs, comp_type, tenor="3M"):
                         fig.add_trace(go.Scatter(x=["10P","25P","ATM","25C","10C"], y=vols,
                                                   mode="lines+markers", name=f"{pair} {tenor}",
                                                   line=dict(color=_CW[idx % len(_CW)], width=2)))
-                except Exception: pass
+                except Exception as e:
+                    logger.warning("Comparison overlay failed for %s: %s", pair, e)
             fig.update_layout(**chart_layout(title=dict(text=f"{tenor} Smile Comparison",
                               font=dict(size=11, color="#ff8800", family=_FONT)),
                               xaxis_title="Delta", yaxis_title="Vol (%)"))
@@ -986,7 +989,8 @@ def _build_comparison_figure(pairs, comp_type, tenor="3M"):
                         fig.add_trace(go.Scatter(x=cone["window"].tolist(), y=cone["current_c2c"].tolist(),
                                                   mode="lines+markers", name=pair,
                                                   line=dict(color=_CW[idx % len(_CW)], width=2)))
-                except Exception: pass
+                except Exception as e:
+                    logger.warning("Comparison overlay failed for %s: %s", pair, e)
             fig.update_layout(**chart_layout(title=dict(text="RV Cone: Current Level",
                               font=dict(size=11, color="#ff8800", family=_FONT)),
                               xaxis_title="Window (days)", yaxis_title="RV (%)"))
@@ -1003,7 +1007,8 @@ def _build_comparison_figure(pairs, comp_type, tenor="3M"):
                         if "rv" in df.columns:
                             fig.add_trace(go.Scatter(x=list(range(len(df))), y=df["rv"].tolist(),
                                                       mode="lines", name=f"{pair} RV", line=dict(color=c, width=1.5, dash="dash")))
-                except Exception: pass
+                except Exception as e:
+                    logger.warning("Comparison overlay failed for %s: %s", pair, e)
             fig.update_layout(**chart_layout(title=dict(text=f"IV vs RV ({tenor})",
                               font=dict(size=11, color="#ff8800", family=_FONT)),
                               xaxis_title="Days", yaxis_title="Vol (%)"))
@@ -1189,7 +1194,8 @@ def _build_deep_study(study_type, pairs, tenor):
                     cm = carry_momentum(p)
                     fig.add_trace(go.Bar(x=[p], y=[cm["change_20d_bps"]], name=f"{p} 20D",
                                   marker_color=_CW[idx % len(_CW)], showlegend=False), row=1, col=2)
-                except Exception: pass
+                except Exception as e:
+                    logger.warning("Comparison overlay failed for %s: %s", p, e)
 
         elif study_type == "fwd_vol_lab":
             fig = make_subplots(rows=1, cols=2, subplot_titles=[
@@ -1381,7 +1387,8 @@ def register_callbacks(app):
                 return [_sv("Skew", f"{sk.get('rr_25d', 0):.2f}"), _sv("Direction", sk.get("direction", "N/A"))]
             if study_type == "rv_scanner":
                 return [_sv("Pairs scanned", str(len(pairs)))]
-        except Exception: pass
+        except Exception as e:
+            logger.warning("Study metadata build failed: %s", e)
         return []
 
     # ── 9. Scratchpad save ───────────────────────────────────────────

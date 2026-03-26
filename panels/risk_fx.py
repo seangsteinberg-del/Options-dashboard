@@ -162,15 +162,18 @@ def _safe_atm_vol(surface):
         for tenor in ("3M", "1M", "6M", "1Y"):
             if tenor in surface and isinstance(surface[tenor], dict):
                 v = surface[tenor].get("atm", 8.0)
-                return v / 100.0 if v > 1.0 else v
+                result = v / 100.0 if v > 1.0 else v
+                return max(result, 0.001)
         # Fallback: if the dict has no recognized tenor keys, try to
         # find any dict-valued entry with an "atm" key
         for k, v in surface.items():
             if isinstance(v, dict) and "atm" in v:
                 raw = v["atm"]
-                return raw / 100.0 if raw > 1.0 else raw
+                result = raw / 100.0 if raw > 1.0 else raw
+                return max(result, 0.001)
     if isinstance(surface, (int, float)):
-        return surface if surface < 1.0 else surface / 100.0
+        val = surface if surface < 1.0 else surface / 100.0
+        return max(val, 0.001)
     return 0.10
 
 
@@ -1067,7 +1070,7 @@ def register_callbacks(app):
             ])
 
             # Generate normal P&L scenarios
-            rng = np.random.RandomState(seed=42)
+            rng = np.random.default_rng()
             daily_vol = avg_vol / np.sqrt(252)
             sim_returns = rng.normal(0, daily_vol, 2_000)
             sim_pnl = sim_returns * total_notional
@@ -1276,6 +1279,11 @@ def register_callbacks(app):
         if not n_clicks:
             return no_update, no_update
 
+        # Clamp inputs to safe bounds
+        spot_shock = max(-50.0, min(50.0, float(spot_shock or 0)))
+        vol_mult = max(0.0, min(2.0, float(vol_mult or 1.0)))
+        rate_shock = max(-500, min(500, int(rate_shock or 0)))
+
         try:
             positions = get_all_positions()
             if not positions:
@@ -1359,7 +1367,7 @@ def register_callbacks(app):
 
         except Exception as exc:
             err_msg = html.Div(
-                f"Custom stress error: {str(exc)[:80]}",
+                f"Custom stress error: {str(exc)[:200]}",
                 style={"color": COLORS["accent_red"], "fontFamily": "monospace",
                        "fontSize": "12px"},
             )
@@ -1623,7 +1631,7 @@ def register_callbacks(app):
 
         except Exception as exc:
             return html.Div(
-                f"What-if error: {str(exc)[:80]}",
+                f"What-if error: {str(exc)[:200]}",
                 style={"color": COLORS["accent_red"], "fontFamily": "monospace",
                        "fontSize": "12px", "padding": "20px"},
             )
@@ -1752,7 +1760,7 @@ def register_callbacks(app):
 
         except Exception as exc:
             return html.Div(
-                f"Hedge suggestion error: {str(exc)[:80]}",
+                f"Hedge suggestion error: {str(exc)[:200]}",
                 style={"color": COLORS["accent_red"], "fontFamily": "monospace",
                        "fontSize": "12px", "padding": "20px"},
             )
