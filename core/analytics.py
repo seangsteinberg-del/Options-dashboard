@@ -71,7 +71,9 @@ def detect_vol_regime(prices: np.ndarray, short_window: int = 10,
 
     ratio = rv_short / max(rv_long, 0.001)
     rv_all = pd.Series(log_ret).rolling(20).std() * np.sqrt(252)
-    rv_pct = percentileofscore(rv_all.dropna().values, rv_all.iloc[-1])
+    rv_clean = rv_all.dropna().values
+    rv_current = rv_clean[-1] if len(rv_clean) > 0 else rv_short
+    rv_pct = percentileofscore(rv_clean, rv_current) if len(rv_clean) > 0 else 50.0
 
     # Regime classification
     if rv_short > 0.35:
