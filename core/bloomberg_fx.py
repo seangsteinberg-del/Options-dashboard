@@ -355,7 +355,7 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
                     row = df.loc[actual]
                     bid = _sf(row.get("PX_BID"))
                     ask = _sf(row.get("PX_ASK"))
-                    if bid and ask:
+                    if bid > 0 and ask > 0:
                         mid = round((bid + ask) / 2, 6)
                     else:
                         mid = _sf(row.get("PX_MID")) or _sf(row.get("PX_LAST"))
@@ -709,7 +709,7 @@ def get_fx_forward_curve(pair: str) -> Dict[str, dict]:
                     pts = float(pts_raw)
                     outright = spot + pts / pts_divisor
                     ty = tenor_to_years(tenor)
-                    impl_diff = np.log(outright / spot) / ty if ty > 0 else 0.0
+                    impl_diff = np.log(outright / spot) / ty if (ty > 0 and outright > 0) else 0.0
                     curve[tenor] = {
                         "fwd_points": pts,
                         "outright": round(outright, 6),
@@ -1162,7 +1162,7 @@ def get_fx_term_structure(pair: str) -> pd.DataFrame:
         td = surface.get(tenor, {})
         rows.append({
             "tenor": tenor,
-            "days": _TENOR_DAYS[tenor],
+            "days": _TENOR_DAYS.get(tenor, 30),
             "atm": td.get("atm", 0),
             "rr25": td.get("rr25", 0),
             "bf25": td.get("bf25", 0),
