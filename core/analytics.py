@@ -66,8 +66,10 @@ def detect_vol_regime(prices: np.ndarray, short_window: int = 10,
     Returns regime classification and supporting metrics.
     """
     log_ret = np.diff(np.log(prices))
-    rv_short = pd.Series(log_ret).rolling(short_window).std().iloc[-1] * np.sqrt(252)
-    rv_long = pd.Series(log_ret).rolling(long_window).std().iloc[-1] * np.sqrt(252)
+    rv_short_s = pd.Series(log_ret).rolling(short_window).std().dropna()
+    rv_long_s = pd.Series(log_ret).rolling(long_window).std().dropna()
+    rv_short = float(rv_short_s.iloc[-1] * np.sqrt(252)) if len(rv_short_s) > 0 else 0.0
+    rv_long = float(rv_long_s.iloc[-1] * np.sqrt(252)) if len(rv_long_s) > 0 else 0.0
 
     ratio = rv_short / max(rv_long, 0.001)
     rv_all = pd.Series(log_ret).rolling(20).std() * np.sqrt(252)
@@ -96,8 +98,10 @@ def detect_vol_regime(prices: np.ndarray, short_window: int = 10,
         color = "#3b82f6"
 
     # Trend
-    rv_5d = pd.Series(log_ret).rolling(5).std().iloc[-1] * np.sqrt(252)
-    rv_20d = pd.Series(log_ret).rolling(20).std().iloc[-1] * np.sqrt(252)
+    rv_5d_s = pd.Series(log_ret).rolling(5).std().dropna()
+    rv_20d_s = pd.Series(log_ret).rolling(20).std().dropna()
+    rv_5d = float(rv_5d_s.iloc[-1] * np.sqrt(252)) if len(rv_5d_s) > 0 else rv_short
+    rv_20d = float(rv_20d_s.iloc[-1] * np.sqrt(252)) if len(rv_20d_s) > 0 else rv_short
     if rv_5d > rv_20d * 1.15:
         trend = "RISING"
     elif rv_5d < rv_20d * 0.85:
