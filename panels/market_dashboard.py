@@ -81,6 +81,16 @@ SORT_OPTIONS = [
 
 # ── Safe helpers ─────────────────────────────────────────────────────────────
 
+def _ordinal(n):
+    """Return an integer as an ordinal string: 1 -> '1st', 23 -> '23rd'."""
+    n = int(n)
+    if 11 <= n % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 def _sf(v, d=0.0):
     """Safe float."""
     try:
@@ -678,9 +688,9 @@ def _render_kpis(kpis):
         ("DXY PROXY",      str(kpis.get("dxy", "—")),          "#ff8800"),
         ("G10 AVG VOL",    f"{kpis.get('g10_vol', 0):.1f}v",   "#ff8800"),
         ("EM AVG VOL",     f"{kpis.get('em_vol', 0):.1f}v",    "#ff8800"),
-        ("G10 %ILE",       f"{g10_pctile:.0f}th",              _pct_color(g10_pctile)),
+        ("G10 %ILE",       _ordinal(g10_pctile),              _pct_color(g10_pctile)),
         ("BIGGEST MOVER",  kpis.get("biggest", "—"),            "#d4d4d4"),
-        ("IV-RV AGG",      f"{ivrv_agg:+.1f}",                 "#00cc66" if ivrv_agg > 0 else "#ff3333" if ivrv_agg < 0 else "#808080"),
+        ("IV-RV AGG",      f"{ivrv_agg:+.1f}v",                "#00cc66" if ivrv_agg > 0 else "#ff3333" if ivrv_agg < 0 else "#808080"),
         ("BOOK VEGA",      kpis.get("book_vega", "—"),          "#ff8800"),
         ("EVENTS 48H",     str(kpis.get("events_48h", 0)),      "#ff8800" if kpis.get("events_48h", 0) > 0 else "#808080"),
     ]
@@ -750,14 +760,11 @@ def _render_movers_table(rows, sort_key):
             html.Td(f"{r['chg_pct']:+.2f}%", style={**TABLE_CELL_STYLE, "color": chg_color}),
             html.Td(f"{r['atm_1m']:.1f}v", style=TABLE_CELL_STYLE),
             html.Td(f"{r.get('atm_3m', 0):.1f}v", style=TABLE_CELL_STYLE),
-            html.Td(f"{r['vol_chg']:+.2f}", style={**TABLE_CELL_STYLE, "color": vol_color}),
-            html.Td(f"{r['rr25']:+.1f}", style=TABLE_CELL_STYLE),
-            html.Td([
-                html.Span(f"{pctile:.0f}", style={"color": _pct_color(pctile)}),
-                html.Span("th", style={"fontSize": "8px", "color": _pct_color(pctile)}),
-            ], style=TABLE_CELL_STYLE),
-            html.Td(f"{term_spread:+.1f}", style={**TABLE_CELL_STYLE, "color": term_color}),
-            html.Td(f"{iv_rv:+.1f}", style={**TABLE_CELL_STYLE, "color": ivrv_color}),
+            html.Td(f"{r['vol_chg']:+.2f}v", style={**TABLE_CELL_STYLE, "color": vol_color}),
+            html.Td(f"{r['rr25']:+.1f}v", style=TABLE_CELL_STYLE),
+            html.Td(_ordinal(pctile), style={**TABLE_CELL_STYLE, "color": _pct_color(pctile)}),
+            html.Td(f"{term_spread:+.1f}v", style={**TABLE_CELL_STYLE, "color": term_color}),
+            html.Td(f"{iv_rv:+.1f}v", style={**TABLE_CELL_STYLE, "color": ivrv_color}),
             html.Td(f"{breakeven_pips:.0f}p", style={**TABLE_CELL_STYLE, "color": "#60a5fa"}),
         ]))
 

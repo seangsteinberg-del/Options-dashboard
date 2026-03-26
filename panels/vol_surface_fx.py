@@ -1023,7 +1023,7 @@ def chart_surface_change(pair, sd, spot, r_dom, r_for, **kw):
     deltas = diff_df.columns.tolist()
     z = diff_df.values
 
-    text_vals = [[f"{v:+.2f}" if v is not None and not np.isnan(v) else "" for v in row] for row in z]
+    text_vals = [[f"{v:+.2f}" if np.isfinite(v) else "" for v in row] for row in z]
 
     fig = go.Figure()
     fig.add_trace(go.Heatmap(
@@ -2605,7 +2605,7 @@ def register_callbacks(app):
                              f"Trend: {r.get('trend', 'N/A')}<br>"
                              f"ATM IV: {r.get('atm_iv', 0):.2f}<br>"
                              f"Z-Score: {z.get('zscore', 0):+.2f}<br>"
-                             f"Percentile: {z.get('percentile', 50):.0f}th")
+                             f"Percentile: {_ordinal(z.get('percentile', 50))}")
                 fig.add_annotation(text=stats_text, xref="x4", yref="y4",
                                    x=0.5, y=0.5, showarrow=False,
                                    font=dict(color="#d4d4d4", size=11),

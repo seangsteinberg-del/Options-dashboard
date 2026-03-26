@@ -332,13 +332,27 @@ def _build_corr_heatmap(window):
     corr = _safe_corr_matrix(window)
     if corr is None:
         return no_data_fig(msg="NO CORRELATION DATA")
+    n = len(MONITOR_PAIRS)
+    # Ensure corr matrix matches expected dimensions
+    corr = np.array(corr, dtype=float)
+    rows, cols = corr.shape if corr.ndim == 2 else (0, 0)
+    if rows < n or cols < n:
+        # Pad with NaN if matrix is smaller than expected
+        padded = np.full((n, n), np.nan)
+        padded[:min(rows, n), :min(cols, n)] = corr[:min(rows, n), :min(cols, n)]
+        corr = padded
+    else:
+        corr = corr[:n, :n]
     labels = [f"{p[:3]}/{p[3:]}" for p in MONITOR_PAIRS]
-    text = [[f"{corr[i][j]:.2f}" if corr[i][j] is not None and not np.isnan(corr[i][j]) else ""
-             for j in range(len(MONITOR_PAIRS))]
-            for i in range(len(MONITOR_PAIRS))]
+    text = [[f"{corr[i][j]:.2f}" if np.isfinite(corr[i][j]) else ""
+             for j in range(n)]
+            for i in range(n)]
 
+    # Convert NaN to None for Plotly compatibility
+    z_data = [[None if not np.isfinite(corr[i][j]) else corr[i][j]
+                for j in range(n)] for i in range(n)]
     fig = go.Figure(go.Heatmap(
-        z=corr, x=labels, y=labels, text=text,
+        z=z_data, x=labels, y=labels, text=text,
         texttemplate="%{text}", textfont=dict(size=7),
         colorscale="RdBu", zmin=-1, zmax=1,
         xgap=1, ygap=1,
@@ -401,16 +415,27 @@ def _build_breakdown_table(window_short=20, window_long=120):
         return html.Div("NO CORRELATION DATA",
                         style={"color": "#808080", "fontSize": "10px", "padding": "8px"})
     n = len(MONITOR_PAIRS)
+    # Ensure matrices match expected dimensions
+    corr_s = np.array(corr_s, dtype=float)
+    corr_l = np.array(corr_l, dtype=float)
+    for arr_name, arr in [("corr_s", corr_s), ("corr_l", corr_l)]:
+        if arr.ndim != 2 or arr.shape[0] < n or arr.shape[1] < n:
+            return html.Div("CORRELATION DATA DIMENSION MISMATCH",
+                            style={"color": "#808080", "fontSize": "10px", "padding": "8px"})
+    corr_s, corr_l = corr_s[:n, :n], corr_l[:n, :n]
     divergences = []
     for i in range(n):
         for j in range(i + 1, n):
-            gap = corr_s[i][j] - corr_l[i][j]
+            s_val, l_val = corr_s[i][j], corr_l[i][j]
+            if not (np.isfinite(s_val) and np.isfinite(l_val)):
+                continue
+            gap = s_val - l_val
             if abs(gap) > 0.3:
-                signal = "DIVERGING" if abs(corr_s[i][j]) < abs(corr_l[i][j]) else "CONVERGING"
+                signal = "DIVERGING" if abs(s_val) < abs(l_val) else "CONVERGING"
                 divergences.append({
                     "pair_a": MONITOR_PAIRS[i], "pair_b": MONITOR_PAIRS[j],
-                    "corr_20d": round(corr_s[i][j], 2), "corr_120d": round(corr_l[i][j], 2),
-                    "gap": round(gap, 2), "signal": signal,
+                    "corr_20d": round(float(s_val), 2), "corr_120d": round(float(l_val), 2),
+                    "gap": round(float(gap), 2), "signal": signal,
                 })
     divergences.sort(key=lambda d: abs(d["gap"]), reverse=True)
 
@@ -1203,12 +1228,12 @@ def register_callbacks(app):
                 sig_color = "#00cc66" if "SELL" in r.get("signal", "") else "#ff3333" if "BUY" in r.get("signal", "") else "#808080"
                 body.append(html.Tr([
                     html.Td(r["pair"], style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
-                    html.Td(f"{r['atm_1m']:.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
-                    html.Td(f"{r['atm_3m']:.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
-                    html.Td(f"{r['atm_1y']:.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
-                    html.Td(f"{r['term_spread']:+.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right",
+                    html.Td(f"{r['atm_1m']:.1f}v", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(f"{r['atm_3m']:.1f}v", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(f"{r['atm_1y']:.1f}v", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(f"{r['term_spread']:+.1f}v", style={**TABLE_CELL_STYLE, "textAlign": "right",
                              "color": "#ff3333" if r['term_spread'] > 0.5 else "#00cc66" if r['term_spread'] < -0.5 else "#d4d4d4"}),
-                    html.Td(f"{r['fwd_3x3']:.1f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(f"{r['fwd_3x3']:.1f}v", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
                     html.Td(f"{r['carry_day']:.3f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
                     html.Td(f"{r['carry_vol']:.1f}%", style={**TABLE_CELL_STYLE, "textAlign": "right",
                              "fontWeight": "700",

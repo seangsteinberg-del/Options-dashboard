@@ -219,6 +219,16 @@ STRUCTURE_VIEWS = {
 # Inline Garman-Kohlhagen Pricing
 # ============================================================================
 
+def _ordinal(n):
+    """Return an integer as an ordinal string: 1 -> '1st', 23 -> '23rd'."""
+    n = int(n)
+    if 11 <= n % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 def _norm_cdf(x):
     """Standard normal CDF using numpy/scipy-free erf approx for speed."""
     return 0.5 * (1.0 + _erf_approx(x / np.sqrt(2.0)))
@@ -716,14 +726,14 @@ def _build_suggestions(pair, tenor, vol_surface, spots, rates):
     # Generate suggestions based on signals
     if atm_pct < 25:
         suggestions.append({
-            "signal": f"ATM vol at {atm_pct:.0f}th %ile — CHEAP",
+            "signal": f"ATM vol at {_ordinal(atm_pct)} %ile — CHEAP",
             "structures": ["Straddle", "Strangle", "25D Strangle"],
             "rationale": "Buy vol when historically cheap",
             "color": COLORS["accent_green"],
         })
     elif atm_pct > 75:
         suggestions.append({
-            "signal": f"ATM vol at {atm_pct:.0f}th %ile — EXPENSIVE",
+            "signal": f"ATM vol at {_ordinal(atm_pct)} %ile — EXPENSIVE",
             "structures": ["Iron Condor", "Butterfly", "Iron Butterfly"],
             "rationale": "Sell vol when historically rich",
             "color": COLORS["accent_red"],
@@ -732,14 +742,14 @@ def _build_suggestions(pair, tenor, vol_surface, spots, rates):
     if rr_pct > 75:
         direction = "Puts expensive" if rr_val < 0 else "Calls expensive"
         suggestions.append({
-            "signal": f"25D RR at {rr_pct:.0f}th %ile — {direction}",
+            "signal": f"25D RR at {_ordinal(rr_pct)} %ile — {direction}",
             "structures": ["Risk Reversal", "Seagull", "Collar"],
             "rationale": "Sell expensive side of skew",
             "color": COLORS["accent_orange"],
         })
     elif rr_pct < 25:
         suggestions.append({
-            "signal": f"25D RR at {rr_pct:.0f}th %ile — Skew flat",
+            "signal": f"25D RR at {_ordinal(rr_pct)} %ile — Skew flat",
             "structures": ["Risk Reversal", "25D Risk Reversal"],
             "rationale": "Buy protection cheaply when skew is flat",
             "color": COLORS["accent_green"],
@@ -747,7 +757,7 @@ def _build_suggestions(pair, tenor, vol_surface, spots, rates):
 
     if bf_pct < 20:
         suggestions.append({
-            "signal": f"Wings (BF25) at {bf_pct:.0f}th %ile — CHEAP",
+            "signal": f"Wings (BF25) at {_ordinal(bf_pct)} %ile — CHEAP",
             "structures": ["Strangle", "10D Strangle", "Iron Butterfly"],
             "rationale": "Wings historically cheap — buy convexity",
             "color": COLORS["accent_green"],
@@ -755,14 +765,14 @@ def _build_suggestions(pair, tenor, vol_surface, spots, rates):
 
     if ivrv_pct > 80:
         suggestions.append({
-            "signal": f"IV-RV spread at {ivrv_pct:.0f}th %ile — IV RICH",
+            "signal": f"IV-RV spread at {_ordinal(ivrv_pct)} %ile — IV RICH",
             "structures": ["Iron Condor", "Butterfly", "Calendar Spread"],
             "rationale": "IV overpriced vs realised — sell premium",
             "color": COLORS["accent_orange"],
         })
     elif ivrv_pct < 20:
         suggestions.append({
-            "signal": f"IV-RV spread at {ivrv_pct:.0f}th %ile — IV CHEAP",
+            "signal": f"IV-RV spread at {_ordinal(ivrv_pct)} %ile — IV CHEAP",
             "structures": ["Straddle", "Strangle"],
             "rationale": "IV underpriced vs realised — buy premium",
             "color": COLORS["accent_green"],
@@ -1030,7 +1040,7 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
         action = "Buying" if lg["side_sign"] > 0 else "Selling"
         leg_rows.append(html.Div(
             f"L{lg['leg_num']} {action} {lg['cp'].upper()} Δ{lg['delta_input']:.0%} "
-            f"| vol {lg['vol']*100:.1f}% | {pct:.0f}th %ile ({cheap_label})",
+            f"| vol {lg['vol']*100:.1f}% | {_ordinal(pct)} %ile ({cheap_label})",
             style={"color": pct_color, "fontSize": "10px", **tpl_font, "marginBottom": "2px"},
         ))
 
@@ -2429,7 +2439,7 @@ def register_callbacks(app):
                         html.Td(f"{r['premium_pips']:.1f}", style=cell_s),
                         html.Td(f"{r['pop']:.0f}%", style=cell_s),
                         html.Td(f"{r['theta_day']:,.0f}", style=cell_s),
-                        html.Td(f"{r['vol_pctile']:.0f}th", style={**cell_s, "color": pct_color}),
+                        html.Td(_ordinal(r['vol_pctile']), style={**cell_s, "color": pct_color}),
                         html.Td(be_s, style=cell_s),
                     ]))
                 tenor_scan_div = html.Div([
@@ -2573,7 +2583,7 @@ def register_callbacks(app):
         })
 
         subtitle = html.Div(
-            f"Current premium sits at the {pct:.0f}th percentile of its "
+            f"Current premium sits at the {_ordinal(pct)} percentile of its "
             f"252-day range  ({pct_label})",
             style={
                 "color": pct_color,
@@ -2587,7 +2597,7 @@ def register_callbacks(app):
         stat_row = html.Div([
             clickable_stat(f"{current:.2f}", "CURRENT ATM VOL",
                            pair, "ATM", tenor, color=COLORS["accent_cyan"]),
-            clickable_stat(f"{pct:.0f}th", "PERCENTILE",
+            clickable_stat(_ordinal(pct), "PERCENTILE",
                            pair, "ATM", tenor, color=pct_color),
             clickable_stat(f"{vol_min:.2f}", "252D MIN",
                            pair, "ATM", tenor, color=COLORS["accent_green"]),

@@ -520,6 +520,16 @@ def _apply_norm(s, mode):
     return pd.Series(result, index=s.index if isinstance(s, pd.Series) else None, name=getattr(s, 'name', None))
 
 
+def _ordinal(n):
+    """Return an integer as an ordinal string: 1 -> '1st', 23 -> '23rd'."""
+    n = int(n)
+    if 11 <= n % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 def _empty(msg="No data"):
     fig = go.Figure()
     fig.update_layout(**chart_layout(
@@ -883,7 +893,7 @@ def _build_slot_stats(metric, pairs, tenor, timeframe):
                 if df is not None and not df.empty and "percentile_rank" in df.columns:
                     pct = df["percentile_rank"].iloc[-1]
                     c = "#ff3333" if pct > 75 else ("#00cc66" if pct < 25 else "#d4d4d4")
-                    return [_sv("RV %ile", f"{pct:.0f}th", c)]
+                    return [_sv("RV %ile", _ordinal(pct), c)]
             if metric == "STUDY_VOL_REGIME":
                 r = vol_regime_detect(pair) or {}
                 return [_sv("Regime", r.get("regime", "N/A"), r.get("color", "#d4d4d4")),
@@ -905,14 +915,14 @@ def _build_slot_stats(metric, pairs, tenor, timeframe):
             chg_c = "#00cc66" if chg_val < 0 else ("#ff3333" if chg_val > 0 else "#d4d4d4")
             z_c = "#ff3333" if abs(z_val) > 2 else ("#ff8800" if abs(z_val) > 1 else "#d4d4d4")
             return [_sv("Last", f"{info.get('current', 0):.2f}"), _sv("1D", f"{chg_val:+.2f}", chg_c),
-                    _sv("Z", f"{z_val:+.1f}", z_c), _sv("%ile", f"{info.get('percentile', 50):.0f}th"),
+                    _sv("Z", f"{z_val:+.1f}", z_c), _sv("%ile", _ordinal(info.get('percentile', 50))),
                     _sv("Range", f"{info.get('min', 0):.1f}-{info.get('max', 0):.1f}")]
         if metric == "IV_RV":
             ivr = iv_rv_percentile(pair, tenor, lookback=min(int(timeframe), 252)) or {}
             sig = ivr.get("signal", "NEUTRAL")
             c = "#ff3333" if sig == "IV_RICH" else ("#00cc66" if sig == "IV_CHEAP" else "#d4d4d4")
             return [_sv("Spread", f"{ivr.get('current_spread', 0):.2f}"), _sv("Signal", sig, c),
-                    _sv("%ile", f"{ivr.get('percentile', 50):.0f}th")]
+                    _sv("%ile", _ordinal(ivr.get('percentile', 50)))]
     except Exception:
         pass
     return []
@@ -1113,7 +1123,7 @@ def _build_deep_study(study_type, pairs, tenor):
             z = vol_zscore(pair, tenor, "ATM") or {}
             stats_text = (f"Regime: {r.get('regime', 'N/A')}<br>Trend: {r.get('trend', 'N/A')}<br>"
                          f"ATM IV: {r.get('atm_iv', 0):.2f}<br>Z-Score: {z.get('zscore', 0):+.2f}<br>"
-                         f"Percentile: {z.get('percentile', 50):.0f}th")
+                         f"Percentile: {_ordinal(z.get('percentile', 50))}")
             fig.add_annotation(text=stats_text, xref="x4", yref="y4", x=0.5, y=0.5,
                                showarrow=False, font=dict(color="#d4d4d4", size=11, family=_FONT),
                                align="left", row=2, col=2)
@@ -1381,7 +1391,7 @@ def register_callbacks(app):
                 p = vol_percentile(pair, tenor or "3M", "ATM") or {}
                 return [_sv("Regime", r.get("regime", "N/A"), r.get("color", "#d4d4d4")),
                         _sv("Z-Score", f"{z.get('zscore', 0):+.2f}"),
-                        _sv("Percentile", f"{p.get('percentile', 50):.0f}th")]
+                        _sv("Percentile", _ordinal(p.get('percentile', 50)))]
             if study_type == "smile_deep_dive":
                 sk = smile_skewness(pair, tenor or "3M") or {}
                 return [_sv("Skew", f"{sk.get('rr_25d', 0):.2f}"), _sv("Direction", sk.get("direction", "N/A"))]

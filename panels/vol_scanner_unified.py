@@ -283,8 +283,8 @@ def _build_top_movers(rows):
     items = [
         ("CHEAPEST VOL", f"{cheapest['pair']} {cheapest['atm3m_pct']:.0f}%ile", "#60a5fa"),
         ("RICHEST VOL", f"{richest['pair']} {richest['atm3m_pct']:.0f}%ile", "#ff3333"),
-        ("BIGGEST SKEW", f"{biggest_skew['pair']} {biggest_skew['rr25_3m']:+.1f}", "#ff8800"),
-        ("IV-RV GAP", f"{biggest_ivrv['pair']} {biggest_ivrv['ivrv_3m']:+.1f}", "#ff8800"),
+        ("BIGGEST SKEW", f"{biggest_skew['pair']} {biggest_skew['rr25_3m']:+.1f}v", "#ff8800"),
+        ("IV-RV GAP", f"{biggest_ivrv['pair']} {biggest_ivrv['ivrv_3m']:+.1f}v", "#ff8800"),
         ("SIGNALS", f"{n_signals}/{len(rows)}", "#00cc66" if n_signals > 0 else "#808080"),
         ("TERM INVERSION", f"{n_inverted}/{len(rows)}", "#ff3333" if n_inverted > 0 else "#808080"),
     ]
@@ -334,9 +334,10 @@ def _build_heatmap(metric, lookback):
 
         z = np.array(pct_matrix)
         custom = np.array(vol_matrix)
+        rows_n, cols_n = min(custom.shape[0], len(ALL_PAIRS)), min(custom.shape[1], len(HEATMAP_TENORS))
         text = [[f"{custom[i][j]:.1f}<br><sub>{z[i][j]:.0f}%</sub>"
-                 if (custom[i][j] is not None and not np.isnan(custom[i][j])
-                     and z[i][j] is not None and not np.isnan(z[i][j]))
+                 if (i < rows_n and j < cols_n
+                     and np.isfinite(custom[i][j]) and np.isfinite(z[i][j]))
                  else "—"
                  for j in range(len(HEATMAP_TENORS))] for i in range(len(ALL_PAIRS))]
 

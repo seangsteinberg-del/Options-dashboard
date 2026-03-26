@@ -213,6 +213,16 @@ server = app.server
 # FX Ticker Tape
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _ordinal(n):
+    """Return an integer as an ordinal string: 1 -> '1st', 23 -> '23rd'."""
+    n = int(n)
+    if 11 <= n % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 def _fx_spot_data():
     """Fetch real FX spot data from Bloomberg. Returns empty dict if unavailable."""
     try:
@@ -1076,6 +1086,10 @@ def handle_metric_popup(metric_clicks, close_clicks):
     if "metric-popup-close-btn" in trigger:
         return {"display": "none"}, "", [], go.Figure()
 
+    # Guard: only open if an actual click happened (not a tab-switch re-render)
+    if not any(c for c in (metric_clicks or []) if c and c > 0):
+        raise PreventUpdate
+
     # Parse the clicked metric ID
     try:
         id_str = trigger.rsplit(".", 1)[0]
@@ -1161,7 +1175,7 @@ def handle_metric_popup(metric_clicks, close_clicks):
             ]),
             html.Div([
                 html.Span("Pctl: ", style={"color": "#808080", "fontSize": "9px"}),
-                html.Span(f"{pct:.0f}th", style={
+                html.Span(_ordinal(pct), style={
                     "color": "#00cc66" if pct < 30 else "#ff3333" if pct > 70 else "#d4d4d4",
                     "fontSize": "11px", "fontWeight": "700",
                 }),

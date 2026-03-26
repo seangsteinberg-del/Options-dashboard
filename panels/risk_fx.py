@@ -112,6 +112,16 @@ BUTTON_SUCCESS_STYLE = {
 }
 
 
+def _ordinal(n):
+    """Return an integer as an ordinal string: 1 -> '1st', 23 -> '23rd'."""
+    n = int(n)
+    if 11 <= n % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 def _make_stat_style(color=None):
     style = {**STAT_BOX_STYLE}
     if color:
@@ -969,7 +979,7 @@ def register_callbacks(app):
         # --- Fetch analytics for the clicked cell ---
         try:
             pct_info = vol_percentile(pair, tenor, "ATM")
-            pct_val = f"{pct_info['percentile']:.0f}th"
+            pct_val = _ordinal(pct_info['percentile'])
             pct_color = (
                 COLORS["accent_red"] if pct_info["percentile"] > 80
                 else COLORS["accent_green"] if pct_info["percentile"] < 20
