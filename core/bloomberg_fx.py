@@ -48,13 +48,15 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════════════════
 
 _CACHE_ONLY_MODE = False
+_cache_only_lock = threading.Lock()
 _fetch_thread_local = threading.local()
 
 
 def set_cache_only_mode(enabled: bool):
     """Enable/disable cache-only mode for Dash callback threads."""
     global _CACHE_ONLY_MODE
-    _CACHE_ONLY_MODE = enabled
+    with _cache_only_lock:
+        _CACHE_ONLY_MODE = enabled
     logger.info("Cache-only mode %s", "ENABLED" if enabled else "DISABLED")
 
 
@@ -356,7 +358,7 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
             if result:  # only use cache hit if we actually found the requested pairs
                 return result
 
-    ck = "spots_" + ",".join(pairs)
+    ck = "spots_" + ",".join(sorted(pairs))
     cached, should_fetch = _cache_wait_or_claim(ck, "spot")
     if cached is not None:
         return cached
@@ -787,7 +789,7 @@ def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
     ck = f"histspot_{pair}_{fetch_days}"
     cached, should_fetch = _cache_wait_or_claim(ck, "historical")
     if cached is not None:
-        return cached.tail(days) if len(cached) > days else cached
+        return cached.copy().tail(days) if len(cached) > days else cached.copy()
     if not should_fetch:
         return pd.DataFrame()
     # Allow Dash threads to fetch on cache miss even in cache-only mode
@@ -806,7 +808,7 @@ def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
                 df = df.tail(fetch_days)
                 _cache_set(ck, df, "historical")
                 _cache_done(ck)
-                return df.tail(days)
+                return df.copy().tail(days)
             _log_fetch_failure("get_fx_historical_spot", pair, "BDH returned empty dataframe")
             _cache_done(ck)
             return pd.DataFrame()
@@ -829,7 +831,7 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
     ck = f"histvol_{pair}_{tenor}_{metric}_{fetch_days}"
     cached, should_fetch = _cache_wait_or_claim(ck, "historical")
     if cached is not None:
-        return cached.tail(days) if len(cached) > days else cached
+        return cached.copy().tail(days) if len(cached) > days else cached.copy()
     if not should_fetch:
         return pd.Series(dtype=float)
     # Allow Dash threads to fetch on cache miss even in cache-only mode —
@@ -868,7 +870,7 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
                     series.name = f"{pair}_{tenor}_{metric}"
                     _cache_set(ck, series, "historical")
                     _cache_done(ck)
-                    return series.tail(days)
+                    return series.copy().tail(days)
             _log_fetch_failure("get_fx_historical_vol", f"{pair}/{tenor}/{metric}", "BDH returned empty")
             _cache_done(ck)
             return pd.Series(dtype=float)

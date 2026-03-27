@@ -319,6 +319,9 @@ def vol_regime_detect(pair: str, short_window: int = 20,
         return None
 
     rv_vals = rv_hist.values if hasattr(rv_hist, 'values') else np.array(rv_hist, dtype=float)
+    rv_vals = rv_vals[np.isfinite(rv_vals)]
+    if len(rv_vals) < long_window:
+        return None
     rv_short = np.mean(rv_vals[-short_window:])
     rv_long = np.mean(rv_vals[-long_window:])
     ratio = rv_short / max(rv_long, 1e-6)
@@ -519,6 +522,10 @@ def iv_rv_percentile(pair: str, tenor: str = "3M", rv_window: int = 20,
     if df.empty:
         return {"percentile": 50.0, "current_spread": 0.0, "mean_spread": 0.0}
 
+    df = df.dropna(subset=["spread"])
+    if df.empty:
+        return {"percentile": 50.0, "current_spread": 0.0, "mean_spread": 0.0}
+
     current = df["spread"].iloc[-1]
     pct = percentileofscore(df["spread"].values, current)
 
@@ -530,8 +537,8 @@ def iv_rv_percentile(pair: str, tenor: str = "3M", rv_window: int = 20,
         "mean_spread": float(df["spread"].mean()),
         "std_spread": float(df["spread"].std()),
         "percentile": float(pct),
-        "current_iv": float(df["iv"].iloc[-1]),
-        "current_rv": float(df["rv"].iloc[-1]),
+        "current_iv": float(df["iv"].iloc[-1]) if len(df) > 0 else 0.0,
+        "current_rv": float(df["rv"].iloc[-1]) if len(df) > 0 else 0.0,
         "signal": "IV_RICH" if pct > 75 else ("IV_CHEAP" if pct < 25 else "FAIR"),
     }
 

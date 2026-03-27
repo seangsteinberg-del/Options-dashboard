@@ -560,14 +560,17 @@ def _study_vol_cone(pair, tenor, timeframe):
                                   ("p10", "rgba(255,136,0,0.15)", "10th")]:
             if col in df.columns:
                 fig.add_trace(go.Scatter(x=w, y=df[col].tolist(), mode="lines", name=name,
-                                         line=dict(color="#808080", width=1, dash="dot")))
+                                         line=dict(color="#808080", width=1, dash="dot"),
+                                         hovertemplate="%{x}d: %{y:.2f}%<extra>" + name + "</extra>"))
         if "median" in df.columns:
             fig.add_trace(go.Scatter(x=w, y=df["median"].tolist(), mode="lines", name="Median",
-                                     line=dict(color="#d4d4d4", width=1.5, dash="dash")))
+                                     line=dict(color="#d4d4d4", width=1.5, dash="dash"),
+                                     hovertemplate="%{x}d: %{y:.2f}%<extra>Median</extra>"))
         if "current_c2c" in df.columns:
             fig.add_trace(go.Scatter(x=w, y=df["current_c2c"].tolist(), mode="lines+markers",
                                      name="Current", line=dict(color="#ff8800", width=2.5),
-                                     marker=dict(size=6, color="#ff8800")))
+                                     marker=dict(size=6, color="#ff8800"),
+                                     hovertemplate="%{x}d: %{y:.2f}%<extra>Current</extra>"))
         fig.update_layout(**chart_layout(
             title=dict(text=f"{pair} Realized Vol Cone", font=dict(size=11, color="#ff8800", family=_FONT)),
             xaxis_title="Window (days)", yaxis_title="Realized Vol (%)",
@@ -703,10 +706,11 @@ def _study_tail_probs(pair, tenor, timeframe):
         df = tail_probabilities(pair, tenor)
         if df is None or df.empty: return _empty("No tail prob data")
         fig = go.Figure()
-        fig.add_trace(go.Bar(x=[f"+{m:.0f}%" for m in df["move_pct"]], y=df["prob_up"].tolist(),
+        move_labels = [f"+{m:.0f}%" if np.isfinite(m) else "?" for m in df["move_pct"]]
+        fig.add_trace(go.Bar(x=move_labels, y=df["prob_up"].tolist(),
                               name="Up", marker_color="#00cc66", opacity=0.85,
                               hovertemplate="Move: %{x}<br>Prob Up: %{y:.1f}%<extra></extra>"))
-        fig.add_trace(go.Bar(x=[f"+{m:.0f}%" for m in df["move_pct"]], y=df["prob_down"].tolist(),
+        fig.add_trace(go.Bar(x=move_labels, y=df["prob_down"].tolist(),
                               name="Down", marker_color="#ff3333", opacity=0.85,
                               hovertemplate="Move: %{x}<br>Prob Down: %{y:.1f}%<extra></extra>"))
         fig.update_layout(**chart_layout(
@@ -1120,26 +1124,31 @@ def _build_deep_study(study_type, pairs, tenor):
             rh = vol_regime_history(pair, 252)
             if rh is not None and not rh.empty:
                 fig.add_trace(go.Scatter(x=rh["day"].tolist(), y=rh["vol"].tolist(), mode="lines",
-                              name="ATM Vol", line=dict(color="#ff8800", width=2)), row=1, col=1)
+                              name="ATM Vol", line=dict(color="#ff8800", width=2),
+                              hovertemplate="Day %{x}: %{y:.2f}%<extra>ATM Vol</extra>"), row=1, col=1)
             # Panel 2: Vol cone
             vc = vol_cone(pair)
             if vc is not None and not vc.empty:
                 w = vc["window"].tolist()
                 if "median" in vc.columns:
                     fig.add_trace(go.Scatter(x=w, y=vc["median"].tolist(), mode="lines", name="Median",
-                                  line=dict(color="#808080", dash="dash")), row=1, col=2)
+                                  line=dict(color="#808080", dash="dash"),
+                                  hovertemplate="%{x}d: %{y:.2f}%<extra>Median</extra>"), row=1, col=2)
                 if "current_c2c" in vc.columns:
                     fig.add_trace(go.Scatter(x=w, y=vc["current_c2c"].tolist(), mode="lines+markers",
-                                  name="Current RV", line=dict(color="#ff8800", width=2)), row=1, col=2)
+                                  name="Current RV", line=dict(color="#ff8800", width=2),
+                                  hovertemplate="%{x}d: %{y:.2f}%<extra>Current RV</extra>"), row=1, col=2)
             # Panel 3: IV-RV spread
             ivr = iv_rv_spread(pair, tenor, lookback=252)
             if ivr is not None and not ivr.empty:
                 if "iv" in ivr.columns:
                     fig.add_trace(go.Scatter(x=list(range(len(ivr))), y=ivr["iv"].tolist(), mode="lines",
-                                  name="IV", line=dict(color="#ff8800")), row=2, col=1)
+                                  name="IV", line=dict(color="#ff8800"),
+                                  hovertemplate="Day %{x}: %{y:.2f}%<extra>IV</extra>"), row=2, col=1)
                 if "rv" in ivr.columns:
                     fig.add_trace(go.Scatter(x=list(range(len(ivr))), y=ivr["rv"].tolist(), mode="lines",
-                                  name="RV", line=dict(color="#d4d4d4", dash="dash")), row=2, col=1)
+                                  name="RV", line=dict(color="#d4d4d4", dash="dash"),
+                                  hovertemplate="Day %{x}: %{y:.2f}%<extra>RV</extra>"), row=2, col=1)
             # Panel 4: Stats as annotations
             r = vol_regime_detect(pair) or {}
             z = vol_zscore(pair, tenor, "ATM") or {}
@@ -1179,7 +1188,7 @@ def _build_deep_study(study_type, pairs, tenor):
             # Tail probs
             tp = tail_probabilities(pair, tenor)
             if tp is not None and not tp.empty:
-                fig.add_trace(go.Bar(x=[f"{m:.0f}%" for m in tp["move_pct"]], y=tp["prob_either"].tolist(),
+                fig.add_trace(go.Bar(x=[f"{m:.0f}%" if np.isfinite(m) else "?" for m in tp["move_pct"]], y=tp["prob_either"].tolist(),
                               name="Either", marker_color="#ff8800"), row=2, col=2)
 
         elif study_type == "rv_scanner":
@@ -1461,7 +1470,10 @@ def register_callbacks(app):
         if not ctx.triggered: raise PreventUpdate
         t = ctx.triggered[0]
         if not t["value"]: raise PreventUpdate
-        i = json.loads(t["prop_id"].split(".")[0])["index"]
+        try:
+            i = json.loads(t["prop_id"].split(".")[0])["index"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            raise PreventUpdate
         prs = pairs_l[i] if i < len(pairs_l) else []
         if isinstance(prs, str): prs = [prs]
         m = metrics[i] if i < len(metrics) else "ATM"
@@ -1506,7 +1518,10 @@ def register_callbacks(app):
         if not ctx.triggered: raise PreventUpdate
         t = ctx.triggered[0]
         if not t["value"]: raise PreventUpdate
-        i = json.loads(t["prop_id"].split(".")[0])["index"]
+        try:
+            i = json.loads(t["prop_id"].split(".")[0])["index"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            raise PreventUpdate
         p = list(pinned or [])
         if 0 <= i < len(p): p.pop(i)
         return p
@@ -1527,7 +1542,10 @@ def register_callbacks(app):
         if not ctx.triggered: raise PreventUpdate
         t = ctx.triggered[0]
         if not t["value"]: raise PreventUpdate
-        i = json.loads(t["prop_id"].split(".")[0])["index"]
+        try:
+            i = json.loads(t["prop_id"].split(".")[0])["index"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            raise PreventUpdate
         p = pinned or []
         if i < 0 or i >= len(p): raise PreventUpdate
         e = p[i]
@@ -1651,8 +1669,11 @@ def register_callbacks(app):
         # Pattern-matching buttons
         if "lab-csv-btn" in prop_id:
             import json as _json
-            info = _json.loads(prop_id.split(".")[0])
-            idx = info["index"]
+            try:
+                info = _json.loads(prop_id.split(".")[0])
+                idx = info["index"]
+            except (ValueError, KeyError, TypeError):
+                return no_update
             if idx < len(slot_figs) and slot_figs[idx]:
                 return export_csv(slot_figs[idx], "ChartLab", f"Slot{idx}")
             return no_update

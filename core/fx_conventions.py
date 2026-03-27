@@ -161,7 +161,9 @@ def pair_groups() -> Dict[str, List[str]]:
 
 def _gk_d1(S, K, T, r_d, r_f, sigma):
     """Garman-Kohlhagen d1."""
-    return (np.log(S / K) + (r_d - r_f + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+    sigma = max(sigma, 1e-10)
+    T = max(T, 1e-10)
+    return (np.log(max(S, 1e-10) / max(K, 1e-10)) + (r_d - r_f + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
 
 
 def _gk_d2(S, K, T, r_d, r_f, sigma):
@@ -535,6 +537,7 @@ def implied_pdf(surface, tenor, S, r_d, r_f, n_points=200, convention="spot"):
     """
     T = tenor_to_years(tenor) if isinstance(tenor, str) else tenor
     F = S * np.exp((r_d - r_f) * T)
+    n_points = max(n_points, 2)
     K_arr = np.linspace(F * 0.5, F * 1.5, n_points)
     dK = K_arr[1] - K_arr[0]
 
@@ -652,7 +655,7 @@ def implied_rate_from_fwd(S, F, T):
     Implied interest rate differential from spot and forward.
     r_d - r_f = ln(F/S) / T.
     """
-    if T <= 0:
+    if T <= 0 or S <= 0 or F <= 0:
         return 0.0
     return np.log(F / S) / T
 
@@ -677,8 +680,8 @@ def carry_roll_down(S, r_d, r_f, T, days):
         "carry": carry,
         "roll_down": roll_down,
         "total_pnl": total,
-        "carry_bps": carry / S * 10000,
-        "roll_bps": roll_down / S * 10000,
+        "carry_bps": carry / S * 10000 if S > 0 else 0.0,
+        "roll_bps": roll_down / S * 10000 if S > 0 else 0.0,
     }
 
 

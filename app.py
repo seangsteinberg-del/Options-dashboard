@@ -6,7 +6,7 @@ Institutional-grade FX options analytics platform.
 8 panels across 4 workspaces. Zero duplication.
 
 Run:  python app.py
-Open: http://localhost:8050
+Open: http://localhost:8765
 """
 
 # ── Auto-install dependencies ─────────────────────────────────────────────
@@ -67,7 +67,7 @@ from core.bloomberg import is_connected
 
 logger = logging.getLogger(__name__)
 
-# ── 9 Consolidated Panels ────────────────────────────────────────────────
+# ── 8 Consolidated Panels ────────────────────────────────────────────────
 from panels import market_dashboard          # DESK
 from panels import vol_surface_fx            # VOL (includes Chart Lab features)
 from panels import vol_scanner_unified       # VOL
@@ -1061,6 +1061,14 @@ def save_watchlist(n_clicks, pairs):
     if not pairs:
         raise PreventUpdate
     return pairs
+
+@app.callback(
+    Output("watchlist-editor-dropdown", "value"),
+    Input("watchlist-store", "data"),
+    prevent_initial_call=True,
+)
+def sync_watchlist_dropdown(pairs):
+    return pairs or DEFAULT_WATCHLIST
 
 
 # ---------------------------------------------------------------------------

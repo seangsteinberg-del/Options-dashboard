@@ -189,7 +189,7 @@ def volga(S, K, T, r, q, sigma):
 
 
 def charm(S, K, T, r, q, sigma, option_type="call"):
-    if T <= 0 or sigma <= 0:
+    if T <= 0 or sigma <= 1e-10:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     charm_val = -np.exp(-q * T) * (
@@ -203,7 +203,7 @@ def charm(S, K, T, r, q, sigma, option_type="call"):
 
 
 def speed(S, K, T, r, q, sigma):
-    if T <= 0:
+    if T <= 0 or sigma <= 1e-10 or S <= 0:
         return 0.0
     d1, _ = bs_d1_d2(S, K, T, r, q, sigma)
     g = gamma(S, K, T, r, q, sigma)
@@ -212,7 +212,7 @@ def speed(S, K, T, r, q, sigma):
 
 def color_greek(S, K, T, r, q, sigma):
     """Rate of change of gamma w.r.t. time."""
-    if T <= 0:
+    if T <= 0 or sigma <= 1e-10:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     g = gamma(S, K, T, r, q, sigma)
@@ -221,7 +221,7 @@ def color_greek(S, K, T, r, q, sigma):
 
 def ultima(S, K, T, r, q, sigma):
     """Third derivative of option price w.r.t. vol."""
-    if T <= 0:
+    if T <= 0 or sigma <= 1e-10:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     v = vega(S, K, T, r, q, sigma) * 100.0
@@ -305,7 +305,7 @@ def sabr_vol(F, K, T, alpha, beta, rho_sabr, nu):
     denom = 1 - 2 * rho_sabr * z + z ** 2
     if denom < 0:
         denom = 1e-12
-    x_z = np.log((np.sqrt(denom) + z - rho_sabr) / (1 - rho_sabr))
+    x_z = np.log((np.sqrt(denom) + z - rho_sabr) / max(1 - rho_sabr, 1e-12))
 
     if abs(x_z) < 1e-12:
         x_z = 1e-12
@@ -391,7 +391,7 @@ def expected_move(S, T, sigma, confidence=0.68):
 
 def probability_touch(S, K, T, r, q, sigma):
     """Probability that spot touches K at any point before expiry."""
-    if T <= 0 or sigma <= 0:
+    if T <= 0 or sigma <= 1e-10 or S <= 0 or K <= 0:
         return 0.0
     mu = r - q - 0.5 * sigma ** 2
     sigma_sqrt_T = sigma * np.sqrt(T)
@@ -445,7 +445,7 @@ def portfolio_var_cvar(positions, S, r, q, horizon_days=1,
     pnl = future_vals - current_val
     pnl_sorted = np.sort(pnl)
 
-    cutoff = max(1, int((1 - confidence) * n_sims))
+    cutoff = max(1, min(int((1 - confidence) * n_sims), len(pnl_sorted) - 1))
     var = -pnl_sorted[cutoff - 1]
     cvar = -np.mean(pnl_sorted[:cutoff])
 

@@ -123,7 +123,16 @@ def _pairs_for(group):
     return ALL_PAIRS
 
 
+def _sf_display(v, fmt=".2f", suffix="", prefix=""):
+    """Safe format: returns '—' for NaN/inf values."""
+    if v is None or not np.isfinite(v):
+        return "—"
+    return f"{prefix}{v:{fmt}}{suffix}"
+
+
 def _color_chg(v):
+    if not np.isfinite(v):
+        return COLORS["text_secondary"]
     if v > 0:
         return COLORS["accent_green"]
     if v < 0:
@@ -294,7 +303,8 @@ def _build_kpi_data(rows):
     # Biggest mover
     if rows:
         biggest = max(rows, key=lambda r: abs(r.get("chg_pct", 0)))
-        kpis["biggest"] = f"{biggest['pair']} {biggest['chg_pct']:+.2f}%"
+        chg = biggest.get('chg_pct', 0)
+        kpis["biggest"] = f"{biggest['pair']} {chg:+.2f}%" if np.isfinite(chg) else f"{biggest['pair']} —"
     else:
         kpis["biggest"] = "—"
 
@@ -844,18 +854,18 @@ def _render_movers_table(rows, sort_key):
                                        "color": "#d4d4d4", "cursor": "pointer"},
                     id={"type": f"{_P}-row-click", "index": r["pair"]}),
             html.Td(_fmt_spot(r['pair'], r['spot']), style=TABLE_CELL_STYLE),
-            html.Td(f"{r['chg_pct']:+.2f}%", style={**TABLE_CELL_STYLE, "color": chg_color}),
-            html.Td(f"{r['atm_1m']:.1f}v", style=TABLE_CELL_STYLE),
-            html.Td(f"{r.get('atm_3m', 0):.1f}v", style=TABLE_CELL_STYLE),
-            html.Td(f"{r['vol_chg']:+.2f}v", style={**TABLE_CELL_STYLE, "color": vol_color}),
-            html.Td(f"{r.get('vol_mom', 0):+.1f}%", style={**TABLE_CELL_STYLE,
-                     "color": COLORS["accent_red"] if r.get("vol_mom", 0) > 2 else
-                              COLORS["accent_green"] if r.get("vol_mom", 0) < -2 else "#808080"}),
-            html.Td(f"{r['rr25']:+.1f}v", style=TABLE_CELL_STYLE),
+            html.Td(_sf_display(r['chg_pct'], "+.2f", "%"), style={**TABLE_CELL_STYLE, "color": chg_color}),
+            html.Td(_sf_display(r['atm_1m'], ".1f", "v"), style=TABLE_CELL_STYLE),
+            html.Td(_sf_display(r.get('atm_3m', 0), ".1f", "v"), style=TABLE_CELL_STYLE),
+            html.Td(_sf_display(r['vol_chg'], "+.2f", "v"), style={**TABLE_CELL_STYLE, "color": vol_color}),
+            html.Td(_sf_display(r.get('vol_mom', 0), "+.1f", "%"), style={**TABLE_CELL_STYLE,
+                     "color": COLORS["accent_red"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) > 2 else
+                              COLORS["accent_green"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) < -2 else "#808080"}),
+            html.Td(_sf_display(r['rr25'], "+.1f", "v"), style=TABLE_CELL_STYLE),
             html.Td(_ordinal(pctile), style={**TABLE_CELL_STYLE, "color": _pct_color(pctile)}),
-            html.Td(f"{term_spread:+.1f}v", style={**TABLE_CELL_STYLE, "color": term_color}),
-            html.Td(f"{iv_rv:+.1f}v", style={**TABLE_CELL_STYLE, "color": ivrv_color}),
-            html.Td(f"{breakeven_pips:.0f}p", style={**TABLE_CELL_STYLE, "color": "#1565c0"}),
+            html.Td(_sf_display(term_spread, "+.1f", "v"), style={**TABLE_CELL_STYLE, "color": term_color}),
+            html.Td(_sf_display(iv_rv, "+.1f", "v"), style={**TABLE_CELL_STYLE, "color": ivrv_color}),
+            html.Td(_sf_display(breakeven_pips, ".0f", "p"), style={**TABLE_CELL_STYLE, "color": "#1565c0"}),
         ]))
 
     return html.Table([html.Thead(header), html.Tbody(body_rows)],

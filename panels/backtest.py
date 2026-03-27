@@ -306,7 +306,7 @@ def _compute_stats_from_trades(trades_list):
 
     if len(pnls) > 1:
         neg_pnls = pnls[pnls < 0]
-        downside_std = np.std(neg_pnls) if len(neg_pnls) > 1 else np.std(pnls)
+        downside_std = np.std(neg_pnls) if len(neg_pnls) > 1 else (np.std(pnls) if len(pnls) > 1 else 1e-6)
         tpy = 252.0 / max(avg_hold, 1)
         sortino = float((np.mean(pnls) / max(downside_std, 1e-6)) * np.sqrt(tpy))
     else:
@@ -647,7 +647,7 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
                 exit_idx = day_idx
                 exit_reason = f"SL {sl_pct*100:.0f}%"
                 break
-            if trailing_pct is not None and best_mtm > 0:
+            if trailing_pct is not None and best_mtm > 1e-10:
                 drawdown_from_peak = (best_mtm - mtm_pnl) / best_mtm
                 if drawdown_from_peak >= trailing_pct:
                     exit_idx = day_idx
@@ -699,7 +699,7 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
             "exit_value": round(exit_value * notional, 2),
             "pnl": round(trade_pnl, 2),
             "pnl_pct": round(trade_pnl / max(abs(entry_cost), 1.0) * 100, 2),
-            "spot_move_pct": round((S_exit - S_entry) / S_entry * 100, 2),
+            "spot_move_pct": round((S_exit - S_entry) / max(abs(S_entry), 1e-10) * 100, 2),
             "mae": round(worst_mtm, 0),
             "mfe": round(best_mtm, 0),
             "regime": regime,
@@ -1060,8 +1060,8 @@ def _build_regime_winrate(results):
     """Grouped bar chart of win rate by vol regime."""
     rs = results["regime_stats"]
     regimes = _REGIME_LABELS
-    win_rates = [rs[r]["win_rate"] for r in regimes]
-    counts = [rs[r]["n"] for r in regimes]
+    win_rates = [rs.get(r, {"win_rate": 0})["win_rate"] for r in regimes]
+    counts = [rs.get(r, {"n": 0})["n"] for r in regimes]
     bar_colors = [_REGIME_COLORS[r] for r in regimes]
 
     fig = go.Figure()

@@ -1223,7 +1223,7 @@ def _build_efficiency_table(processed_legs, agg, ev_data, preset_name, view_info
         "name": preset_name or "Current",
         "premium": current_prem,
         "max_loss": agg.get("max_loss", 0),
-        "be": agg["breakevens"][0] if agg.get("breakevens") else None,
+        "be": agg["breakevens"][0] if agg.get("breakevens") and len(agg["breakevens"]) > 0 else None,
         "vega_per_pip": _safe_vega_per_pip(current_vega, current_prem),
         "gamma_theta": abs(agg["net_gamma"] / max(abs(agg["net_theta"]), 1e-12)),
         "pop": agg.get("pop", 0),
@@ -1248,7 +1248,7 @@ def _build_efficiency_table(processed_legs, agg, ev_data, preset_name, view_info
                 "name": alt_name,
                 "premium": alt_prem,
                 "max_loss": alt_agg.get("max_loss", 0),
-                "be": alt_agg["breakevens"][0] if alt_agg.get("breakevens") else None,
+                "be": alt_agg["breakevens"][0] if alt_agg.get("breakevens") and len(alt_agg["breakevens"]) > 0 else None,
                 "vega_per_pip": _safe_vega_per_pip(alt_vega, alt_prem),
                 "gamma_theta": abs(alt_agg["net_gamma"] / max(abs(alt_agg["net_theta"]), 1e-12)),
                 "pop": alt_agg.get("pop", 0),
@@ -1344,7 +1344,7 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
                 html.Div("EV % OF PREMIUM", style=label_s),
             ], style={**make_stat_style(ev_data["edge_color"]), "flex": "1", "minWidth": "100px"}),
             html.Div([
-                html.Div(f"{ev_data['prob_profit']:.1f}%", style={**val_s, "color": COLORS["accent_cyan"]}),
+                html.Div(f"{ev_data['prob_profit']:.1f}%" if np.isfinite(ev_data.get('prob_profit', 0)) else "—", style={**val_s, "color": COLORS["accent_cyan"]}),
                 html.Div("PROB OF PROFIT (SMILE)", style=label_s),
             ], style={**make_stat_style(COLORS["accent_cyan"]), "flex": "1", "minWidth": "100px"}),
             html.Div([
@@ -1364,11 +1364,11 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
 
     efficiency_boxes = [
         html.Div([
-            html.Div(f"{cost_per_vega:.2f}p", style={**val_s, "color": COLORS["accent_blue"]}),
+            html.Div(f"{cost_per_vega:.2f}p" if np.isfinite(cost_per_vega) else "—", style={**val_s, "color": COLORS["accent_blue"]}),
             html.Div("COST / VEGA", style=label_s),
         ], style={**make_stat_style(COLORS["accent_blue"]), "flex": "1", "minWidth": "100px"}),
         html.Div([
-            html.Div(f"{theta_gamma:.1f}", style={**val_s, "color": COLORS["accent_orange"]}),
+            html.Div(f"{theta_gamma:.1f}" if np.isfinite(theta_gamma) else "—", style={**val_s, "color": COLORS["accent_orange"]}),
             html.Div("\u03b8/\u03b3 RATIO", style=label_s),
         ], style={**make_stat_style(COLORS["accent_orange"]), "flex": "1", "minWidth": "100px"}),
     ]
@@ -1697,7 +1697,9 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
 
     # Breakeven lines with distance from spot
     for be in agg["breakevens"]:
-        pct_from_spot = (be - S) / S * 100
+        if not np.isfinite(be):
+            continue
+        pct_from_spot = (be - S) / S * 100 if S > 0 else 0
         fig.add_vline(x=be, line=dict(color=COLORS["accent_orange"], width=1, dash="dashdot"),
                       annotation_text=f"BE {be:.4f} ({pct_from_spot:+.1f}%)",
                       annotation_font=dict(color=COLORS["accent_orange"], size=8))
@@ -1881,7 +1883,7 @@ def _build_pnl_heatmap(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
             thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
         ),
         hovertemplate="Spot: %{x}<br>Vol: %{y}<br>P&L: %{z:,.0f}<extra></extra>",
-        xgap=1, ygap=1,
+        xgap=2, ygap=2,
     ))
 
     # Current market crosshair
@@ -2971,7 +2973,7 @@ def register_callbacks(app):
                 logger.debug("Trade analysis failed for %s", pair)
 
             # ── Summary stat boxes (10: original 8 + implied move + EV) ──
-            be_str = " / ".join(f"{b:.5f}" for b in agg["breakevens"]) if agg["breakevens"] else "--"
+            be_str = " / ".join(f"{b:.5f}" for b in agg["breakevens"] if np.isfinite(b)) if agg["breakevens"] else "--"
             prem_color = COLORS["pnl_profit"] if agg["net_premium"] < 0 else COLORS["pnl_loss"]
             pop_color = COLORS["accent_green"] if agg["pop"] > 50 else COLORS["accent_red"]
 

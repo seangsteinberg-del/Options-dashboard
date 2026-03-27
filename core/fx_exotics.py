@@ -18,6 +18,8 @@ from typing import Dict, Optional, Callable
 
 def _gk_d1d2(S, K, T, r_d, r_f, sigma):
     """Garman-Kohlhagen d1, d2."""
+    sigma = max(sigma, 1e-10)
+    T = max(T, 1e-10)
     sqrt_T = sigma * np.sqrt(T)
     d1 = (np.log(S / K) + (r_d - r_f + 0.5 * sigma ** 2) * T) / sqrt_T
     d2 = d1 - sqrt_T
@@ -73,6 +75,7 @@ def _correlated_mc_paths(S1, S2, T, r_d1, r_d2, sigma1, sigma2, rho,
 
     Z1 = rng.standard_normal((half, n_steps))
     Z2_indep = rng.standard_normal((half, n_steps))
+    rho = np.clip(rho, -0.9999, 0.9999)
     Z2 = rho * Z1 + np.sqrt(1 - rho ** 2) * Z2_indep
 
     Z1 = np.vstack([Z1, -Z1])

@@ -389,17 +389,17 @@ def register_callbacks(app):
                 prem_unit = abs(_gk_price(S, K, T, r_d, r_f, sigma, cp))
                 prem_total = prem_unit * notional
                 sign_label = "PAY" if side == "buy" else "RCV"
-                premium_text = f"{sign_label} {prem_total:,.0f} ({prem_unit:.6f}/unit)"
+                premium_text = f"{sign_label} {prem_total:,.0f} ({prem_unit:.6f}/unit)" if np.isfinite(prem_total) else "Error: NaN premium"
             else:
                 K = float(strike_in or S)
                 if K <= 0:
                     K = S
                 actual_delta = _gk_delta(S, K, T, r_d, r_f, sigma, cp)
-                delta_text = f"Computed Delta: {actual_delta:.4f}"
+                delta_text = f"Computed Delta: {actual_delta:.4f}" if np.isfinite(actual_delta) else "Computed Delta: —"
                 prem_unit = abs(_gk_price(S, K, T, r_d, r_f, sigma, cp))
                 prem_total = prem_unit * notional
                 sign_label = "PAY" if side == "buy" else "RCV"
-                premium_text = f"{sign_label} {prem_total:,.0f} ({prem_unit:.6f}/unit)"
+                premium_text = f"{sign_label} {prem_total:,.0f} ({prem_unit:.6f}/unit)" if np.isfinite(prem_total) else "Error: NaN premium"
         except Exception:
             premium_text = "Error computing premium"
 
@@ -443,7 +443,10 @@ def register_callbacks(app):
         ctx = dash.callback_context
         triggered = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
 
-        trades = json.loads(store_data) if store_data else []
+        try:
+            trades = json.loads(store_data) if store_data else []
+        except (json.JSONDecodeError, TypeError):
+            trades = []
         new_store = no_update
         trade_executed = False
         exec_msg = ""
@@ -612,6 +615,7 @@ def register_callbacks(app):
             filter_action="native",
             page_size=12,
             page_action="native",
+            style_table={"overflowX": "auto"},
         )
 
         # ── Flow Analytics & Day Summary ────────────────────────
@@ -744,7 +748,7 @@ def register_callbacks(app):
             # ── Day Summary Stats ───────────────────────────────────
             today_str = datetime.now().strftime("%Y-%m-%d")
             today_trades = [t for t in trades
-                            if t["timestamp"][:10] == today_str]
+                            if t.get("timestamp", "")[:10] == today_str]
             if not today_trades:
                 today_trades = trades[:10]
 
@@ -785,16 +789,19 @@ def register_callbacks(app):
                 ], style={**make_stat_style(color), "flex": "1", "minWidth": "150px"},
                    className="stat-box")
 
-            prem_label = "Premium Paid" if net_premium < 0 else "Premium Received"
-            prem_color = COLORS["accent_red"] if net_premium < 0 else COLORS["accent_green"]
+            def _nf(v, fmt=",.0f"):
+                return f"{v:{fmt}}" if np.isfinite(v) else "—"
+
+            prem_label = "Premium Paid" if np.isfinite(net_premium) and net_premium < 0 else "Premium Received"
+            prem_color = COLORS["accent_red"] if np.isfinite(net_premium) and net_premium < 0 else COLORS["accent_green"]
 
             day_stats = [
                 _stat_box("Trades Today", f"{n_trades}", COLORS["accent_cyan"]),
-                _stat_box("Total Notional", f"{total_notional:,.0f}", COLORS["accent_blue"]),
-                _stat_box("Net Delta Added", f"{net_delta:,.0f}", COLORS["accent_purple"]),
-                _stat_box("Net Vega Added", f"{net_vega:,.0f}", COLORS["accent_orange"]),
-                _stat_box("Net Gamma", f"{net_gamma:+,.4f}", COLORS["accent_teal"]),
-                _stat_box(prem_label, f"{abs(net_premium):,.0f}", prem_color),
+                _stat_box("Total Notional", _nf(total_notional), COLORS["accent_blue"]),
+                _stat_box("Net Delta Added", _nf(net_delta), COLORS["accent_purple"]),
+                _stat_box("Net Vega Added", _nf(net_vega), COLORS["accent_orange"]),
+                _stat_box("Net Gamma", _nf(net_gamma, "+,.4f"), COLORS["accent_teal"]),
+                _stat_box(prem_label, _nf(abs(net_premium)) if np.isfinite(net_premium) else "—", prem_color),
             ]
 
         except Exception:

@@ -60,7 +60,7 @@ def gk_vega(S, K, T, r_d, r_f, sigma):
 
 def gk_vanna(S, K, T, r_d, r_f, sigma):
     """Garman-Kohlhagen vanna: d(delta)/d(sigma) = d(vega)/d(spot)."""
-    if T <= 0 or sigma <= 0:
+    if T <= 0 or sigma <= 1e-10:
         return 0.0
     d1, d2 = _gk_d1_d2(S, K, T, r_d, r_f, sigma)
     return -np.exp(-r_f * T) * norm.pdf(d1) * d2 / sigma
@@ -68,7 +68,7 @@ def gk_vanna(S, K, T, r_d, r_f, sigma):
 
 def gk_volga(S, K, T, r_d, r_f, sigma):
     """Garman-Kohlhagen volga: d(vega)/d(sigma) = vega * d1 * d2 / sigma."""
-    if T <= 0 or sigma <= 0:
+    if T <= 0 or sigma <= 1e-10:
         return 0.0
     d1, d2 = _gk_d1_d2(S, K, T, r_d, r_f, sigma)
     v = gk_vega(S, K, T, r_d, r_f, sigma)
@@ -220,6 +220,11 @@ def vv_smile(S, T, r_d, r_f, atm_vol, p25_vol, c25_vol, n_strikes=50):
     K_lo = _delta_to_strike(S, T, r_d, r_f, atm_vol, -0.10, -1)
     K_hi = _delta_to_strike(S, T, r_d, r_f, atm_vol, 0.10, 1)
 
+    if K_lo >= K_hi:
+        F = S * np.exp((r_d - r_f) * T)
+        K_lo = F * 0.85
+        K_hi = F * 1.15
+
     strikes = np.linspace(K_lo, K_hi, n_strikes)
     vols = np.array([vv_implied_vol(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol)
                      for K in strikes])
@@ -340,7 +345,7 @@ def sabr_vol(F, K, T, alpha, beta, rho, nu):
 
     z = (nu / alpha) * FK_beta2 * log_FK
     disc = np.sqrt(max(1.0 - 2.0 * rho * z + z ** 2, 1e-12))
-    x_z = np.log((disc + z - rho) / (1.0 - rho))
+    x_z = np.log((disc + z - rho) / max(1.0 - rho, 1e-12))
     if abs(x_z) < 1e-12:
         x_z = 1e-12
 

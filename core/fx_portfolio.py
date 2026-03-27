@@ -18,6 +18,7 @@ Designed for an interbank vol desk workflow:
 
 import json
 import os
+import threading
 import uuid
 from copy import deepcopy
 from datetime import datetime, timedelta, date
@@ -61,6 +62,7 @@ _PORTFOLIO: Dict = {
     "trade_history": [],
     "risk_limits": deepcopy(DEFAULT_RISK_LIMITS),
 }
+_portfolio_lock = threading.RLock()
 
 
 # ============================================================================
@@ -135,8 +137,8 @@ def _gk_greeks(S, K, T, r_d, r_f, sigma, cp):
     theta = theta_annual / 365.0  # per calendar day
     rho_d = cp * K * T * df_d * nd2 / 10000.0   # per 1bp
     rho_f = -cp * S * T * df_f * nd1 / 10000.0  # per 1bp
-    vanna = -df_f * npd1 * d2 / sigma
-    volga_raw = S * df_f * npd1 * sqrtT * d1 * d2 / sigma
+    vanna = -df_f * npd1 * d2 / sigma if sigma > 1e-10 else 0.0
+    volga_raw = S * df_f * npd1 * sqrtT * d1 * d2 / sigma if sigma > 1e-10 else 0.0
 
     return {
         "price": price, "delta": delta, "gamma": gamma, "vega": vega,
@@ -480,40 +482,42 @@ def add_position(book, position_dict):
     pos.setdefault("notes", "")
     pos["status"] = "open"
 
-    if book not in _PORTFOLIO["books"]:
-        _PORTFOLIO["books"][book] = []
-    _PORTFOLIO["books"][book].append(pos)
+    with _portfolio_lock:
+        if book not in _PORTFOLIO["books"]:
+            _PORTFOLIO["books"][book] = []
+        _PORTFOLIO["books"][book].append(pos)
 
-    _PORTFOLIO["trade_history"].append({
-        "id": str(uuid.uuid4()),
-        "timestamp": datetime.now().isoformat(),
-        "action": "OPEN",
-        "book": book,
-        "position_id": pos["id"],
-        "details": deepcopy(pos),
-    })
+        _PORTFOLIO["trade_history"].append({
+            "id": str(uuid.uuid4()),
+            "timestamp": datetime.now().isoformat(),
+            "action": "OPEN",
+            "book": book,
+            "position_id": pos["id"],
+            "details": deepcopy(pos),
+        })
     return pos["id"]
 
 
 def close_position(book, position_id, close_price=None, close_date=None):
     """Close a position. Updates status, records close details."""
     global _PORTFOLIO
-    positions = _PORTFOLIO["books"].get(book, [])
-    for pos in positions:
-        if pos["id"] == position_id and pos.get("status") == "open":
-            pos["status"] = "closed"
-            pos["close_price"] = close_price
-            pos["close_date"] = close_date or date.today().isoformat()
-            _PORTFOLIO["trade_history"].append({
-                "id": str(uuid.uuid4()),
-                "timestamp": datetime.now().isoformat(),
-                "action": "CLOSE",
-                "book": book,
-                "position_id": position_id,
-                "close_price": close_price,
-                "close_date": pos["close_date"],
-                "details": deepcopy(pos),
-            })
+    with _portfolio_lock:
+        positions = _PORTFOLIO["books"].get(book, [])
+        for pos in positions:
+            if pos["id"] == position_id and pos.get("status") == "open":
+                pos["status"] = "closed"
+                pos["close_price"] = close_price
+                pos["close_date"] = close_date or date.today().isoformat()
+                _PORTFOLIO["trade_history"].append({
+                    "id": str(uuid.uuid4()),
+                    "timestamp": datetime.now().isoformat(),
+                    "action": "CLOSE",
+                    "book": book,
+                    "position_id": position_id,
+                    "close_price": close_price,
+                    "close_date": pos["close_date"],
+                    "details": deepcopy(pos),
+                })
             return True
     return False
 
@@ -558,37 +562,39 @@ def partial_close(book, position_id, close_notional):
     Returns True on success.
     """
     global _PORTFOLIO
-    positions = _PORTFOLIO["books"].get(book, [])
-    for pos in positions:
-        if pos["id"] == position_id and pos.get("status") == "open":
-            if close_notional >= pos["notional"]:
-                return close_position(book, position_id)
-            remaining = pos["notional"] - close_notional
-            _PORTFOLIO["trade_history"].append({
-                "id": str(uuid.uuid4()),
-                "timestamp": datetime.now().isoformat(),
-                "action": "PARTIAL_CLOSE",
-                "book": book,
-                "position_id": position_id,
-                "closed_notional": close_notional,
-                "remaining_notional": remaining,
-            })
-            pos["notional"] = remaining
-            return True
+    with _portfolio_lock:
+        positions = _PORTFOLIO["books"].get(book, [])
+        for pos in positions:
+            if pos["id"] == position_id and pos.get("status") == "open":
+                if close_notional >= pos["notional"]:
+                    return close_position(book, position_id)
+                remaining = pos["notional"] - close_notional
+                _PORTFOLIO["trade_history"].append({
+                    "id": str(uuid.uuid4()),
+                    "timestamp": datetime.now().isoformat(),
+                    "action": "PARTIAL_CLOSE",
+                    "book": book,
+                    "position_id": position_id,
+                    "closed_notional": close_notional,
+                    "remaining_notional": remaining,
+                })
+                pos["notional"] = remaining
+                return True
     return False
 
 
 def get_positions(book=None, pair=None, status="open"):
     """Query positions with optional filters on book, pair, and status."""
     results = []
-    books_to_search = [book] if book else list(_PORTFOLIO["books"].keys())
-    for b in books_to_search:
-        for pos in _PORTFOLIO["books"].get(b, []):
-            if status and pos.get("status") != status:
-                continue
-            if pair and pos.get("pair") != pair:
-                continue
-            results.append(pos)
+    with _portfolio_lock:
+        books_to_search = [book] if book else list(_PORTFOLIO["books"].keys())
+        for b in books_to_search:
+            for pos in _PORTFOLIO["books"].get(b, []):
+                if status and pos.get("status") != status:
+                    continue
+                if pair and pos.get("pair") != pair:
+                    continue
+                results.append(deepcopy(pos))
     return results
 
 
@@ -994,9 +1000,9 @@ def hedge_suggestion(portfolio_risk, target="delta_neutral"):
     suggestions = []
     by_pair = portfolio_risk.get("by_pair", {})
 
-    # Scale thresholds by total portfolio notional
-    total_notional = sum(risk.get("notional", 0) for risk in by_pair.values())
-    scale = max(total_notional / 10_000_000, 1.0)  # baseline = 10M
+    # Scale thresholds by total portfolio vega (notional proxy)
+    total_vega = sum(abs(risk.get("vega", 0)) for risk in by_pair.values())
+    scale = max(total_vega / 50_000, 1.0)  # baseline = 50K vega
     delta_threshold = 10_000 * scale
     vega_threshold = 5_000 * scale
     gamma_threshold = 5_000 * scale

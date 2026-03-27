@@ -1511,10 +1511,11 @@ def _lab_study_tail_probs(pair, sd, spot, r_dom, r_for, **kw):
     if df is None or df.empty:
         return _empty_fig("No tail prob data")
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=[f"+{m:.0f}%" for m in df["move_pct"]],
+    move_labels = [f"+{m:.0f}%" if np.isfinite(m) else "?" for m in df["move_pct"]]
+    fig.add_trace(go.Bar(x=move_labels,
                   y=df["prob_up"].tolist(), name="Up",
                   marker_color="#00cc66", opacity=0.85))
-    fig.add_trace(go.Bar(x=[f"+{m:.0f}%" for m in df["move_pct"]],
+    fig.add_trace(go.Bar(x=move_labels,
                   y=df["prob_down"].tolist(), name="Down",
                   marker_color="#ff3333", opacity=0.85))
     _apply_chart_template(fig, f"{pair} {tenor} Tail Probabilities")
@@ -1537,7 +1538,7 @@ def _lab_study_breakeven(pair, sd, spot, r_dom, r_for, **kw):
     colors = ["#ff8800", "#d4d4d4",
               "#00cc66" if info.get("iv_rv_cushion", 0) > 0 else "#ff3333"]
     fig.add_trace(go.Bar(x=labels, y=vals, marker_color=colors,
-                  text=[f"{v:.2f}" for v in vals], textposition="outside",
+                  text=[f"{v:.2f}" if np.isfinite(v) else "—" for v in vals], textposition="outside",
                   textfont=dict(color="#d4d4d4", size=11)))
     _apply_chart_template(fig, f"{pair} {tenor} Breakeven Analysis")
     fig.update_layout(yaxis_title="Vol (%)")
@@ -1557,7 +1558,7 @@ def _lab_study_carry_landscape(pair, sd, spot, r_dom, r_for, **kw):
     fig = go.Figure()
     fig.add_trace(go.Bar(x=df["pair"].tolist(), y=df["sharpe_proxy"].tolist(),
                   marker_color=colors,
-                  text=[f"{v:.2f}" for v in df["sharpe_proxy"]],
+                  text=[f"{v:.2f}" if np.isfinite(v) else "—" for v in df["sharpe_proxy"]],
                   textposition="outside",
                   textfont=dict(color="#d4d4d4", size=10)))
     _apply_chart_template(fig, "Carry / Vol Ranking (Sharpe Proxy)")
@@ -2686,7 +2687,7 @@ def register_callbacks(app):
                 tp = tail_probabilities(pair, tenor)
                 if tp is not None and not tp.empty:
                     fig.add_trace(go.Bar(
-                        x=[f"{m:.0f}%" for m in tp["move_pct"]],
+                        x=[f"{m:.0f}%" if np.isfinite(m) else "?" for m in tp["move_pct"]],
                         y=tp["prob_either"].tolist(), name="Either",
                         marker_color="#ff8800"), row=2, col=2)
 
@@ -2954,7 +2955,7 @@ def register_callbacks(app):
                     fig.add_trace(go.Bar(
                         x=df["pair"].tolist(), y=df["sharpe_proxy"].tolist(),
                         marker_color=colors,
-                        text=[f"{v:.2f}" for v in df["sharpe_proxy"]],
+                        text=[f"{v:.2f}" if np.isfinite(v) else "—" for v in df["sharpe_proxy"]],
                         textposition="outside",
                         textfont=dict(color="#d4d4d4", size=10)))
                 _apply_chart_template(fig, "Carry / Vol Ranking")

@@ -151,6 +151,8 @@ def _fmt_usd(val):
 
 
 def _pnl_color(val):
+    if not np.isfinite(val):
+        return COLORS["text_muted"]
     if val > 0:
         return COLORS["pnl_profit"]
     if val < 0:
@@ -865,7 +867,7 @@ def register_callbacks(app):
                     ]),
                     html.Div(className="risk-report-metric", children=[
                         html.Span("Delta Util %", className="label"),
-                        html.Span(f"{abs(totals.get('delta', 0)) / max(custom_limits.get('max_total_delta', 1), 1) * 100:.0f}%",
+                        html.Span(f"{min(abs(totals.get('delta', 0)) / max(custom_limits.get('max_total_delta', 1), 1) * 100, 999):.0f}%",
                                   className="value"),
                     ]),
                 ]),
@@ -1073,7 +1075,7 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def vega_heatmap_click(click_data):
-        if not click_data or "points" not in click_data:
+        if not click_data or not click_data.get("points"):
             return no_update, no_update, no_update
 
         pt = click_data["points"][0]
@@ -1512,20 +1514,23 @@ def register_callbacks(app):
                         "P&L Impact": f"${p.get('pnl_impact', 0):+,.0f}",
                     })
 
-                pos_table = dash_table.DataTable(
-                    columns=[{"name": c, "id": c} for c in table_data[0].keys()],
-                    data=table_data,
-                    style_header=TABLE_HEADER_STYLE,
-                    style_cell=TABLE_CELL_STYLE,
-                    style_data_conditional=[
-                        {
-                            "if": {"filter_query": '{P&L Impact} contains "-"'},
-                            "color": COLORS["accent_red"],
-                        },
-                    ],
-                    page_size=10,
-                    style_table={"overflowX": "auto"},
-                )
+                if not table_data:
+                    pos_table = html.Div("No position data.", style={"color": COLORS["text_muted"]})
+                else:
+                    pos_table = dash_table.DataTable(
+                        columns=[{"name": c, "id": c} for c in table_data[0].keys()],
+                        data=table_data,
+                        style_header=TABLE_HEADER_STYLE,
+                        style_cell=TABLE_CELL_STYLE,
+                        style_data_conditional=[
+                            {
+                                "if": {"filter_query": '{P&L Impact} contains "-"'},
+                                "color": COLORS["accent_red"],
+                            },
+                        ],
+                        page_size=10,
+                        style_table={"overflowX": "auto"},
+                    )
             else:
                 pos_table = html.Div("No position data.", style={"color": COLORS["text_muted"]})
 
@@ -1651,7 +1656,7 @@ def register_callbacks(app):
 
             pnl_pair_fig = go.Figure()
             for comp_name, comp_color in zip(component_names, component_colors):
-                vals = [pair_components.get(p, {}).get(comp_name, 0) for p in sorted_pairs]
+                vals = [pair_components.get(p, {}).get(comp_name, 0) or 0 for p in sorted_pairs]
                 pnl_pair_fig.add_trace(go.Bar(
                     name=comp_name,
                     y=sorted_pairs,
@@ -1889,6 +1894,9 @@ def register_callbacks(app):
                     "Rationale": s.get("rationale", ""),
                 })
                 action_lines.append(action_desc)
+
+            if not table_data:
+                return html.Div("No hedge suggestions available.", style={"color": COLORS["text_muted"]})
 
             hedge_table = dash_table.DataTable(
                 columns=[{"name": c, "id": c} for c in table_data[0].keys()],

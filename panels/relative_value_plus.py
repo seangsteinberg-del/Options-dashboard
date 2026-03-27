@@ -270,7 +270,7 @@ def _build_skew_scatter(pair_a, pair_b, tenor, lookback):
             x_line = np.linspace(a.min(), a.max(), 50)
             fig.add_trace(go.Scatter(x=x_line, y=slope * x_line + intercept, mode="lines",
                                      line=dict(color="#ffffff", width=1, dash="dash"),
-                                     name=f"R²={r**2:.2f}"))
+                                     name=f"R²={r**2:.2f}" if np.isfinite(r) else "R²=—"))
 
         fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=30),
@@ -663,7 +663,7 @@ def _build_risk_sentiment():
         items = [html.Div([
             html.Div(label, style={"fontSize": "16px", "fontWeight": "700",
                                    "color": color, "fontFamily": _MONO}),
-            html.Div(f"COMPOSITE: {composite:.0f}", style={
+            html.Div(f"COMPOSITE: {composite:.0f}" if np.isfinite(composite) else "COMPOSITE: —", style={
                 "fontSize": "9px", "color": "#808080", "fontFamily": _MONO}),
         ], style={**STAT_BOX_STYLE, "borderTop": f"2px solid {color}"})]
 
@@ -1197,7 +1197,7 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def corr_heatmap_click(click_data):
-        if not click_data or "points" not in click_data:
+        if not click_data or not click_data.get("points"):
             raise PreventUpdate
         pt = click_data["points"][0]
         x_label = pt.get("x", "")
@@ -1270,18 +1270,22 @@ def register_callbacks(app):
             body = []
             for r in rows:
                 sig_color = "#00cc66" if "SELL" in r.get("signal", "") else "#ff3333" if "BUY" in r.get("signal", "") else "#808080"
+                def _rv_fmt(v, fmt=".1f", suffix=""):
+                    return f"{v:{fmt}}{suffix}" if np.isfinite(v) else "—"
+                ts = r['term_spread']
+                cv = r['carry_vol']
+                ts_color = "#ff3333" if np.isfinite(ts) and ts > 0.5 else "#00cc66" if np.isfinite(ts) and ts < -0.5 else "#d4d4d4"
+                cv_color = "#00cc66" if np.isfinite(cv) and cv > 2 else "#ff3333" if np.isfinite(cv) and cv < -1 else "#d4d4d4"
                 body.append(html.Tr([
                     html.Td(r["pair"], style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
-                    html.Td(f"{r['atm_1m']:.1f}v", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
-                    html.Td(f"{r['atm_3m']:.1f}v", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
-                    html.Td(f"{r['atm_1y']:.1f}v", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
-                    html.Td(f"{r['term_spread']:+.1f}v", style={**TABLE_CELL_STYLE, "textAlign": "right",
-                             "color": "#ff3333" if r['term_spread'] > 0.5 else "#00cc66" if r['term_spread'] < -0.5 else "#d4d4d4"}),
-                    html.Td(f"{r['fwd_3x3']:.1f}v", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
-                    html.Td(f"{r['carry_day']:.3f}", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
-                    html.Td(f"{r['carry_vol']:.1f}%", style={**TABLE_CELL_STYLE, "textAlign": "right",
-                             "fontWeight": "700",
-                             "color": "#00cc66" if r['carry_vol'] > 2 else "#ff3333" if r['carry_vol'] < -1 else "#d4d4d4"}),
+                    html.Td(_rv_fmt(r['atm_1m'], ".1f", "v"), style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(_rv_fmt(r['atm_3m'], ".1f", "v"), style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(_rv_fmt(r['atm_1y'], ".1f", "v"), style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(_rv_fmt(ts, "+.1f", "v"), style={**TABLE_CELL_STYLE, "textAlign": "right", "color": ts_color}),
+                    html.Td(_rv_fmt(r['fwd_3x3'], ".1f", "v"), style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(_rv_fmt(r['carry_day'], ".3f"), style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                    html.Td(_rv_fmt(cv, ".1f", "%"), style={**TABLE_CELL_STYLE, "textAlign": "right",
+                             "fontWeight": "700", "color": cv_color}),
                     html.Td(r["signal"], style={**TABLE_CELL_STYLE, "color": sig_color, "fontWeight": "600"}),
                 ]))
 

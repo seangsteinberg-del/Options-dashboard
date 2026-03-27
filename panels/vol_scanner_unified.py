@@ -242,7 +242,7 @@ def _build_scanner_rows(pairs, lookback):
             try:
                 ivrv_info = iv_rv_spread(pair, "3M", lookback=lookback)
                 if hasattr(ivrv_info, 'iloc') and len(ivrv_info) > 0:
-                    ivrv_3m = _sf(ivrv_info["spread"].iloc[-1] if "spread" in ivrv_info.columns else 0)
+                    ivrv_3m = _sf(ivrv_info["spread"].iloc[-1] if "spread" in ivrv_info.columns and len(ivrv_info) > 0 else 0)
                 else:
                     ivrv_3m = 0
             except Exception as exc:
@@ -1306,7 +1306,7 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def heatmap_click(click_data):
-        if not click_data or "points" not in click_data:
+        if not click_data or not click_data.get("points"):
             raise PreventUpdate
         pt = click_data["points"][0]
         pair = pt.get("y", "EURUSD")
@@ -1373,7 +1373,7 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def skew_surface_click(click_data):
-        if not click_data or "points" not in click_data:
+        if not click_data or not click_data.get("points"):
             raise PreventUpdate
         pair = click_data["points"][0].get("y", "")
         if pair in ALL_PAIRS:

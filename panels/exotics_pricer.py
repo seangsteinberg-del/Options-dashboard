@@ -751,9 +751,9 @@ def register_callbacks(app):
                          sigma=sigma, cp=cp, moneyness=fwd_money_val))
                 K_equiv = fwd_money_val * S
                 vanilla_px = _gk_price(S, K_equiv, T_end - T_start, rd, rf, sigma, cp)
-                probs["T Start"] = f"{T_start:.3f}y"
-                probs["T End"] = f"{T_end:.3f}y"
-                probs["Equiv Strike"] = f"{K_equiv:.5f}"
+                probs["T Start"] = _fmt(T_start, '.3f') + "y"
+                probs["T End"] = _fmt(T_end, '.3f') + "y"
+                probs["Equiv Strike"] = _fmt(K_equiv, '.5f')
                 extra_levels = {"strike": K_equiv}
 
             elif product == "best_of":
@@ -788,9 +788,9 @@ def register_callbacks(app):
                 price_result = result
                 greeks_dict = {"price": price_val}  # complex multi-asset greeks
                 vanilla_px = _gk_price(S, S * (1 + K_perf), T, rd, rf, sigma, cp)
-                probs["Avg Perf 1"] = f"{result.get('avg_perf1', 0)*100:.2f}%"
-                probs["Avg Perf 2"] = f"{result.get('avg_perf2', 0)*100:.2f}%"
-                probs["Correlation"] = f"{rho:.2f}"
+                probs["Avg Perf 1"] = _fmt(result.get('avg_perf1', 0) * 100, '.2f') + "%"
+                probs["Avg Perf 2"] = _fmt(result.get('avg_perf2', 0) * 100, '.2f') + "%"
+                probs["Correlation"] = _fmt(rho, '.2f')
 
             elif product == "tarf":
                 result = tarf_price(S, K, t_barrier, T, rd, rf, sigma,
@@ -834,18 +834,22 @@ def register_callbacks(app):
         price_pips = price_val / pip_size if pip_size > 0 else 0.0
         price_pct = (price_val / S * 100) if S > 0 else 0.0
 
+        def _fmt(v, fmt_str):
+            return f"{v:{fmt_str}}" if np.isfinite(v) else "—"
+
         se_str = ""
         if price_result and isinstance(price_result, dict) and "std_error" in price_result:
-            se_str = f"  (SE: {price_result['std_error']:.6f})"
+            se_val = price_result['std_error']
+            se_str = f"  (SE: {_fmt(se_val, '.6f')})"
 
         price_children = html.Div([
             html.Div(style={"display": "flex", "gap": "10px", "flexWrap": "wrap"}, children=[
-                _stat_box(f"PRICE ({quote_ccy})", f"{price_val:.6f}{se_str}",
+                _stat_box(f"PRICE ({quote_ccy})", f"{_fmt(price_val, '.6f')}{se_str}",
                           COLORS["accent_cyan"]),
-                _stat_box(f"TOTAL ({quote_ccy})", f"{price_ccy2:,.2f}",
+                _stat_box(f"TOTAL ({quote_ccy})", _fmt(price_ccy2, ',.2f'),
                           COLORS["accent_blue"]),
-                _stat_box("PIPS", f"{price_pips:.2f}", COLORS["accent_purple"]),
-                _stat_box("% NOTIONAL", f"{price_pct:.4f}%", COLORS["accent_teal"]),
+                _stat_box("PIPS", _fmt(price_pips, '.2f'), COLORS["accent_purple"]),
+                _stat_box("% NOTIONAL", f"{_fmt(price_pct, '.4f')}%", COLORS["accent_teal"]),
             ]),
         ])
 
@@ -857,10 +861,10 @@ def register_callbacks(app):
 
         greeks_children = html.Div([
             html.Div(style={"display": "flex", "gap": "10px", "flexWrap": "wrap"}, children=[
-                _stat_box("DELTA", f"{g_delta:.6f}", COLORS["accent_cyan"]),
-                _stat_box("GAMMA", f"{g_gamma:.6f}", COLORS["accent_blue"]),
-                _stat_box("VEGA (1%)", f"{g_vega:.6f}", COLORS["accent_purple"]),
-                _stat_box("THETA (/day)", f"{g_theta:.6f}", COLORS["accent_orange"]),
+                _stat_box("DELTA", _fmt(g_delta, '.6f'), COLORS["accent_cyan"]),
+                _stat_box("GAMMA", _fmt(g_gamma, '.6f'), COLORS["accent_blue"]),
+                _stat_box("VEGA (1%)", _fmt(g_vega, '.6f'), COLORS["accent_purple"]),
+                _stat_box("THETA (/day)", _fmt(g_theta, '.6f'), COLORS["accent_orange"]),
             ]),
         ])
 
@@ -868,7 +872,9 @@ def register_callbacks(app):
         prob_items = []
         for k, v in probs.items():
             if isinstance(v, float):
-                if v < 1.5:  # likely a probability
+                if not np.isfinite(v):
+                    display_val = "—"
+                elif v < 1.5:  # likely a probability
                     display_val = f"{v*100:.2f}%"
                 else:
                     display_val = f"{v:.4f}"
@@ -889,13 +895,13 @@ def register_callbacks(app):
             discount = (1 - price_val / vanilla_px) * 100 if vanilla_px != 0 else 0
             vanilla_children = html.Div([
                 html.Div(style={"display": "flex", "gap": "10px", "flexWrap": "wrap"}, children=[
-                    _stat_box("VANILLA PRICE", f"{vanilla_px:.6f}", COLORS["text_secondary"]),
+                    _stat_box("VANILLA PRICE", _fmt(vanilla_px, '.6f'), COLORS["text_secondary"]),
                     _stat_box("EXOTIC / VANILLA",
-                              f"{exotic_prem:.1f}%",
-                              COLORS["accent_green"] if exotic_prem < 100 else COLORS["accent_red"]),
+                              _fmt(exotic_prem, '.1f') + "%",
+                              COLORS["accent_green"] if np.isfinite(exotic_prem) and exotic_prem < 100 else COLORS["accent_red"]),
                     _stat_box("DISCOUNT",
-                              f"{discount:.1f}%",
-                              COLORS["accent_green"] if discount > 0 else COLORS["accent_red"]),
+                              _fmt(discount, '.1f') + "%",
+                              COLORS["accent_green"] if np.isfinite(discount) and discount > 0 else COLORS["accent_red"]),
                 ]),
             ])
         else:
@@ -1011,8 +1017,9 @@ def _build_payoff_chart(product, S, T, rd, rf, sigma, cp, K,
         fig.add_vrect(x0=r_low, x1=r_high, fillcolor="rgba(255,136,0,0.08)", line_width=0)
 
     elif product == "tarf":
-        gain = np.maximum(spot_range / K - 1, 0.0)
-        loss = -t_lev * np.maximum(1 - spot_range / K, 0.0)
+        K_safe = max(K, 1e-10)
+        gain = np.maximum(spot_range / K_safe - 1, 0.0)
+        loss = -t_lev * np.maximum(1 - spot_range / K_safe, 0.0)
         payoff = np.where(spot_range > K, gain, loss)
         fig.add_trace(go.Scatter(
             x=spot_range, y=payoff, mode="lines",

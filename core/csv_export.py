@@ -34,7 +34,7 @@ def figure_to_dataframe(fig_dict):
         z = t.get("z") or []
         if not z or not isinstance(z, (list, np.ndarray)) or len(z) == 0:
             return pd.DataFrame()
-        first_row = z[0] if isinstance(z[0], (list, np.ndarray)) else []
+        first_row = z[0] if len(z) > 0 and isinstance(z[0], (list, np.ndarray)) else []
         x = t.get("x", list(range(len(first_row))))
         y = t.get("y", list(range(len(z))))
         return pd.DataFrame(z, index=y, columns=x)
