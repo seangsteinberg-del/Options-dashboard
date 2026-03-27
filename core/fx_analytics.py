@@ -133,16 +133,33 @@ def vol_percentile(pair: str, tenor: str, metric: str = "ATM",
     current = hist.iloc[-1] if hasattr(hist, 'iloc') else hist[-1]
     pct = percentileofscore(hist, current)
 
+    mu = float(np.mean(hist))
+    sigma = float(np.std(hist))
+
+    # Derive signal from percentile
+    if pct < 15:
+        signal = "BUY_VOL"
+    elif pct < 30:
+        signal = "LEAN_BUY"
+    elif pct > 85:
+        signal = "SELL_VOL"
+    elif pct > 70:
+        signal = "LEAN_SELL"
+    else:
+        signal = "NEUTRAL"
+
     return {
         "pair": pair,
         "tenor": tenor,
         "metric": metric,
         "current": float(current),
-        "mean": float(np.mean(hist)),
-        "std": float(np.std(hist)),
+        "mean": mu,
+        "std": sigma,
         "min": float(np.min(hist)),
         "max": float(np.max(hist)),
         "percentile": float(pct),
+        "rank": signal,
+        "pct_to_max": float(100 - pct),
         "lookback_days": lookback_days,
     }
 

@@ -214,18 +214,28 @@ def _build_movers(pairs):
             except Exception:
                 iv_rv = 0.0
 
+            # 5-day vol momentum: current ATM vs 5d average
+            vol_mom = 0.0
+            try:
+                from core.fx_analytics import vol_change as _vc
+                vc5 = _vc(pair, "3M", "ATM", 5)
+                if isinstance(vc5, dict) and vc5.get("previous", 0) > 0:
+                    vol_mom = (atm_3m / vc5["previous"] - 1) * 100
+            except Exception:
+                pass
+
             rows.append({
                 "pair": pair, "spot": spot, "chg_pct": chg,
                 "atm_1m": atm_1m, "vol_chg": vol_chg, "rr25": rr25,
                 "atm_3m": atm_3m, "pctile": pctile,
                 "term_spread": term_spread, "breakeven_pips": breakeven_pips,
-                "iv_rv": iv_rv,
+                "iv_rv": iv_rv, "vol_mom": vol_mom,
             })
         except Exception:
             rows.append({"pair": pair, "spot": 0, "chg_pct": 0,
                          "atm_1m": 0, "vol_chg": 0, "rr25": 0,
                          "atm_3m": 0, "pctile": 50, "term_spread": 0,
-                         "breakeven_pips": 0, "iv_rv": 0})
+                         "breakeven_pips": 0, "iv_rv": 0, "vol_mom": 0})
     return rows
 
 
@@ -800,7 +810,7 @@ def _render_movers_table(rows, sort_key):
 
     header = html.Tr([
         html.Th(h, style=TABLE_HEADER_STYLE)
-        for h in ["PAIR", "SPOT", "\u0394%", "ATM 1M", "ATM 3M", "\u0394Vol", "RR25", "%ILE", "TERM", "IV-RV", "BEV"]
+        for h in ["PAIR", "SPOT", "\u0394%", "ATM 1M", "ATM 3M", "\u0394Vol", "MOM", "RR25", "%ILE", "TERM", "IV-RV", "BEV"]
     ])
 
     body_rows = []
@@ -837,6 +847,9 @@ def _render_movers_table(rows, sort_key):
             html.Td(f"{r['atm_1m']:.1f}v", style=TABLE_CELL_STYLE),
             html.Td(f"{r.get('atm_3m', 0):.1f}v", style=TABLE_CELL_STYLE),
             html.Td(f"{r['vol_chg']:+.2f}v", style={**TABLE_CELL_STYLE, "color": vol_color}),
+            html.Td(f"{r.get('vol_mom', 0):+.1f}%", style={**TABLE_CELL_STYLE,
+                     "color": COLORS["accent_red"] if r.get("vol_mom", 0) > 2 else
+                              COLORS["accent_green"] if r.get("vol_mom", 0) < -2 else "#808080"}),
             html.Td(f"{r['rr25']:+.1f}v", style=TABLE_CELL_STYLE),
             html.Td(_ordinal(pctile), style={**TABLE_CELL_STYLE, "color": _pct_color(pctile)}),
             html.Td(f"{term_spread:+.1f}v", style={**TABLE_CELL_STYLE, "color": term_color}),

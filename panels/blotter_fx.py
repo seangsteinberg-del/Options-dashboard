@@ -479,6 +479,18 @@ def register_callbacks(app):
                 vega_val = _gk_vega(S, K, T, r_d, r_f, sigma) * notional
                 expiry_date = datetime.now() + timedelta(days=tenor_to_days(tenor))
 
+                # Compute gamma and theta at entry
+                from scipy.stats import norm as _norm
+                if T > 1e-6 and sigma > 1e-6:
+                    _d1 = (np.log(S / K) + (r_d - r_f + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+                    _npd1 = _norm.pdf(_d1)
+                    _df_f = np.exp(-r_f * T)
+                    gamma_val = _df_f * _npd1 / (S * sigma * np.sqrt(T)) * notional
+                    theta_val = (-0.5 * S * _df_f * _npd1 * sigma / np.sqrt(T)) / 365.0 * notional
+                else:
+                    gamma_val = 0.0
+                    theta_val = 0.0
+
                 new_trade = {
                     "id": f"FX-{30000 + n_clicks:05d}",
                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -494,6 +506,9 @@ def register_callbacks(app):
                     "premium_per_unit": round(prem_unit, 6),
                     "vol": round(sigma * 100, 2),
                     "vega": round(vega_val, 2),
+                    "gamma": round(gamma_val, 4),
+                    "theta": round(theta_val, 2),
+                    "entry_spot": round(S, 5),
                     "book": book or "G10_FLOW",
                     "strategy": strategy or "Prop",
                     "counterparty": cpty or "INTERBANK",

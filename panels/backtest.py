@@ -71,6 +71,7 @@ _ENTRY_SIGNALS = [
     {"label": "Vol cheap (ATM %ile < 20)",     "value": "vol_cheap"},
     {"label": "Vol rich (ATM %ile > 80)",      "value": "vol_rich"},
     {"label": "Skew extreme (|RR z| > 1.5)",   "value": "skew_extreme"},
+    {"label": "Vol momentum (RV accel > 20%)", "value": "vol_momentum"},
 ]
 
 _EXIT_RULES = [
@@ -78,6 +79,7 @@ _EXIT_RULES = [
     {"label": "Exit at +50% profit",      "value": "tp50"},
     {"label": "Exit at -30% stop loss",   "value": "sl30"},
     {"label": "Exit at +100% / -50%",     "value": "tp100_sl50"},
+    {"label": "Trailing stop 20%",        "value": "trailing_20"},
 ]
 
 _REGIME_LABELS = ["LOW", "NORMAL", "ELEVATED", "HIGH"]
@@ -520,7 +522,7 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
         return None
 
     # --- Parse exit rule thresholds ---
-    tp_pct, sl_pct = None, None
+    tp_pct, sl_pct, trailing_pct = None, None, None
     if exit_rule == "tp50":
         tp_pct = 0.50
     elif exit_rule == "sl30":
@@ -528,6 +530,8 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
     elif exit_rule == "tp100_sl50":
         tp_pct = 1.00
         sl_pct = -0.50
+    elif exit_rule == "trailing_20":
+        trailing_pct = 0.20
 
     # --- Identify entry points ---
     entry_indices = []
@@ -565,6 +569,14 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
                 if abs(z) > 1.5:
                     if not entry_indices or (idx - entry_indices[-1]) >= monthly_gap:
                         entry_indices.append(idx)
+            elif entry_signal == "vol_momentum":
+                # Enter when short-term vol accelerates vs long-term
+                if idx >= 60:
+                    rv_short = np.std(np.diff(np.log(data["spot"].values[idx-10:idx]))) * np.sqrt(252) * 100
+                    rv_long = np.std(np.diff(np.log(data["spot"].values[idx-60:idx]))) * np.sqrt(252) * 100
+                    if rv_long > 1e-6 and rv_short / rv_long > 1.20:
+                        if not entry_indices or (idx - entry_indices[-1]) >= monthly_gap:
+                            entry_indices.append(idx)
 
     if not entry_indices:
         return None
@@ -635,6 +647,12 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
                 exit_idx = day_idx
                 exit_reason = f"SL {sl_pct*100:.0f}%"
                 break
+            if trailing_pct is not None and best_mtm > 0:
+                drawdown_from_peak = (best_mtm - mtm_pnl) / best_mtm
+                if drawdown_from_peak >= trailing_pct:
+                    exit_idx = day_idx
+                    exit_reason = f"Trail {trailing_pct*100:.0f}%"
+                    break
 
         exit_idx = min(exit_idx, len(data) - 1)
 
@@ -664,14 +682,11 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
         hold_d = exit_idx - entry_idx
 
         # Determine entry signal label
-        if entry_signal == "fixed":
-            sig_label = "Monthly"
-        elif entry_signal == "vol_cheap":
-            sig_label = "Vol Cheap"
-        elif entry_signal == "vol_rich":
-            sig_label = "Vol Rich"
-        else:
-            sig_label = "Skew Extreme"
+        sig_labels = {
+            "fixed": "Monthly", "vol_cheap": "Vol Cheap", "vol_rich": "Vol Rich",
+            "skew_extreme": "Skew Extreme", "vol_momentum": "Vol Momentum",
+        }
+        sig_label = sig_labels.get(entry_signal, entry_signal.replace("_", " ").title())
 
         trades.append({
             "entry_date": data.index[entry_idx].strftime("%Y-%m-%d"),
