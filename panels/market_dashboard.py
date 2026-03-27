@@ -629,6 +629,7 @@ def _build_vol_richness_heatmap(pairs):
                         [0.5, "#1a1a2e"], [0.6, "#1a1a2e"], [0.8, "#ff3333"], [1, "#ff3333"]],
             zmin=0, zmax=100, showscale=False,
             hovertemplate="<b>%{y}</b> %{x}<br>Percentile: %{z:.0f}<extra></extra>",
+            xgap=2, ygap=2,
         ))
         fig.update_layout(**_chart_layout(
             height=CHART_SM,

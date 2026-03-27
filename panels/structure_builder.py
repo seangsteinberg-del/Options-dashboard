@@ -1881,6 +1881,7 @@ def _build_pnl_heatmap(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
             thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
         ),
         hovertemplate="Spot: %{x}<br>Vol: %{y}<br>P&L: %{z:,.0f}<extra></extra>",
+        xgap=1, ygap=1,
     ))
 
     # Current market crosshair
@@ -2105,6 +2106,7 @@ def _build_smile_chart(processed_legs, vol_surface, tenor):
                 line=dict(color=color, width=width, dash=dash_style),
                 marker=dict(size=4, color=color),
                 name=ot, showlegend=True,
+                hovertemplate="%{x}: %{y:.2f}%<extra>" + ot + "</extra>",
             ))
 
     # Current tenor smile (solid orange)

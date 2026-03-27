@@ -754,9 +754,10 @@ def chart_smile_curve(pair, sd, spot, r_dom, r_for, **kw):
                 x=delta_sabr * 100, y=sabr_vols,
                 mode="lines", name="SABR Fit",
                 line=dict(color=COLORS["accent_orange"], width=2, dash="dash"),
+                hovertemplate="Delta: %{x:.0f}<br>SABR Vol: %{y:.2f}%<extra>SABR</extra>",
             ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("SABR fit overlay failed for %s", pair)
 
     elif model_sel == "vv":
         try:
@@ -772,9 +773,10 @@ def chart_smile_curve(pair, sd, spot, r_dom, r_for, **kw):
                 x=vv_deltas, y=vv_vols,
                 mode="lines", name="Vanna-Volga",
                 line=dict(color=COLORS["accent_purple"], width=2, dash="dashdot"),
+                hovertemplate="Delta: %{x:.0f}<br>VV Vol: %{y:.2f}%<extra>Vanna-Volga</extra>",
             ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("VV fit overlay failed for %s", pair)
 
     _apply_chart_template(fig, f"Smile -- {pair} {tenor_use}")
     fig.update_layout(
@@ -1472,7 +1474,8 @@ def _lab_study_pctile_surface(pair, sd, spot, r_dom, r_for, **kw):
                     [0.75, "#222240"], [1, "#ff3333"]],
         text=np.round(df.values, 1).astype(str), texttemplate="%{text}",
         textfont=dict(size=10, color="#d4d4d4"),
-        hovertemplate="Tenor: %{y}<br>Delta: %{x}<br>Percentile: %{z:.1f}%<extra></extra>"))
+        hovertemplate="Tenor: %{y}<br>Delta: %{x}<br>Percentile: %{z:.1f}%<extra></extra>",
+        xgap=2, ygap=2))
     _apply_chart_template(fig, f"{pair} Percentile Surface")
     fig.update_layout(xaxis_title="Delta", yaxis_title="Tenor")
     return fig
@@ -1487,7 +1490,8 @@ def _lab_study_zscore_surface(pair, sd, spot, r_dom, r_for, **kw):
         colorscale=[[0, "#00cc66"], [0.5, "#000000"], [1, "#ff3333"]],
         text=np.round(df.values, 1).astype(str), texttemplate="%{text}",
         textfont=dict(size=10, color="#d4d4d4"),
-        hovertemplate="Tenor: %{y}<br>Delta: %{x}<br>Z-Score: %{z:.2f}<extra></extra>"))
+        hovertemplate="Tenor: %{y}<br>Delta: %{x}<br>Z-Score: %{z:.2f}<extra></extra>",
+        xgap=2, ygap=2))
     _apply_chart_template(fig, f"{pair} Z-Score Surface")
     fig.update_layout(xaxis_title="Delta", yaxis_title="Tenor")
     return fig

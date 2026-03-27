@@ -981,6 +981,7 @@ def register_callbacks(app):
                 ),
                 hovertemplate="<b>%{y}</b> / %{x}<br>Vega: %{text}<extra></extra>",
                 text=[[f"{v:+,.0f}" for v in row] for row in z_vals],
+                xgap=2, ygap=2,
             ))
             heatmap_fig.update_layout(
                 **chart_layout(

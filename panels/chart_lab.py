@@ -687,7 +687,8 @@ def _study_surface_heatmap(pair, func, title_prefix):
         fig = go.Figure(data=go.Heatmap(
             z=df.values, x=df.columns.tolist(), y=df.index.tolist(),
             colorscale=cscale, text=np.round(df.values, 1).astype(str), texttemplate="%{text}",
-            textfont=dict(size=10, family=_FONT, color="#d4d4d4")))
+            textfont=dict(size=10, family=_FONT, color="#d4d4d4"),
+            xgap=2, ygap=2))
         fig.update_layout(**chart_layout(
             title=dict(text=f"{pair} {title_prefix}", font=dict(size=11, color="#ff8800", family=_FONT)),
             margin=dict(l=60, r=20, t=40, b=40)))
