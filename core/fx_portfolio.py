@@ -106,7 +106,7 @@ def _gk_greeks(S, K, T, r_d, r_f, sigma, cp):
       - vanna: d2V/(dS d_sigma)
       - volga: d2V/d_sigma2
     """
-    if T <= 1e-10:
+    if T <= 1e-10 or sigma <= 1e-10:
         price = max(cp * (S - K), 0.0)
         itm = (cp * (S - K)) > 0
         return {

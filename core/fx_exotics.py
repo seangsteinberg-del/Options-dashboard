@@ -106,7 +106,7 @@ def barrier_price(S, K, B, T, r_d, r_f, sigma, cp, barrier_type, rebate=0.0):
         'up-and-in-put', 'up-and-out-put'.
     rebate : float  Cash rebate paid if knock-out occurs (or if knock-in never triggers).
     """
-    if T <= 0:
+    if T <= 0 or sigma <= 1e-10:
         return max(cp * (S - K), 0.0)
 
     mu = (r_d - r_f - 0.5 * sigma ** 2) / (sigma ** 2)
@@ -127,24 +127,30 @@ def barrier_price(S, K, B, T, r_d, r_f, sigma, cp, barrier_type, rebate=0.0):
         return (phi * S * np.exp(-r_f * T) * norm.cdf(phi * x2)
                 - phi * K * np.exp(-r_d * T) * norm.cdf(phi * (x2 - sqrt_T)))
 
+    def _safe_pow(base, exp):
+        """Safe power for barrier ratios — prevent overflow."""
+        return np.exp(np.clip(exp * np.log(max(base, 1e-20)), -100, 100))
+
     def _C(phi, eta):
-        fac = (B / S) ** (2 * (mu + 1))
+        fac = _safe_pow(B / S, 2 * (mu + 1))
+        fac2 = _safe_pow(B / S, 2 * mu)
         return (phi * S * np.exp(-r_f * T) * fac * norm.cdf(eta * y1)
-                - phi * K * np.exp(-r_d * T) * (B / S) ** (2 * mu) * norm.cdf(eta * (y1 - sqrt_T)))
+                - phi * K * np.exp(-r_d * T) * fac2 * norm.cdf(eta * (y1 - sqrt_T)))
 
     def _D(phi, eta):
-        fac = (B / S) ** (2 * (mu + 1))
+        fac = _safe_pow(B / S, 2 * (mu + 1))
+        fac2 = _safe_pow(B / S, 2 * mu)
         return (phi * S * np.exp(-r_f * T) * fac * norm.cdf(eta * y2)
-                - phi * K * np.exp(-r_d * T) * (B / S) ** (2 * mu) * norm.cdf(eta * (y2 - sqrt_T)))
+                - phi * K * np.exp(-r_d * T) * fac2 * norm.cdf(eta * (y2 - sqrt_T)))
 
     def _E(eta):
         return (rebate * np.exp(-r_d * T)
                 * (norm.cdf(eta * (x2 - sqrt_T))
-                   - (B / S) ** (2 * mu) * norm.cdf(eta * (y2 - sqrt_T))))
+                   - _safe_pow(B / S, 2 * mu) * norm.cdf(eta * (y2 - sqrt_T))))
 
     def _F(eta):
-        return (rebate * ((B / S) ** (mu + lam) * norm.cdf(eta * z)
-                          + (B / S) ** (mu - lam) * norm.cdf(eta * (z - 2 * lam * sqrt_T))))
+        return (rebate * (_safe_pow(B / S, mu + lam) * norm.cdf(eta * z)
+                          + _safe_pow(B / S, mu - lam) * norm.cdf(eta * (z - 2 * lam * sqrt_T))))
 
     bt = barrier_type.lower()
 
@@ -281,7 +287,7 @@ def digital_price(S, K, T, r_d, r_f, sigma, cp, payout=1.0):
 
 def digital_greeks(S, K, T, r_d, r_f, sigma, cp, payout=1.0):
     """Full Greeks for a cash-or-nothing digital via analytical derivatives."""
-    if T <= 0:
+    if T <= 0 or sigma <= 1e-10:
         return {'delta': 0.0, 'gamma': 0.0, 'vega': 0.0, 'theta': 0.0}
 
     d1, d2 = _gk_d1d2(S, K, T, r_d, r_f, sigma)

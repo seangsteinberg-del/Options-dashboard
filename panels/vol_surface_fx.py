@@ -429,7 +429,7 @@ def chart_surface_3d(pair, sd, spot, r_dom, r_for, **kw):
 def chart_heatmap(pair, sd, spot, r_dom, r_for, **kw):
     """2. Vol Heatmap -- tenor x delta grid with annotations."""
     fig = go.Figure()
-    text_vals = [[f"{v:.2f}" for v in row] for row in sd["vol_grid"]]
+    text_vals = [[f"{v:.2f}" if np.isfinite(v) else "" for v in row] for row in sd["vol_grid"]]
     fig.add_trace(go.Heatmap(
         x=sd["delta_labels"],
         y=sd["tenors"],
@@ -551,7 +551,7 @@ def chart_skew_rr(pair, sd, spot, r_dom, r_for, **kw):
     fig.add_trace(go.Bar(
         x=tenors, y=rr_vals, name="25D RR",
         marker=dict(color=colors, line=dict(width=1, color=COLORS["border"])),
-        text=[f"{v:+.2f}" for v in rr_vals],
+        text=[f"{v:+.2f}" if np.isfinite(v) else "" for v in rr_vals],
         textposition="outside",
         textfont=dict(size=10, color=COLORS["text_secondary"]),
         hovertemplate="Tenor: %{x}<br>25D RR: %{y:.2f}<br>%ile: %{customdata:.0f}<extra></extra>",
@@ -595,7 +595,7 @@ def chart_smile_bf(pair, sd, spot, r_dom, r_for, **kw):
     fig.add_trace(go.Bar(
         x=tenors, y=bf_vals, name="25D BF",
         marker=dict(color=colors, line=dict(width=1, color=COLORS["border"])),
-        text=[f"{v:.2f}" for v in bf_vals],
+        text=[f"{v:.2f}" if np.isfinite(v) else "" for v in bf_vals],
         textposition="outside",
         textfont=dict(size=10, color=COLORS["text_secondary"]),
         hovertemplate="Tenor: %{x}<br>25D BF: %{y:.2f}<br>%ile: %{customdata:.0f}<extra></extra>",

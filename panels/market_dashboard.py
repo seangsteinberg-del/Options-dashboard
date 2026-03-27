@@ -309,7 +309,7 @@ def _build_kpi_data(rows):
         import logging as _lg
         _lg.getLogger(__name__).debug("Portfolio load fallback: %s", _e)
         book_vega, book_theta = 0, 0
-    if book_vega == 0 and book_theta == 0:
+    if not np.isfinite(book_vega) or not np.isfinite(book_theta) or (book_vega == 0 and book_theta == 0):
         kpis["book_vega"]  = "N/A"
         kpis["book_theta"] = "N/A"
     else:

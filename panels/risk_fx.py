@@ -129,8 +129,20 @@ def _make_stat_style(color=None):
     return style
 
 
+def _safe_fmt(val, fmt="+,.0f", fallback="\u2014"):
+    """Format a number safely, returning fallback for NaN/inf/None."""
+    try:
+        if val is None or not np.isfinite(val):
+            return fallback
+        return f"{val:{fmt}}"
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _fmt_usd(val):
     """Format a USD value with sign and K/M suffix."""
+    if not np.isfinite(val):
+        return "$\u2014"
     if abs(val) >= 1_000_000:
         return f"${val / 1_000_000:+,.2f}M"
     if abs(val) >= 1_000:
@@ -2326,7 +2338,7 @@ def _build_position_table(positions, spots, rates, vol_surfaces):
             "Pair": pair,
             "Type": display_type,
             "Strike": f"{pos.get('strike', 0):.4f}",
-            "Delta": f"{pg.get('delta', 0):+,.0f}",
+            "Delta": _safe_fmt(pg.get('delta', 0)),
             "Expiry": str(pos.get("expiry", ""))[:10],
             "DTE": dte_str,
             "Notional": f"{pos['notional']:,.0f}",
@@ -2334,12 +2346,12 @@ def _build_position_table(positions, spots, rates, vol_surfaces):
             "Strategy": pos.get("strategy", ""),
             "Entry": entry_str,
             "Age": age_str,
-            "P&L": f"${pnl:+,.0f}",
-            "Vega": f"{pg.get('vega', 0):+,.0f}",
-            "Gamma": f"{pg.get('gamma', 0):+,.0f}",
-            "Theta": f"{pg.get('theta', 0):+,.0f}",
-            "Vanna": f"{pg.get('vanna', 0):+,.4f}",
-            "Volga": f"{pg.get('volga', 0):+,.0f}",
+            "P&L": f"${pnl:+,.0f}" if np.isfinite(pnl) else "$\u2014",
+            "Vega": _safe_fmt(pg.get('vega', 0)),
+            "Gamma": _safe_fmt(pg.get('gamma', 0)),
+            "Theta": _safe_fmt(pg.get('theta', 0)),
+            "Vanna": _safe_fmt(pg.get('vanna', 0), "+,.4f"),
+            "Volga": _safe_fmt(pg.get('volga', 0)),
         })
 
     if not table_rows:

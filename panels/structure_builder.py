@@ -462,6 +462,7 @@ def _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surf
         leg_tenor = years_to_nearest_tenor(leg_T) if tenor_mult != 1.0 else tenor
 
         vol = _interp_vol_for_delta(vol_surface, leg_tenor, delta_abs, cp_sign)
+        vol = max(vol, 1e-6)  # guard against zero/negative vol from lookup
 
         target_delta = delta_abs * cp_sign
         K = delta_to_strike(target_delta, S, leg_T, r_d, r_f, vol, cp_sign)
