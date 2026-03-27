@@ -513,8 +513,8 @@ def _apply_norm(s, mode):
         result = (arr - mu) / sig
     elif mode == "pct_change":
         f = arr[0]
-        if f == 0 or np.isnan(f): return s
-        result = ((arr - f) / abs(f)) * 100
+        if abs(f) < 1e-10 or np.isnan(f): return s
+        result = ((arr - f) / f) * 100
     else:
         return s
     return pd.Series(result, index=s.index if isinstance(s, pd.Series) else None, name=getattr(s, 'name', None))
@@ -593,7 +593,8 @@ def _study_smile(pair, tenor, timeframe):
             vols = [atm - rr10/2 + bf10, atm - rr25/2 + bf25, atm, atm + rr25/2 + bf25, atm + rr10/2 + bf10]
             fig.add_trace(go.Scatter(x=["10P", "25P", "ATM", "25C", "10C"], y=vols,
                                      mode="lines+markers", name=t, line=dict(color=_CW[idx % len(_CW)], width=2),
-                                     marker=dict(size=5)))
+                                     marker=dict(size=5),
+                                     hovertemplate="%{x}: %{y:.2f}%<extra>" + t + "</extra>"))
         fig.update_layout(**chart_layout(
             title=dict(text=f"{pair} Vol Smile", font=dict(size=11, color="#ff8800", family=_FONT)),
             xaxis_title="Delta", yaxis_title="Implied Vol (%)",
@@ -612,7 +613,8 @@ def _study_implied_pdf(pair, tenor, timeframe):
         fig.add_trace(go.Scatter(x=df["strike"].tolist(), y=df["pdf"].tolist(), mode="lines",
                                   name="Implied PDF", fill="tozeroy",
                                   line=dict(color="#ff8800", width=2),
-                                  fillcolor="rgba(255,136,0,0.15)"))
+                                  fillcolor="rgba(255,136,0,0.15)",
+                                  hovertemplate="Strike: %{x:.4f}<br>Density: %{y:.4f}<extra></extra>"))
         spots = get_fx_spots([pair]) or {}
         spot = spots.get(pair, {}).get("mid")
         if spot:
@@ -633,7 +635,8 @@ def _study_vol_regime(pair, tenor, timeframe):
         if df is None or df.empty: return _empty("No regime data")
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df["day"].tolist(), y=df["vol"].tolist(), mode="lines",
-                                  name=f"{pair} ATM", line=dict(color="#ff8800", width=2)))
+                                  name=f"{pair} ATM", line=dict(color="#ff8800", width=2),
+                                  hovertemplate="Day %{x}<br>Vol: %{y:.2f}%<extra></extra>"))
         # Regime bands
         for level, color, label in [(20, "#ff3333", "CRISIS"), (14, "#ff8800", "HIGH"),
                                      (10, "#ffaa33", "ELEVATED"), (6, "#808080", "NORMAL")]:
@@ -658,10 +661,12 @@ def _study_fwd_vol_curve(pair, tenor, timeframe):
         fig = go.Figure()
         if "spot_vol" in df.columns:
             fig.add_trace(go.Scatter(x=df["end_tenor"].tolist(), y=df["spot_vol"].tolist(),
-                                      mode="lines+markers", name="Spot Vol", line=dict(color="#d4d4d4", width=1.5)))
+                                      mode="lines+markers", name="Spot Vol", line=dict(color="#d4d4d4", width=1.5),
+                                      hovertemplate="%{x}: %{y:.2f}%<extra>Spot</extra>"))
         fig.add_trace(go.Scatter(x=df["end_tenor"].tolist(), y=df["forward_vol"].tolist(),
                                   mode="lines+markers", name="Forward Vol",
-                                  line=dict(color="#ff8800", width=2.5), marker=dict(size=6)))
+                                  line=dict(color="#ff8800", width=2.5), marker=dict(size=6),
+                                  hovertemplate="%{x}: %{y:.2f}%<extra>Forward</extra>"))
         fig.update_layout(**chart_layout(
             title=dict(text=f"{pair} Forward Vol (from {tenor})", font=dict(size=11, color="#ff8800", family=_FONT)),
             xaxis_title="End Tenor", yaxis_title="Vol (%)",
@@ -698,9 +703,11 @@ def _study_tail_probs(pair, tenor, timeframe):
         if df is None or df.empty: return _empty("No tail prob data")
         fig = go.Figure()
         fig.add_trace(go.Bar(x=[f"+{m:.0f}%" for m in df["move_pct"]], y=df["prob_up"].tolist(),
-                              name="Up", marker_color="#00cc66", opacity=0.85))
+                              name="Up", marker_color="#00cc66", opacity=0.85,
+                              hovertemplate="Move: %{x}<br>Prob Up: %{y:.1f}%<extra></extra>"))
         fig.add_trace(go.Bar(x=[f"+{m:.0f}%" for m in df["move_pct"]], y=df["prob_down"].tolist(),
-                              name="Down", marker_color="#ff3333", opacity=0.85))
+                              name="Down", marker_color="#ff3333", opacity=0.85,
+                              hovertemplate="Move: %{x}<br>Prob Down: %{y:.1f}%<extra></extra>"))
         fig.update_layout(**chart_layout(
             title=dict(text=f"{pair} {tenor} Tail Probabilities", font=dict(size=11, color="#ff8800", family=_FONT)),
             xaxis_title="Move Size", yaxis_title="Probability (%)", barmode="group",
@@ -724,7 +731,8 @@ def _study_breakeven(pair, tenor, timeframe):
         colors = ["#ff8800", "#d4d4d4", "#00cc66" if info.get("iv_rv_cushion", 0) > 0 else "#ff3333"]
         fig.add_trace(go.Bar(x=labels, y=vals, marker_color=colors,
                               text=[f"{v:.2f}" for v in vals], textposition="outside",
-                              textfont=dict(color="#d4d4d4", family=_FONT, size=11)))
+                              textfont=dict(color="#d4d4d4", family=_FONT, size=11),
+                              hovertemplate="%{x}: %{y:.2f}%<extra></extra>"))
         fig.update_layout(**chart_layout(
             title=dict(text=f"{pair} {tenor} Breakeven Analysis", font=dict(size=11, color="#ff8800", family=_FONT)),
             yaxis_title="Vol (%)", margin=dict(l=45, r=15, t=40, b=30)))
@@ -743,7 +751,8 @@ def _study_carry_landscape(pairs, tenor, timeframe):
         fig = go.Figure()
         fig.add_trace(go.Bar(x=df["pair"].tolist(), y=df["sharpe_proxy"].tolist(), marker_color=colors,
                               text=[f"{v:.2f}" for v in df["sharpe_proxy"]], textposition="outside",
-                              textfont=dict(color="#d4d4d4", family=_FONT, size=10)))
+                              textfont=dict(color="#d4d4d4", family=_FONT, size=10),
+                              hovertemplate="<b>%{x}</b><br>Sharpe: %{y:.2f}<extra></extra>"))
         fig.update_layout(**chart_layout(
             title=dict(text="Carry / Vol Ranking (Sharpe Proxy)", font=dict(size=11, color="#ff8800", family=_FONT)),
             yaxis_title="Sharpe Proxy", margin=dict(l=45, r=15, t=40, b=30)))
@@ -815,13 +824,17 @@ def _build_slot_figure(metric, pairs, tenor, timeframe, chart_type, normalize, o
         color = _CW[idx % len(_CW)]
         x, y = _xy(series)
 
+        _ht = f"Day %{{x}}<br>{label}: %{{y:.2f}}<extra></extra>"
         if chart_type == "area":
             trace = go.Scatter(x=x, y=y, mode="lines", name=label,
-                               line=dict(color=color, width=1.5), fill="tozeroy", fillcolor=_hex_fill(color))
+                               line=dict(color=color, width=1.5), fill="tozeroy", fillcolor=_hex_fill(color),
+                               hovertemplate=_ht)
         elif chart_type == "bar":
-            trace = go.Bar(x=x, y=y, name=label, marker_color=color, opacity=0.85)
+            trace = go.Bar(x=x, y=y, name=label, marker_color=color, opacity=0.85,
+                           hovertemplate=_ht)
         else:
-            trace = go.Scatter(x=x, y=y, mode="lines", name=label, line=dict(color=color, width=1.5))
+            trace = go.Scatter(x=x, y=y, mode="lines", name=label, line=dict(color=color, width=1.5),
+                               hovertemplate=_ht)
 
         if has_overlay:
             fig.add_trace(trace, secondary_y=False)
@@ -830,7 +843,7 @@ def _build_slot_figure(metric, pairs, tenor, timeframe, chart_type, normalize, o
 
     # ── Overlay metric (right axis, dashed/dotted) ──
     if has_overlay:
-        ov_colors = ["#ffffff", "#88ff88", "#ff8888", "#88bbff", "#ffcc44", "#cc88ff", "#88ffff", "#ffaacc"]
+        ov_colors = ["#ffffff", "#00cc66", "#ff3333", "#d4d4d4", "#ffaa33", "#808080", "#ff8800", "#1565c0"]
         for idx, pair in enumerate(pairs):
             series, label = _fetch_series(pair, overlay, tenor, timeframe)
             if series is None or len(series) == 0:
@@ -841,7 +854,8 @@ def _build_slot_figure(metric, pairs, tenor, timeframe, chart_type, normalize, o
             x, y = _xy(series)
             ov_name = next((m["label"] for m in OVERLAY_OPTIONS if m["value"] == overlay), overlay)
             fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name=f"{pair} {ov_name}",
-                                     line=dict(color=color, width=1.5, dash="dot")),
+                                     line=dict(color=color, width=1.5, dash="dot"),
+                                     hovertemplate=f"Day %{{x}}<br>{pair} {ov_name}: %{{y:.2f}}<extra></extra>"),
                           secondary_y=True)
 
     if not any_data:
@@ -867,7 +881,7 @@ def _build_slot_figure(metric, pairs, tenor, timeframe, chart_type, normalize, o
                          title_font=dict(size=9, color="#ff8800", family=_FONT))
         fig.update_yaxes(title_text=ov_label, secondary_y=True,
                          title_font=dict(size=9, color="#ffffff", family=_FONT),
-                         gridcolor="rgba(26,26,46,0.3)")
+                         gridcolor="#1a1a30")
 
     return fig
 
@@ -1029,7 +1043,9 @@ def _build_comparison_figure(pairs, comp_type, tenor="3M"):
                 fig = go.Figure(data=go.Heatmap(z=corr.values, x=corr.columns.tolist(), y=corr.index.tolist(),
                     colorscale=[[0,"#ff3333"],[0.5,"#000000"],[1,"#00cc66"]], zmin=-1, zmax=1,
                     text=np.round(corr.values, 2).astype(str), texttemplate="%{text}",
-                    textfont=dict(size=11, family=_FONT, color="#d4d4d4")))
+                    textfont=dict(size=11, family=_FONT, color="#d4d4d4"),
+                    hovertemplate="<b>%{x} vs %{y}</b><br>Correlation: %{z:.3f}<extra></extra>",
+                    xgap=2, ygap=2))
                 fig.update_layout(**chart_layout(title=dict(text="60D Spot Correlation",
                                   font=dict(size=11, color="#ff8800", family=_FONT))))
 
@@ -1039,7 +1055,9 @@ def _build_comparison_figure(pairs, comp_type, tenor="3M"):
                 fig = go.Figure(data=go.Heatmap(z=corr.values, x=corr.columns.tolist(), y=corr.index.tolist(),
                     colorscale=[[0,"#ff3333"],[0.5,"#000000"],[1,"#00cc66"]], zmin=-1, zmax=1,
                     text=np.round(corr.values, 2).astype(str), texttemplate="%{text}",
-                    textfont=dict(size=11, family=_FONT, color="#d4d4d4")))
+                    textfont=dict(size=11, family=_FONT, color="#d4d4d4"),
+                    hovertemplate="<b>%{x} vs %{y}</b><br>Correlation: %{z:.3f}<extra></extra>",
+                    xgap=2, ygap=2))
                 fig.update_layout(**chart_layout(title=dict(text=f"60D Vol Change Correlation ({tenor})",
                                   font=dict(size=11, color="#ff8800", family=_FONT))))
 
@@ -1051,7 +1069,9 @@ def _build_comparison_figure(pairs, comp_type, tenor="3M"):
                     fig = go.Figure(data=go.Heatmap(z=pvt.values, x=pvt.columns.tolist(), y=pvt.index.tolist(),
                         colorscale=[[0,"#00cc66"],[0.5,"#000000"],[1,"#ff3333"]], zmid=0,
                         text=np.round(pvt.values, 2).astype(str), texttemplate="%{text}",
-                        textfont=dict(size=11, family=_FONT, color="#d4d4d4")))
+                        textfont=dict(size=11, family=_FONT, color="#d4d4d4"),
+                        hovertemplate="<b>%{y}</b> %{x}<br>Z-Score: %{z:.2f}<extra></extra>",
+                        xgap=2, ygap=2))
                     fig.update_layout(**chart_layout(title=dict(text="Vol Z-Score Heatmap (cheap=green, rich=red)",
                                       font=dict(size=11, color="#ff8800", family=_FONT))))
 
@@ -1062,7 +1082,8 @@ def _build_comparison_figure(pairs, comp_type, tenor="3M"):
                           for s in df["rank_signal"]]
                 fig.add_trace(go.Bar(x=df["pair"].tolist(), y=df["sharpe_proxy"].tolist(), marker_color=colors,
                                       text=[f"{v:.2f}" for v in df["sharpe_proxy"]], textposition="outside",
-                                      textfont=dict(color="#d4d4d4", family=_FONT, size=10)))
+                                      textfont=dict(color="#d4d4d4", family=_FONT, size=10),
+                                      hovertemplate="<b>%{x}</b><br>Sharpe: %{y:.2f}<extra></extra>"))
                 fig.update_layout(**chart_layout(title=dict(text="Carry / Vol Ranking",
                                   font=dict(size=11, color="#ff8800", family=_FONT)),
                                   yaxis_title="Sharpe Proxy"))

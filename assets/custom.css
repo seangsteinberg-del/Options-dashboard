@@ -53,6 +53,7 @@
 /* Keep only ticker tape animation */
 .ticker-tape-inner {
     animation-duration: 60s !important;
+    will-change: transform;
 }
 
 body {
@@ -105,6 +106,7 @@ body {
     border-color: #222240 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
+    z-index: 8500 !important;
 }
 .Select-option {
     background-color: #000000 !important;
@@ -281,11 +283,20 @@ textarea {
     font-size: 11px !important;
     padding: 6px 8px !important;
 }
+input::placeholder,
+textarea::placeholder {
+    color: #808080 !important;
+    opacity: 1 !important;
+}
 input:focus,
 textarea:focus {
     border-color: #ff8800 !important;
     outline: none !important;
     box-shadow: inset 0 0 0 1px rgba(255, 136, 0, 0.3) !important;
+}
+input[type="checkbox"],
+input[type="radio"] {
+    accent-color: #ff8800 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -759,3 +770,137 @@ a:hover { text-decoration: underline; color: #ffaa33; }
     border-radius: 0 !important;
     font-family: var(--font) !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Skeleton loading placeholders for empty charts
+   ═══════════════════════════════════════════════════════════════════════════ */
+@keyframes skeleton-shimmer {
+    0% { background-position: -400px 0; }
+    100% { background-position: 400px 0; }
+}
+.skeleton-chart {
+    position: relative;
+    overflow: hidden;
+    background: #000000;
+    border: 1px solid #222240;
+}
+.skeleton-chart::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, #000000 0%, #0a0a14 25%, #111122 50%, #0a0a14 75%, #000000 100%);
+    background-size: 800px 100%;
+    animation: skeleton-shimmer 2.5s ease-in-out infinite;
+}
+.skeleton-bar {
+    background: #0a0a14;
+    border-radius: 1px;
+    position: relative;
+    z-index: 1;
+}
+/* Skeleton grid lines (faux axes) */
+.skeleton-grid {
+    position: absolute;
+    inset: 30px 20px 30px 50px;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+.skeleton-grid-line {
+    height: 1px;
+    background: #0d0d1a;
+}
+/* Skeleton label placeholder at center */
+.skeleton-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+    color: #333355;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Limit breach flash for risk panel
+   ═══════════════════════════════════════════════════════════════════════════ */
+@keyframes breach-flash {
+    0%, 100% { border-color: #ff3333; }
+    50% { border-color: #661111; }
+}
+.breach-alert {
+    animation: breach-flash 2s ease-in-out infinite;
+    border: 1px solid #ff3333;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Conditional formatting for vol scanner table
+   ═══════════════════════════════════════════════════════════════════════════ */
+.vol-scanner-signal-tag {
+    display: inline-block;
+    padding: 1px 5px;
+    font-size: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    border-radius: 1px;
+    margin: 0 2px;
+}
+.signal-buy { background: rgba(0, 204, 102, 0.15); color: #00cc66; border: 1px solid rgba(0, 204, 102, 0.3); }
+.signal-sell { background: rgba(255, 51, 51, 0.15); color: #ff3333; border: 1px solid rgba(255, 51, 51, 0.3); }
+.signal-neutral { background: rgba(128, 128, 128, 0.1); color: #808080; border: 1px solid rgba(128, 128, 128, 0.2); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Deep-link navigation button (appears on heatmap hover)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.deeplink-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    font-size: 9px;
+    font-family: 'JetBrains Mono', monospace;
+    color: #ff8800;
+    background: rgba(255, 136, 0, 0.08);
+    border: 1px solid rgba(255, 136, 0, 0.3);
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    transition: background 0.15s;
+}
+.deeplink-btn:hover {
+    background: rgba(255, 136, 0, 0.18);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Morning risk report summary card
+   ═══════════════════════════════════════════════════════════════════════════ */
+.risk-report-card {
+    background: #000000;
+    border: 1px solid #222240;
+    padding: 12px;
+    margin-bottom: 8px;
+    font-family: 'JetBrains Mono', monospace;
+}
+.risk-report-card h4 {
+    color: #ff8800;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin: 0 0 8px 0;
+}
+.risk-report-metric {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    font-size: 11px;
+    border-bottom: 1px solid #111122;
+}
+.risk-report-metric:last-child { border-bottom: none; }
+.risk-report-metric .label { color: #808080; }
+.risk-report-metric .value { color: #d4d4d4; font-weight: 600; }

@@ -133,7 +133,8 @@ class BloombergFetcher(threading.Thread):
                     ok += 1
                 else:
                     fail += 1
-            except Exception:
+            except Exception as e:
+                logger.debug("BG: vol surface failed for %s: %s", pair, e)
                 fail += 1
         logger.info("BG: vol surfaces %d/%d OK", ok, ok + fail)
 
@@ -146,7 +147,8 @@ class BloombergFetcher(threading.Thread):
                     ok += 1
                 else:
                     fail += 1
-            except Exception:
+            except Exception as e:
+                logger.debug("BG: rates failed for %s: %s", pair, e)
                 fail += 1
         logger.info("BG: rates %d/%d OK", ok, ok + fail)
 
@@ -158,20 +160,27 @@ class BloombergFetcher(threading.Thread):
                     df = get_fx_historical_spot(pair, days=800)
                     if not df.empty:
                         ok += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("BG: historical spot failed for %s: %s", pair, e)
             logger.info("BG: historical spots %d/%d OK", ok, len(pairs))
 
             ok = 0
-            vol_combos = [("1M", "ATM"), ("3M", "ATM"), ("3M", "25D_RR")]
+            # Must cover ALL tenor/metric combos the dashboard requests,
+            # otherwise cache-only mode blocks Dash callbacks from fetching
+            vol_combos = [
+                ("1M", "ATM"), ("2M", "ATM"), ("3M", "ATM"),
+                ("6M", "ATM"), ("1Y", "ATM"), ("2Y", "ATM"),
+                ("1M", "25D_RR"), ("3M", "25D_RR"),
+                ("1M", "25D_BF"), ("3M", "25D_BF"),
+            ]
             for pair in pairs:
                 for tenor, metric in vol_combos:
                     try:
-                        series = get_fx_historical_vol(pair, tenor, metric, 252)
+                        series = get_fx_historical_vol(pair, tenor, metric, 800)
                         if len(series) > 0:
                             ok += 1
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("BG: historical vol failed for %s %s %s: %s", pair, tenor, metric, e)
             logger.info("BG: historical vols %d/%d OK", ok, len(pairs) * len(vol_combos))
             self._last_historical = time.monotonic()
 

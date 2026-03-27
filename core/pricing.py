@@ -174,14 +174,14 @@ def rho(S, K, T, r, q, sigma, option_type="call"):
 
 
 def vanna(S, K, T, r, q, sigma):
-    if T <= 0:
+    if T <= 0 or sigma <= 0:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     return -np.exp(-q * T) * norm.pdf(d1) * d2 / sigma
 
 
 def volga(S, K, T, r, q, sigma):
-    if T <= 0:
+    if T <= 0 or sigma <= 0:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     v = vega(S, K, T, r, q, sigma) * 100.0
@@ -189,7 +189,7 @@ def volga(S, K, T, r, q, sigma):
 
 
 def charm(S, K, T, r, q, sigma, option_type="call"):
-    if T <= 0:
+    if T <= 0 or sigma <= 0:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     charm_val = -np.exp(-q * T) * (
@@ -391,7 +391,7 @@ def expected_move(S, T, sigma, confidence=0.68):
 
 def probability_touch(S, K, T, r, q, sigma):
     """Probability that spot touches K at any point before expiry."""
-    if T <= 0:
+    if T <= 0 or sigma <= 0:
         return 0.0
     mu = r - q - 0.5 * sigma ** 2
     sigma_sqrt_T = sigma * np.sqrt(T)
@@ -399,8 +399,9 @@ def probability_touch(S, K, T, r, q, sigma):
 
     p = norm.cdf((-log_SK + mu * T) / sigma_sqrt_T)
     if abs(mu) > 1e-10:
-        p += np.exp(2 * mu * np.log(K / S) / sigma ** 2) * \
-             norm.cdf((-log_SK - mu * T) / sigma_sqrt_T)
+        exponent = 2 * mu * np.log(K / S) / sigma ** 2
+        if exponent < 100:
+            p += np.exp(exponent) * norm.cdf((-log_SK - mu * T) / sigma_sqrt_T)
     return min(p, 1.0)
 
 
@@ -444,8 +445,8 @@ def portfolio_var_cvar(positions, S, r, q, horizon_days=1,
     pnl = future_vals - current_val
     pnl_sorted = np.sort(pnl)
 
-    cutoff = int((1 - confidence) * n_sims)
-    var = -pnl_sorted[cutoff]
+    cutoff = max(1, int((1 - confidence) * n_sims))
+    var = -pnl_sorted[cutoff - 1]
     cvar = -np.mean(pnl_sorted[:cutoff])
 
     return {

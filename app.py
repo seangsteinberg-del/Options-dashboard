@@ -343,10 +343,10 @@ def make_header():
                     html.Span("FX OPTIONS", style={
                         "fontWeight": "800", "fontSize": "18px",
                         "letterSpacing": "3px",
-                        "color": "#ff8800",
+                        "color": COLORS["accent_orange"],
                     }),
                     html.Span(" WORKSTATION", style={
-                        "fontWeight": "300", "color": "#808080",
+                        "fontWeight": "300", "color": COLORS["text_secondary"],
                         "fontSize": "18px", "letterSpacing": "3px",
                     }),
                 ]),
@@ -373,9 +373,9 @@ def make_header():
             # ── Watchlist Editor Button ──
             html.Div([
                 html.Button("WATCHLIST", id="watchlist-edit-btn", n_clicks=0, style={
-                    "backgroundColor": "#000000",
-                    "color": "#ff8800",
-                    "border": "1px solid #222240",
+                    "backgroundColor": COLORS["bg_dark"],
+                    "color": COLORS["accent_orange"],
+                    "border": f"1px solid {COLORS['border_subtle']}",
                     "borderRadius": "0px",
                     "padding": "4px 10px",
                     "fontSize": "9px",
@@ -410,7 +410,7 @@ def make_header():
                         "letterSpacing": "1px",
                     }),
                     html.Span("GK/SABR/VV/MC", style={
-                        "color": "#ff8800", "fontSize": "9px",
+                        "color": COLORS["accent_orange"], "fontSize": "9px",
                         "fontWeight": "700",
                     }),
                 ]),
@@ -462,7 +462,7 @@ def make_watchlist_modal():
                 ),
                 html.Div([
                     html.Button("SAVE", id="watchlist-save-btn", n_clicks=0, style={
-                        "backgroundColor": "#ff8800", "color": "#000000",
+                        "backgroundColor": COLORS["accent_orange"], "color": COLORS["bg_dark"],
                         "border": "none", "borderRadius": "0px",
                         "padding": "6px 16px", "fontSize": "10px",
                         "fontFamily": "'JetBrains Mono', monospace",
@@ -558,10 +558,10 @@ def make_command_palette():
                         "letterSpacing": "2px", "fontWeight": "700",
                     }),
                     html.Span("Ctrl+K", style={
-                        "color": "#ff8800", "fontSize": "9px",
+                        "color": COLORS["accent_orange"], "fontSize": "9px",
                         "fontWeight": "600", "marginLeft": "12px",
                         "padding": "2px 8px",
-                        "border": "1px solid #222240",
+                        "border": f"1px solid {COLORS['border_subtle']}",
                         "borderRadius": "0px",
                     }),
                 ], style={
@@ -1136,7 +1136,7 @@ def handle_metric_popup(metric_clicks, close_clicks):
             fig.add_trace(go.Scatter(
                 x=x_days, y=[mean_val - std_val] * len(x_days),
                 mode="lines", line=dict(color="#222240", width=1, dash="dot"),
-                fill="tonexty", fillcolor="rgba(26,26,46,0.3)",
+                fill="tonexty", fillcolor="rgba(34,34,64,0.2)",
                 showlegend=False,
             ))
 
@@ -1150,14 +1150,15 @@ def handle_metric_popup(metric_clicks, close_clicks):
             # History line
             fig.add_trace(go.Scatter(
                 x=x_days, y=hist.tolist() if hasattr(hist, 'tolist') else list(hist),
-                mode="lines", line=dict(color="#ff8800", width=1.5),
+                mode="lines", line=dict(color=COLORS["accent_orange"], width=1.5),
                 name=f"{metric} {tenor}",
+                hovertemplate="Day %{x}<br>Value: %{y:.2f}<extra></extra>",
             ))
 
             # Current dot
             fig.add_trace(go.Scatter(
                 x=[len(hist) - 1], y=[current],
-                mode="markers", marker=dict(color="#ff8800", size=8),
+                mode="markers", marker=dict(color=COLORS["accent_orange"], size=8),
                 showlegend=False,
             ))
 
@@ -1295,6 +1296,7 @@ def _refresh_ticker(_n):
     [Output("data-source-status", "children"),
      Output("header-last-updated", "children")],
     Input("data-source-interval", "n_intervals"),
+    prevent_initial_call=True,
 )
 def _update_data_source_status(_n):
     from core.bloomberg_fx import get_data_mode, get_recent_errors

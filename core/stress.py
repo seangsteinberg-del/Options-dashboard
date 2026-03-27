@@ -22,7 +22,7 @@ SCENARIOS = {
         "vol_shock": 1.50,      # +150% relative increase in IV
         "rate_shock": -0.02,    # -200bp
         "severity": "EXTREME",
-        "color": "#ef4444",
+        "color": "#ff3333",
     },
     "2020 COVID": {
         "description": "COVID-19 pandemic crash — fastest bear market in history",
@@ -30,7 +30,7 @@ SCENARIOS = {
         "vol_shock": 2.00,
         "rate_shock": -0.015,
         "severity": "EXTREME",
-        "color": "#ef4444",
+        "color": "#ff3333",
     },
     "2018 Volmageddon": {
         "description": "XIV blow-up — VIX spike from 11 to 50, short-vol unwind",
@@ -38,7 +38,7 @@ SCENARIOS = {
         "vol_shock": 3.00,
         "rate_shock": 0.0,
         "severity": "SEVERE",
-        "color": "#f59e0b",
+        "color": "#ff8800",
     },
     "Rate Shock +200bp": {
         "description": "Sudden 200bp rate hike — bond selloff, equity repricing",
@@ -46,7 +46,7 @@ SCENARIOS = {
         "vol_shock": 0.30,
         "rate_shock": 0.02,
         "severity": "MODERATE",
-        "color": "#f59e0b",
+        "color": "#ff8800",
     },
     "Flash Crash": {
         "description": "2010-style flash crash — rapid liquidity withdrawal",
@@ -54,7 +54,7 @@ SCENARIOS = {
         "vol_shock": 1.00,
         "rate_shock": 0.0,
         "severity": "MODERATE",
-        "color": "#f59e0b",
+        "color": "#ff8800",
     },
     "Bull Melt-Up": {
         "description": "Euphoric rally — vol compression, FOMO buying",
@@ -62,7 +62,7 @@ SCENARIOS = {
         "vol_shock": -0.30,
         "rate_shock": 0.005,
         "severity": "LOW",
-        "color": "#10b981",
+        "color": "#00cc66",
     },
     "Stagflation": {
         "description": "Rising inflation + slowing growth — 1970s replay",
@@ -70,7 +70,7 @@ SCENARIOS = {
         "vol_shock": 0.50,
         "rate_shock": 0.015,
         "severity": "SEVERE",
-        "color": "#f59e0b",
+        "color": "#ff8800",
     },
     "EM Contagion": {
         "description": "Emerging market crisis — capital flight, dollar strength",
@@ -78,7 +78,7 @@ SCENARIOS = {
         "vol_shock": 0.60,
         "rate_shock": -0.005,
         "severity": "MODERATE",
-        "color": "#f59e0b",
+        "color": "#ff8800",
     },
     "Taper Tantrum": {
         "description": "2013-style — central bank tightening surprise",
@@ -86,7 +86,7 @@ SCENARIOS = {
         "vol_shock": 0.40,
         "rate_shock": 0.01,
         "severity": "MODERATE",
-        "color": "#f59e0b",
+        "color": "#ff8800",
     },
     "Black Monday": {
         "description": "1987 crash — single-day 22% drop",
@@ -94,7 +94,7 @@ SCENARIOS = {
         "vol_shock": 2.50,
         "rate_shock": -0.01,
         "severity": "EXTREME",
-        "color": "#ef4444",
+        "color": "#ff3333",
     },
 }
 
@@ -111,13 +111,15 @@ def _apply_stress(positions: List[dict], spot_prices: Dict[str, float],
 
     vol_shock is a relative multiplier on each position's IV.
     spot_shock is a % move in the underlying.
-    rate_shock is an absolute shift in the risk-free rate.
+    rate_shock is an absolute shift in the risk-free rate (applied to both
+    domestic and foreign rates for FX).
     """
     results = []
     total_base = 0.0
     total_stressed = 0.0
 
     r_stressed = max(r + rate_shock, 0.001)
+    q_stressed = max(q + rate_shock, 0.001)
 
     for pos in positions:
         ticker = pos.get("ticker", "SPY")
@@ -137,8 +139,8 @@ def _apply_stress(positions: List[dict], spot_prices: Dict[str, float],
         # Stressed valuation
         S_stressed = S * (1 + spot_shock)
         sig_stressed = max(sig * (1 + vol_shock), 0.01)
-        stressed_price = bs_price(S_stressed, K, T, r_stressed, q, sig_stressed, otype)
-        stressed_greeks = compute_all_greeks(S_stressed, K, T, r_stressed, q, sig_stressed, otype)
+        stressed_price = bs_price(S_stressed, K, T, r_stressed, q_stressed, sig_stressed, otype)
+        stressed_greeks = compute_all_greeks(S_stressed, K, T, r_stressed, q_stressed, sig_stressed, otype)
 
         base_val = base_price * qty * mult
         stressed_val = stressed_price * qty * mult
@@ -210,7 +212,7 @@ def run_custom_stress(positions: List[dict], spot_prices: Dict[str, float],
     result["scenario_name"] = "Custom"
     result["description"] = f"Spot {spot_shock:+.0%}, Vol {vol_shock:+.0%}, Rate {rate_shock:+.0%}"
     result["severity"] = "CUSTOM"
-    result["color"] = "#8b5cf6"
+    result["color"] = "#ff8800"
     return result
 
 

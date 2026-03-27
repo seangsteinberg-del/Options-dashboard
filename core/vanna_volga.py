@@ -161,7 +161,7 @@ def vv_price(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol, cp):
 
     try:
         cond = np.linalg.cond(A)
-        if cond > 1e12:
+        if cond > 1e10:
             # Near-singular: fall back to flat ATM vol
             return gk_price(S, K, T, r_d, r_f, sigma_atm, cp)
         w = np.linalg.solve(A, b)
@@ -192,7 +192,7 @@ def vv_implied_vol(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol):
 
     # Guard: if the target is below the intrinsic, return ATM vol
     intrinsic = max(S * np.exp(-r_f * T) - K * np.exp(-r_d * T), 0.0)
-    if target <= intrinsic + 1e-12:
+    if target <= intrinsic + 1e-8:
         return atm_vol
 
     try:
@@ -335,7 +335,7 @@ def sabr_vol(F, K, T, alpha, beta, rho, nu):
     log_FK = np.log(F / K)
 
     z = (nu / alpha) * FK_beta2 * log_FK
-    disc = np.sqrt(1.0 - 2.0 * rho * z + z ** 2)
+    disc = np.sqrt(max(1.0 - 2.0 * rho * z + z ** 2, 1e-12))
     x_z = np.log((disc + z - rho) / (1.0 - rho))
     if abs(x_z) < 1e-12:
         x_z = 1e-12

@@ -317,6 +317,9 @@ def one_touch_price(S, B, T, r_d, r_f, sigma, payout=1.0):
 
     Analytical closed form using the reflection principle for GBM.
     """
+    if sigma <= 0.001:
+        # In near-zero vol regime, barrier is hit iff spot is already past it
+        return payout * np.exp(-r_d * T) if abs(B - S) < 1e-12 else 0.0
     if T <= 0:
         # Barrier already breached if spot is at or past the barrier
         if abs(B - S) < 1e-12:

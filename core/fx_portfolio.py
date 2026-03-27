@@ -23,9 +23,12 @@ from copy import deepcopy
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Tuple
 
+import logging
+
 import numpy as np
 from scipy.stats import norm
 
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # Constants
@@ -67,6 +70,9 @@ _PORTFOLIO: Dict = {
 def _gk_d1d2(S, K, T, r_d, r_f, sigma):
     """Garman-Kohlhagen d1 and d2."""
     sigma = max(sigma, 1e-6)
+    S = max(S, 1e-8)
+    K = max(K, 1e-8)
+    T = max(T, 1e-8)
     sqrtT = np.sqrt(T)
     d1 = (np.log(S / K) + (r_d - r_f + 0.5 * sigma ** 2) * T) / (sigma * sqrtT)
     d2 = d1 - sigma * sqrtT
@@ -606,7 +612,10 @@ def compute_position_greeks(pos, spot, r_d, r_f, vol_surface):
     S = spot if isinstance(spot, (int, float)) else spot.get(pair, 1.0)
     K = pos["strike"]
     T = _years_to_expiry(pos["expiry"])
-    sigma = _lookup_vol(pair, K, T, S, vol_surface) if isinstance(vol_surface, dict) else float(vol_surface)
+    try:
+        sigma = _lookup_vol(pair, K, T, S, vol_surface) if isinstance(vol_surface, dict) else float(vol_surface or 0.10)
+    except (TypeError, ValueError):
+        sigma = 0.10
     cp = 1 if pos["option_type"] == "call" else -1
     sign = 1.0 if pos["direction"] == "buy" else -1.0
     notional = pos["notional"]
@@ -706,13 +715,13 @@ def pnl_attribution(positions, spots_old, spots_new, surfaces_old, surfaces_new,
       - theta_pnl:   sum(theta * dt)
       - rho_pnl:     sum(rho * dr)   (zero when rates unchanged)
       - vanna_pnl:   sum(vanna * dS * d_sigma)
-      - cross_gamma_pnl: residual cross effects
+      - volga_pnl:   sum(0.5 * volga * d_sigma^2)
       - unexplained: actual - explained
 
     Returns dict with by-component totals and by-position breakdown.
     """
     attr = {k: 0.0 for k in ("delta_pnl", "gamma_pnl", "vega_pnl", "theta_pnl",
-                               "rho_pnl", "vanna_pnl", "cross_gamma_pnl",
+                               "rho_pnl", "vanna_pnl", "volga_pnl",
                                "unexplained", "total_pnl")}
     by_position = []
 
@@ -754,22 +763,21 @@ def pnl_attribution(positions, spots_old, spots_new, surfaces_old, surfaces_new,
         price_new = _gk_price(S_new, K, T_new, r_d, r_f, sigma_new, cp)
         actual = (price_new - price_old) * sc
 
-        explained = d_pnl + g_pnl + v_pnl + t_pnl + r_pnl + va_pnl
-        cross = volga_pnl
-        unexpl = actual - explained - cross
+        explained = d_pnl + g_pnl + v_pnl + t_pnl + r_pnl + va_pnl + volga_pnl
+        unexpl = actual - explained
 
         entry = {
             "position_id": pos.get("id", ""),
             "pair": pair,
             "delta_pnl": d_pnl, "gamma_pnl": g_pnl, "vega_pnl": v_pnl,
             "theta_pnl": t_pnl, "rho_pnl": r_pnl, "vanna_pnl": va_pnl,
-            "cross_gamma_pnl": cross, "unexplained": unexpl,
+            "volga_pnl": volga_pnl, "unexplained": unexpl,
             "total_pnl": actual,
         }
         by_position.append(entry)
 
         for k in ("delta_pnl", "gamma_pnl", "vega_pnl", "theta_pnl", "rho_pnl",
-                   "vanna_pnl", "cross_gamma_pnl", "unexplained", "total_pnl"):
+                   "vanna_pnl", "volga_pnl", "unexplained", "total_pnl"):
             attr[k] += entry[k]
 
     attr["by_position"] = by_position
@@ -1101,8 +1109,11 @@ def save_portfolio(filepath=None):
     """Save the current portfolio state to JSON."""
     filepath = filepath or PORTFOLIO_FILE
     _ensure_data_dir()
-    with open(filepath, "w") as f:
-        json.dump(_PORTFOLIO, f, indent=2, default=str)
+    try:
+        with open(filepath, "w") as f:
+            json.dump(_PORTFOLIO, f, indent=2, default=str)
+    except (PermissionError, OSError) as exc:
+        logger.error("Failed to save portfolio to %s: %s", filepath, exc)
 
 
 def load_portfolio(filepath=None):
@@ -1111,8 +1122,16 @@ def load_portfolio(filepath=None):
     filepath = filepath or PORTFOLIO_FILE
     _ensure_data_dir()
     if os.path.exists(filepath):
-        with open(filepath, "r") as f:
-            _PORTFOLIO = json.load(f)
+        try:
+            with open(filepath, "r") as f:
+                _PORTFOLIO = json.load(f)
+        except (json.JSONDecodeError, PermissionError, OSError) as exc:
+            logger.error("Failed to load portfolio from %s: %s", filepath, exc)
+            _PORTFOLIO = {
+                "books": {b: [] for b in BOOKS},
+                "trade_history": [],
+                "risk_limits": deepcopy(DEFAULT_RISK_LIMITS),
+            }
     else:
         create_sample_portfolio()
     return _PORTFOLIO

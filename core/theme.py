@@ -31,21 +31,21 @@ COLORS = {
     "text_muted":       "#808080",   # dimmed labels
     "text_bright":      "#ffffff",   # pure white — section headers
 
-    # Bloomberg orange — selections, highlights, active items
-    "accent_blue":      "#ff8800",
-    "accent_cyan":      "#ff8800",
-    "accent_indigo":    "#ff8800",
+    # Bloomberg orange — primary accent for selections, highlights
+    "accent_blue":      "#4a9eff",   # cool blue — secondary data series
+    "accent_cyan":      "#00b4d8",   # cyan — tertiary data, info metrics
+    "accent_indigo":    "#7b8cde",   # muted indigo — quaternary series
 
-    # Secondary accent — same orange family
-    "accent_orange":    "#ff8800",
-    "accent_amber":     "#ff8800",
-    "accent_yellow":    "#ff8800",
+    # Secondary accent — warm family
+    "accent_orange":    "#ff8800",   # Bloomberg orange — primary accent
+    "accent_amber":     "#ffaa00",   # warm amber — secondary warm
+    "accent_yellow":    "#e6c619",   # muted gold — highlights
 
     # Semantic — Bloomberg green/red only
     "accent_green":     "#00cc66",   # positive P&L, vol decrease, long
     "accent_red":       "#ff3333",   # negative P&L, vol increase, short
-    "accent_purple":    "#ff8800",   # map to orange
-    "accent_teal":      "#ff8800",
+    "accent_purple":    "#a78bfa",   # soft purple — distinct category
+    "accent_teal":      "#2dd4bf",   # teal — distinct category
     "accent_pink":      "#ff3333",
     "accent_lime":      "#00cc66",
     "accent_rose":      "#ff3333",
@@ -96,7 +96,7 @@ CHART_TEMPLATE = {
             "#d4d4d4",   # silver
             "#808080",   # gray
             "#ffaa33",   # light orange
-            "#88ff88",   # light green
+            "#1565c0",   # cold blue
         ],
         "hovermode": "closest",
         "hoverlabel": {
@@ -131,9 +131,14 @@ TITLE_DEFAULTS = {"font": {"color": "#ffffff", "size": 13}}
 
 
 def no_data_fig(height=300, msg="NO DATA"):
-    """Return an empty Plotly figure with a centered 'NO DATA' annotation."""
+    """Return a polished empty Plotly figure with skeleton grid lines and centered label."""
     import plotly.graph_objects as go
     fig = go.Figure()
+    # Add faux grid lines to give skeleton chart appearance
+    for y in [0.2, 0.4, 0.6, 0.8]:
+        fig.add_shape(type="line", x0=0, x1=1, y0=y, y1=y,
+                      xref="paper", yref="paper",
+                      line=dict(color="#0d0d1a", width=1))
     fig.update_layout(
         paper_bgcolor="#000000", plot_bgcolor="#000000",
         xaxis=dict(visible=False), yaxis=dict(visible=False),
@@ -141,11 +146,22 @@ def no_data_fig(height=300, msg="NO DATA"):
         margin=dict(l=20, r=20, t=20, b=20),
         annotations=[dict(
             text=msg, xref="paper", yref="paper", x=0.5, y=0.5,
-            showarrow=False, font=dict(size=14, color="#808080",
+            showarrow=False, font=dict(size=11, color="#333355",
                                         family="'JetBrains Mono', monospace"),
         )],
     )
     return fig
+
+
+def skeleton_chart(height=300, label="LOADING"):
+    """Return an HTML skeleton placeholder with shimmer animation for loading states."""
+    from dash import html
+    return html.Div(className="skeleton-chart", style={"height": f"{height}px"}, children=[
+        html.Div(className="skeleton-grid", children=[
+            html.Div(className="skeleton-grid-line") for _ in range(5)
+        ]),
+        html.Div(label, className="skeleton-label"),
+    ])
 
 
 def chart_layout(**overrides):

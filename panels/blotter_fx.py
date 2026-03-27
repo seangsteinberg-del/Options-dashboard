@@ -126,7 +126,7 @@ _EXECUTE_BTN_STYLE = {
     "fontWeight": "800",
     "letterSpacing": "2px",
     "marginTop": "18px",
-    "boxShadow": f"0 6px 20px rgba(16,185,129,0.4)",
+    "boxShadow": f"0 6px 20px rgba(255,136,0,0.25)",
     "border": f"1px solid {COLORS['accent_green']}",
 }
 
@@ -252,7 +252,7 @@ def layout():
                                     "fontWeight": "700", "fontFamily": "monospace",
                                     "padding": "8px 12px",
                                     "backgroundColor": COLORS["bg_input"],
-                                    "borderRadius": "8px",
+                                    "borderRadius": "0px",
                                     "border": f"1px solid {COLORS['border']}"}),
                 ]),
 
@@ -524,7 +524,7 @@ def register_callbacks(app):
                 exec_msg = f"FILLED  {pair} {tenor} {K:.5g} {side.upper()}"
                 exec_style = {**exec_style, "color": COLORS["accent_green"]}
             except Exception as exc:
-                exec_msg = f"REJECTED  {str(exc)[:60]}"
+                exec_msg = f"REJECTED  {str(exc)[:120]}"
                 exec_style = {**exec_style, "color": COLORS["accent_red"]}
 
         # ── Build Execution Log Table ───────────────────────────
@@ -629,9 +629,9 @@ def register_callbacks(app):
                 plot_bgcolor=tpl["plot_bgcolor"],
                 font=tpl["font"],
                 margin=dict(l=60, r=20, t=45, b=50),
-                xaxis=dict(gridcolor="rgba(30,42,69,0.5)",
+                xaxis=dict(gridcolor="rgba(34,34,64,0.5)",
                            tickfont=dict(size=9)),
-                yaxis=dict(title="Notional", gridcolor="rgba(30,42,69,0.5)"),
+                yaxis=dict(title="Notional", gridcolor="rgba(34,34,64,0.5)"),
                 legend=dict(font=dict(size=9), orientation="h",
                             yanchor="bottom", y=1.02, xanchor="center", x=0.5),
                 hoverlabel=tpl["hoverlabel"],
@@ -659,7 +659,7 @@ def register_callbacks(app):
                 go.Scatter(x=times, y=cum_prems, mode="lines",
                            line=dict(color=COLORS["accent_cyan"], width=2),
                            fill="tozeroy",
-                           fillcolor="rgba(6,182,212,0.06)",
+                           fillcolor="rgba(255,136,0,0.06)",
                            name="Cumulative",
                            hovertemplate="%{x}<br>Cumulative: %{y:,.0f}<extra></extra>"),
                 row=1, col=1,
@@ -687,8 +687,8 @@ def register_callbacks(app):
                 showlegend=False,
                 hoverlabel=tpl["hoverlabel"],
             )
-            prem_fig.update_xaxes(gridcolor="rgba(30,42,69,0.5)")
-            prem_fig.update_yaxes(gridcolor="rgba(30,42,69,0.5)")
+            prem_fig.update_xaxes(gridcolor="rgba(34,34,64,0.5)")
+            prem_fig.update_yaxes(gridcolor="rgba(34,34,64,0.5)")
 
             # ── Flow Analytics: Activity Timeline ───────────────────
             activity_fig = go.Figure()
@@ -719,8 +719,8 @@ def register_callbacks(app):
                 plot_bgcolor=tpl["plot_bgcolor"],
                 font=tpl["font"],
                 margin=dict(l=60, r=20, t=45, b=40),
-                xaxis=dict(gridcolor="rgba(30,42,69,0.5)", title="Time"),
-                yaxis=dict(gridcolor="rgba(30,42,69,0.5)", title="Notional"),
+                xaxis=dict(gridcolor="rgba(34,34,64,0.5)", title="Time"),
+                yaxis=dict(gridcolor="rgba(34,34,64,0.5)", title="Notional"),
                 legend=dict(font=dict(size=9), orientation="h",
                             yanchor="bottom", y=1.02, xanchor="center", x=0.5),
                 hoverlabel=tpl["hoverlabel"],

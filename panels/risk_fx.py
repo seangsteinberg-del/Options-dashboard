@@ -232,11 +232,19 @@ def layout():
         dcc.Store(id="fxrisk-init-flag", data=False),
         dcc.Store(id="fxrisk-selected-pair", data=None),
         dcc.Interval(id="fxrisk-interval", interval=210_000, n_intervals=0),
+        # Hidden deep-link buttons (rendered dynamically in click-detail, placeholders for Dash)
+        html.Div([
+            html.Button(id="fxrisk-deeplink-volsurface", style={"display": "none"}),
+            html.Button(id="fxrisk-deeplink-trade", style={"display": "none"}),
+        ], style={"display": "none"}),
 
         # ---- 8 KPI Stat Boxes ----
         html.Div(id="fxrisk-stat-boxes", className="stat-row", style={
             "marginBottom": SECTION_GAP,
         }),
+
+        # ---- Morning Risk Report + Breach Alerts ----
+        html.Div(id="fxrisk-morning-report", style={"marginBottom": SECTION_GAP}),
 
         # ---- Risk Limits Configuration ----
         html.Div([
@@ -329,7 +337,7 @@ def layout():
             html.Div([
                 html.Div([
                     html.Div([
-                        html.Div("VaR DISTRIBUTION (10K SIMULATIONS)", style=CARD_HEADER_STYLE),
+                        html.Div("VaR DISTRIBUTION (2K SIMULATIONS)", style=CARD_HEADER_STYLE),
                         html.Button("CSV", id="fxrisk-csv-var", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="fxrisk-var-dist", config={"displayModeBar": False}),
                     ], style={"flex": "3", "minWidth": "500px"}),
@@ -629,6 +637,7 @@ def register_callbacks(app):
             Output("fxrisk-stat-boxes", "children"),
             Output("fxrisk-position-table", "children"),
             Output("fxrisk-init-flag", "data"),
+            Output("fxrisk-morning-report", "children"),
         ],
         [
             Input("fxrisk-interval", "n_intervals"),
@@ -653,7 +662,7 @@ def register_callbacks(app):
         if len(positions) == 0:
             empty_msg = html.Div("No positions loaded.", style={
                 "color": COLORS["text_muted"], "padding": "20px"})
-            return [empty_msg], empty_msg, True
+            return [empty_msg], empty_msg, True, html.Div()
 
         spots, rates, vol_surfaces = _load_market_data()
 
@@ -736,33 +745,122 @@ def register_callbacks(app):
                 ], style=_make_stat_style(color))
             )
 
-        # Breach warning banner
+        # Breach warning banner with flash animation
         if n_breaches > 0:
             breach_details = [b for b in breaches if b["severity"] in ("BREACH", "CRITICAL")]
-            breach_text = " | ".join(
-                f"{b.get('metric', '?').upper()}: {b.get('current', '?')} vs limit {b.get('limit', '?')}"
-                for b in breach_details[:4]
-            )
-            stat_boxes.insert(0, html.Div(
-                f"\u26A0 LIMIT BREACH: {breach_text}",
+            breach_items = []
+            for b in breach_details[:6]:
+                metric = b.get("metric", "?").replace("_", " ").upper()
+                current = b.get("current", 0)
+                limit_val = b.get("limit", 0)
+                util = b.get("utilization", 0) * 100
+                sev = b.get("severity", "BREACH")
+                sev_color = COLORS["accent_red"] if sev == "CRITICAL" else COLORS["accent_orange"]
+                breach_items.append(html.Div([
+                    html.Span(f"{metric}", style={"color": sev_color, "fontWeight": "700"}),
+                    html.Span(f"  {_fmt_usd(current)} / {_fmt_usd(limit_val)}"
+                              f"  ({util:.0f}%)", style={"color": "#808080"}),
+                ], style={"fontSize": "9px", "fontFamily": "'JetBrains Mono', monospace",
+                          "padding": "2px 0"}))
+            stat_boxes.insert(0, html.Div(breach_items,
+                className="breach-alert",
                 style={
-                    "backgroundColor": "rgba(255,51,51,0.12)",
-                    "border": "1px solid #ff3333",
-                    "color": "#ff3333",
-                    "padding": "6px 12px",
-                    "fontFamily": "'JetBrains Mono', monospace",
-                    "fontSize": "10px",
-                    "fontWeight": "700",
-                    "letterSpacing": "0.5px",
-                    "width": "100%",
-                    "marginBottom": GAP,
+                    "backgroundColor": "rgba(255,51,51,0.08)",
+                    "padding": "8px 12px",
+                    "width": "100%", "marginBottom": GAP,
                 },
             ))
 
         # Build position table
         pos_table = _build_position_table(positions, spots, rates, vol_surfaces)
 
-        return stat_boxes, pos_table, True
+        # ── Morning Risk Report ──
+        n_positions = sum(1 for p in positions if p.get("status") == "open")
+        pairs_exposed = list(risk.get("by_pair", {}).keys())
+        top_vega_pair = max(risk.get("by_pair", {}).items(),
+                           key=lambda x: abs(x[1].get("vega", 0)),
+                           default=("N/A", {"vega": 0}))
+        top_delta_pair = max(risk.get("by_pair", {}).items(),
+                            key=lambda x: abs(x[1].get("delta", 0)),
+                            default=("N/A", {"delta": 0}))
+
+        morning_report = html.Div([
+            html.Div([
+                # Portfolio Summary card
+                html.Div(className="risk-report-card", style={"flex": "1", "minWidth": "200px"},
+                         children=[
+                    html.H4("PORTFOLIO SUMMARY"),
+                    html.Div(className="risk-report-metric", children=[
+                        html.Span("Positions", className="label"),
+                        html.Span(str(n_positions), className="value"),
+                    ]),
+                    html.Div(className="risk-report-metric", children=[
+                        html.Span("Pairs Exposed", className="label"),
+                        html.Span(str(len(pairs_exposed)), className="value"),
+                    ]),
+                    html.Div(className="risk-report-metric", children=[
+                        html.Span("Unrealized P&L", className="label"),
+                        html.Span(_fmt_usd(unreal_pnl), className="value",
+                                  style={"color": _pnl_color(unreal_pnl)}),
+                    ]),
+                    html.Div(className="risk-report-metric", children=[
+                        html.Span("Daily Theta", className="label"),
+                        html.Span(_fmt_usd(totals.get("theta", 0)), className="value",
+                                  style={"color": _pnl_color(totals.get("theta", 0))}),
+                    ]),
+                ]),
+                # Top Exposures card
+                html.Div(className="risk-report-card", style={"flex": "1", "minWidth": "200px"},
+                         children=[
+                    html.H4("TOP EXPOSURES"),
+                    html.Div(className="risk-report-metric", children=[
+                        html.Span("Largest Vega", className="label"),
+                        html.Span(f"{top_vega_pair[0]}  {_fmt_usd(top_vega_pair[1].get('vega', 0))}",
+                                  className="value"),
+                    ]),
+                    html.Div(className="risk-report-metric", children=[
+                        html.Span("Largest Delta", className="label"),
+                        html.Span(f"{top_delta_pair[0]}  {_fmt_usd(top_delta_pair[1].get('delta', 0))}",
+                                  className="value"),
+                    ]),
+                    html.Div(className="risk-report-metric", children=[
+                        html.Span("Net Vega", className="label"),
+                        html.Span(_fmt_usd(totals.get("vega", 0)), className="value"),
+                    ]),
+                    html.Div(className="risk-report-metric", children=[
+                        html.Span("Net Gamma", className="label"),
+                        html.Span(_fmt_usd(totals.get("gamma", 0)), className="value"),
+                    ]),
+                ]),
+                # Risk Limits card
+                html.Div(className="risk-report-card", style={"flex": "1", "minWidth": "200px"},
+                         children=[
+                    html.H4("RISK LIMITS"),
+                    html.Div(className="risk-report-metric", children=[
+                        html.Span("VaR 95% (1d)", className="label"),
+                        html.Span(_fmt_usd(var_95), className="value",
+                                  style={"color": "#ff3333"}),
+                    ]),
+                    html.Div(className="risk-report-metric", children=[
+                        html.Span("CVaR 95%", className="label"),
+                        html.Span(_fmt_usd(cvar_95), className="value",
+                                  style={"color": "#ff3333"}),
+                    ]),
+                    html.Div(className="risk-report-metric", children=[
+                        html.Span("Limit Breaches", className="label"),
+                        html.Span(str(n_breaches), className="value",
+                                  style={"color": "#ff3333" if n_breaches > 0 else "#00cc66"}),
+                    ]),
+                    html.Div(className="risk-report-metric", children=[
+                        html.Span("Delta Util %", className="label"),
+                        html.Span(f"{abs(totals.get('delta', 0)) / max(custom_limits.get('max_total_delta', 1), 1) * 100:.0f}%",
+                                  className="value"),
+                    ]),
+                ]),
+            ], style={"display": "flex", "gap": GAP, "flexWrap": "wrap"}),
+        ])
+
+        return stat_boxes, pos_table, True, morning_report
 
     # -----------------------------------------------------------------------
     # 2. Greeks tab callback
@@ -867,7 +965,7 @@ def register_callbacks(app):
                 colorbar=dict(
                     title=dict(text="|Vega|", font=dict(color=COLORS["text_secondary"], size=10)),
                     tickfont=dict(color=COLORS["text_muted"], size=9),
-                    bgcolor="rgba(0,0,0,0)",
+                    thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
                 ),
                 hovertemplate="<b>%{y}</b> / %{x}<br>Vega: %{text}<extra></extra>",
                 text=[[f"{v:+,.0f}" for v in row] for row in z_vals],
@@ -978,15 +1076,15 @@ def register_callbacks(app):
         tenor = _BUCKET_TO_TENOR.get(bucket, "3M")
 
         # --- Fetch analytics for the clicked cell ---
-        try:
-            pct_info = vol_percentile(pair, tenor, "ATM")
+        pct_info = vol_percentile(pair, tenor, "ATM")
+        if pct_info is not None:
             pct_val = _ordinal(pct_info['percentile'])
             pct_color = (
                 COLORS["accent_red"] if pct_info["percentile"] > 80
                 else COLORS["accent_green"] if pct_info["percentile"] < 20
                 else COLORS["accent_cyan"]
             )
-        except Exception:
+        else:
             pct_val = "N/A"
             pct_color = COLORS["text_muted"]
 
@@ -1046,11 +1144,18 @@ def register_callbacks(app):
             "padding": GAP,
             "marginTop": GAP,
             "marginBottom": GAP,
-            "borderRadius": "6px",
+            "borderRadius": "0px",
             "display": "block",
         }
 
-        return [header, stat_row], detail_style, pair
+        nav_row = html.Div([
+            html.Button("OPEN VOL SURFACE", id="fxrisk-deeplink-volsurface",
+                        n_clicks=0, className="deeplink-btn"),
+            html.Button("TRADE THIS PAIR", id="fxrisk-deeplink-trade",
+                        n_clicks=0, className="deeplink-btn"),
+        ], style={"display": "flex", "gap": "8px", "marginTop": GAP})
+
+        return [header, stat_row, nav_row], detail_style, pair
 
     # -----------------------------------------------------------------------
     # 4. VaR tab callback
@@ -1160,6 +1265,7 @@ def register_callbacks(app):
                     marker_color=COLORS["accent_red"],
                     opacity=0.6,
                     name=f"CVaR Region ({cvar_95:,.0f})",
+                    hovertemplate="P&L: %{x:,.0f}<br>Count: %{y}<extra>CVaR Tail</extra>",
                 ))
 
             # VaR 95% line
@@ -1462,7 +1568,8 @@ def register_callbacks(app):
                 ("Gamma P&L", attr.get("gamma_pnl", 0)),
                 ("Vega P&L", attr.get("vega_pnl", 0)),
                 ("Theta", attr.get("theta_pnl", 0)),
-                ("Rho", attr.get("rho_pnl", 0)),
+                ("Vanna", attr.get("vanna_pnl", 0)),
+                ("Volga", attr.get("volga_pnl", 0)),
                 ("Unexplained", attr.get("unexplained", 0)),
             ]
             total_pnl = attr.get("total_pnl", 0)
@@ -1518,7 +1625,8 @@ def register_callbacks(app):
                 pair_components[pair]["Vega"] += entry.get("vega_pnl", 0)
                 pair_components[pair]["Theta"] += entry.get("theta_pnl", 0)
                 pair_components[pair]["Other"] += (
-                    entry.get("rho_pnl", 0) + entry.get("unexplained", 0)
+                    entry.get("rho_pnl", 0) + entry.get("vanna_pnl", 0)
+                    + entry.get("volga_pnl", 0) + entry.get("unexplained", 0)
                 )
 
             sorted_pairs = sorted(pair_pnl.keys(), key=lambda p: pair_pnl[p])
@@ -1905,14 +2013,15 @@ def register_callbacks(app):
                            COLORS["accent_green"] if total_pnl > 0 else COLORS["accent_red"]),
             _make_stat_box("HEDGES", str(n_hedges), COLORS["accent_orange"]),
             _make_stat_box("FREQUENCY", freq, "#d4d4d4"),
-            _make_stat_box("PAIR", pair, "#ff8800"),
+            _make_stat_box("PAIR", pair, COLORS["accent_orange"]),
         ]
 
         # PnL chart
         fig_pnl = go.Figure()
         fig_pnl.add_trace(go.Scatter(y=cum_pnl, mode="lines",
-                                      line=dict(color="#ff8800", width=1.5), name="Cumulative P&L"))
-        fig_pnl.add_hline(y=0, line=dict(color="#808080", width=0.5, dash="dash"))
+                                      line=dict(color=COLORS["accent_orange"], width=1.5), name="Cumulative P&L",
+                                      hovertemplate="Day %{x}<br>Cum P&L: %{y:,.0f}<extra></extra>"))
+        fig_pnl.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dash"))
         fig_pnl.update_layout(**chart_layout(height=CHART_SM,
                                margin=dict(l=60, r=20, t=30, b=20),
                                title=dict(text="CUMULATIVE HEDGE P&L", font=dict(size=10, color="#808080"))))
@@ -1920,8 +2029,9 @@ def register_callbacks(app):
         # Gamma PnL chart
         fig_gamma = go.Figure()
         fig_gamma.add_trace(go.Scatter(y=gamma_pnl, mode="lines",
-                                        line=dict(color="#00cc66", width=1.5), name="Gamma P&L"))
-        fig_gamma.add_hline(y=0, line=dict(color="#808080", width=0.5, dash="dash"))
+                                        line=dict(color=COLORS["accent_green"], width=1.5), name="Gamma P&L",
+                                        hovertemplate="Day %{x}<br>Gamma P&L: %{y:,.0f}<extra></extra>"))
+        fig_gamma.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dash"))
         fig_gamma.update_layout(**chart_layout(height=CHART_SM,
                                  margin=dict(l=60, r=20, t=30, b=20),
                                  title=dict(text="GAMMA P&L", font=dict(size=10, color="#808080"))))
@@ -1972,7 +2082,7 @@ def register_callbacks(app):
         if closes_t is None or closes_1 is None or closes_2 is None or \
            len(closes_t) < 30 or len(closes_1) < 30 or len(closes_2) < 30:
             stats = [
-                _make_stat_box("TARGET", target, "#ff8800"),
+                _make_stat_box("TARGET", target, COLORS["accent_orange"]),
                 _make_stat_box("STATUS", "NO DATA", "#808080"),
             ]
             return stats, no_data_fig(height=CHART_SM, msg="NO HISTORICAL DATA FOR CROSS-HEDGE")
@@ -1995,7 +2105,7 @@ def register_callbacks(app):
         r_sq = round(max(0, 1 - np.var(residual) / max(np.var(ret_t), 1e-20)), 2)
 
         stats = [
-            _make_stat_box("TARGET", target, "#ff8800"),
+            _make_stat_box("TARGET", target, COLORS["accent_orange"]),
             _make_stat_box(f"\u03b2 ({h1})", f"{beta_1:.2f}", "#d4d4d4"),
             _make_stat_box(f"\u03b2 ({h2})", f"{beta_2:.2f}", "#d4d4d4"),
             _make_stat_box("R\u00b2", f"{r_sq:.2f}", "#00cc66" if r_sq > 0.7 else "#ff3333"),
@@ -2007,10 +2117,12 @@ def register_callbacks(app):
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(y=target_pnl, mode="lines",
-                                  line=dict(color="#ff3333", width=1.5), name=f"{target} unhedged"))
+                                  line=dict(color=COLORS["accent_red"], width=1.5), name=f"{target} unhedged",
+                                  hovertemplate="Day %{x}<br>P&L: %{y:,.4f}<extra>Unhedged</extra>"))
         fig.add_trace(go.Scatter(y=hedged_pnl, mode="lines",
-                                  line=dict(color="#00cc66", width=1.5), name="Cross-hedged"))
-        fig.add_hline(y=0, line=dict(color="#808080", width=0.5, dash="dash"))
+                                  line=dict(color=COLORS["accent_green"], width=1.5), name="Cross-hedged",
+                                  hovertemplate="Day %{x}<br>P&L: %{y:,.4f}<extra>Hedged</extra>"))
+        fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dash"))
         fig.update_layout(**chart_layout(height=CHART_SM,
                           margin=dict(l=60, r=20, t=30, b=20),
                           title=dict(text=f"CROSS-HEDGE: {target} via {h1}+{h2}",
@@ -2134,6 +2246,26 @@ def register_callbacks(app):
                     return export_csv(fig, "Risk", labels[i])
                 return no_update
         return no_update
+
+    # ── Deep-link navigation from risk panel ─────────────────────────
+    @app.callback(
+        [Output("cmd-nav-result", "data", allow_duplicate=True),
+         Output("global-pair", "data", allow_duplicate=True)],
+        [Input("fxrisk-deeplink-volsurface", "n_clicks"),
+         Input("fxrisk-deeplink-trade", "n_clicks")],
+        State("fxrisk-selected-pair", "data"),
+        prevent_initial_call=True,
+    )
+    def risk_deeplink(n_vs, n_tr, pair):
+        ctx = callback_context
+        if not ctx.triggered or not pair:
+            raise PreventUpdate
+        btn = ctx.triggered[0]["prop_id"].split(".")[0]
+        if btn == "fxrisk-deeplink-volsurface":
+            return {"workspace": "vol", "tab": "vol-surface-fx"}, pair
+        elif btn == "fxrisk-deeplink-trade":
+            return {"workspace": "trade", "tab": "structure-builder"}, pair
+        raise PreventUpdate
 
 
 def _make_stat_box(label, value, color):

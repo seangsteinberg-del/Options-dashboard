@@ -1053,7 +1053,7 @@ def _build_ev_sensitivity_chart(ev_data):
     fig.add_trace(go.Scatter(
         x=rv_pct, y=ev_arr, mode="lines",
         line=dict(color=COLORS["accent_cyan"], width=2),
-        fill="tozeroy", fillcolor="rgba(6,182,212,0.06)",
+        fill="tozeroy", fillcolor="rgba(255,136,0,0.04)",
         hovertemplate="RV: %{x:.1f}%<br>EV: %{y:+,.0f}<extra></extra>",
     ))
     fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=1, dash="dot"))
@@ -1079,8 +1079,8 @@ def _build_ev_sensitivity_chart(ev_data):
         paper_bgcolor=tpl["paper_bgcolor"], plot_bgcolor=tpl["plot_bgcolor"],
         font=tpl["font"], margin=dict(l=50, r=15, t=30, b=30),
         hoverlabel=tpl["hoverlabel"], height=200, showlegend=False,
-        xaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
-        yaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+        xaxis=dict(gridcolor="#1a1a30"),
+        yaxis=dict(gridcolor="#1a1a30"),
     )
     return dcc.Graph(figure=fig, config={"displayModeBar": False},
                      style={"marginBottom": "8px"})
@@ -1255,14 +1255,14 @@ def _build_efficiency_table(processed_legs, agg, ev_data, preset_name, view_info
                         "VEGA/$", "γ/θ", "POP", "EV"]])
     body = []
     for r in rows:
-        highlight = {"backgroundColor": "rgba(6,182,212,0.08)"} if r["is_current"] else {}
+        highlight = {"backgroundColor": "rgba(255,136,0,0.06)"} if r["is_current"] else {}
         be_str = f"{r['be']:.5f}" if r["be"] else "—"
         ev_str = f"{r['ev']:+,.0f}" if r["ev"] != 0 else "—"
         body.append(html.Tr([
             html.Td(r["name"], style={**cell_s, **highlight,
                      "fontWeight": "700" if r["is_current"] else "400",
                      "color": COLORS["accent_cyan"] if r["is_current"] else COLORS["text_primary"]}),
-            html.Td(f"{r['premium']:.1f}", style={**cell_s, **highlight, "textAlign": "right"}),
+            html.Td(f"{r['premium']:.1f}p", style={**cell_s, **highlight, "textAlign": "right"}),
             html.Td(f"{r['max_loss']:,.0f}" if r["max_loss"] > -1e12 else "UNLIM",
                      style={**cell_s, **highlight, "textAlign": "right"}),
             html.Td(be_str, style={**cell_s, **highlight, "textAlign": "right"}),
@@ -1525,8 +1525,8 @@ def _build_compare_overlay(snapshot_a, snapshot_b, notional):
         font=tpl["font"], margin=dict(l=55, r=15, t=35, b=35),
         legend=dict(font=dict(color=COLORS["text_secondary"], size=10), bgcolor="rgba(0,0,0,0)"),
         hoverlabel=tpl["hoverlabel"], height=340,
-        xaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
-        yaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+        xaxis=dict(gridcolor="#1a1a30"),
+        yaxis=dict(gridcolor="#1a1a30"),
     )
 
     # Metrics comparison table
@@ -1624,9 +1624,9 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
     move_1s = S * atm_vol * np.sqrt(max(T, 1e-4))
     move_2s = 2.0 * move_1s
     fig.add_vrect(x0=S - move_2s, x1=S + move_2s,
-                  fillcolor="rgba(59,130,246,0.03)", line_width=0)
+                  fillcolor="rgba(255,136,0,0.02)", line_width=0)
     fig.add_vrect(x0=S - move_1s, x1=S + move_1s,
-                  fillcolor="rgba(59,130,246,0.06)", line_width=0,
+                  fillcolor="rgba(255,136,0,0.04)", line_width=0,
                   annotation_text="1\u03c3", annotation_position="top left",
                   annotation_font=dict(color=COLORS["text_muted"], size=9))
 
@@ -1634,17 +1634,20 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
     fig.add_trace(go.Scatter(
         x=spot_range, y=pnl_expiry, mode="lines",
         name="At Expiry", line=dict(color=COLORS["accent_cyan"], width=3),
-        fill="tozeroy", fillcolor="rgba(6,182,212,0.06)",
+        fill="tozeroy", fillcolor="rgba(255,136,0,0.04)",
+        hovertemplate="Spot: %{x:.4f}<br>P&L: %{y:,.0f}<extra>At Expiry</extra>",
     ))
     # T*0.5
     fig.add_trace(go.Scatter(
         x=spot_range, y=pnl_half, mode="lines",
         name="T\u00d70.5", line=dict(color=COLORS["accent_purple"], width=2, dash="dash"),
+        hovertemplate="Spot: %{x:.4f}<br>P&L: %{y:,.0f}<extra>T\u00d70.5</extra>",
     ))
     # Today (thin)
     fig.add_trace(go.Scatter(
         x=spot_range, y=pnl_now, mode="lines",
         name="Today", line=dict(color=COLORS["accent_orange"], width=1.5, dash="dot"),
+        hovertemplate="Spot: %{x:.4f}<br>P&L: %{y:,.0f}<extra>Today</extra>",
     ))
 
     fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=1, dash="dot"))
@@ -1690,15 +1693,17 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
                 x=pdf_x_impl, y=pdf_y_impl * scale, mode="lines", fill="tozeroy",
                 fillcolor="rgba(255,136,0,0.06)",
                 line=dict(color="rgba(255,136,0,0.35)", width=1.5),
-                name="Implied Density", showlegend=True, hoverinfo="skip",
+                name="Implied Density", showlegend=True,
+                hovertemplate="Spot: %{x:.4f}<br>Density: %{y:.2f}<extra>Implied</extra>",
             ))
 
         # Historical density (purple) — gap between curves shows edge
         if pdf_y_hist is not None and pdf_x_hist is not None and len(pdf_x_hist) > 0:
             fig.add_trace(go.Scatter(
                 x=pdf_x_hist, y=pdf_y_hist * scale, mode="lines",
-                line=dict(color="rgba(168,85,247,0.50)", width=1.5, dash="dash"),
-                name="Historical Density", showlegend=True, hoverinfo="skip",
+                line=dict(color="rgba(128,128,128,0.50)", width=1.5, dash="dash"),
+                name="Historical Density", showlegend=True,
+                hovertemplate="Spot: %{x:.4f}<br>Density: %{y:.2f}<extra>Historical</extra>",
             ))
 
     fig.update_layout(
@@ -1709,8 +1714,8 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
         legend=dict(font=dict(color=COLORS["text_secondary"], size=10),
                     bgcolor="rgba(0,0,0,0)", x=0.01, y=0.99),
         hoverlabel=tpl["hoverlabel"],
-        xaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
-        yaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+        xaxis=dict(gridcolor="#1a1a30"),
+        yaxis=dict(gridcolor="#1a1a30"),
         height=380,
     )
     return fig
@@ -1768,12 +1773,14 @@ def _build_greeks_chart(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
                 x=spot_grid, y=leg_vals * notional, mode="lines",
                 line=dict(color=color, width=1, dash="dot"),
                 name=f"L{li+1} {gname}", showlegend=False, opacity=0.4,
+                hovertemplate=f"Leg {li+1}<br>Spot: %{{x:.4f}}<br>{gname}: %{{y:,.0f}}<extra></extra>",
             ), row=row, col=col)
 
         fig.add_trace(go.Scatter(
             x=spot_grid, y=total_vals * notional, mode="lines",
             line=dict(color=color, width=2.5),
             name=gname.capitalize(), showlegend=False,
+            hovertemplate=f"Spot: %{{x:.4f}}<br>{gname.capitalize()}: %{{y:,.0f}}<extra>Total</extra>",
         ), row=row, col=col)
 
         fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dot"),
@@ -1784,8 +1791,8 @@ def _build_greeks_chart(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
         font=tpl["font"], margin=dict(l=50, r=15, t=35, b=30),
         hoverlabel=tpl["hoverlabel"], height=380,
     )
-    fig.update_xaxes(gridcolor="rgba(30,42,69,0.5)")
-    fig.update_yaxes(gridcolor="rgba(30,42,69,0.5)")
+    fig.update_xaxes(gridcolor="#1a1a30")
+    fig.update_yaxes(gridcolor="#1a1a30")
     for ann in fig.layout.annotations:
         ann.font.color = COLORS["text_primary"]
         ann.font.size = 11
@@ -1830,6 +1837,7 @@ def _build_pnl_heatmap(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
         colorbar=dict(
             title=dict(text="P&L", font=dict(color=COLORS["text_secondary"])),
             tickfont=dict(color=COLORS["text_secondary"]),
+            thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
         ),
         hovertemplate="Spot: %{x}<br>Vol: %{y}<br>P&L: %{z:,.0f}<extra></extra>",
     ))
@@ -2002,7 +2010,7 @@ def _build_premium_table(processed_legs, pair, pip_size, notional):
 
     table = html.Table(
         [html.Thead(header_row), html.Tbody(rows)],
-        style={"width": "100%", "borderCollapse": "collapse", "borderRadius": "8px"},
+        style={"width": "100%", "borderCollapse": "collapse", "borderRadius": "0px"},
     )
     return html.Div([
         html.Div("PREMIUM & COST TABLE",
@@ -2044,9 +2052,9 @@ def _build_smile_chart(processed_legs, vol_surface, tenor):
     # Overlay tenors: 1M (dotted), current (solid), 1Y (dotted)
     overlay_tenors = []
     if "1M" in vol_surface and "1M" != tenor:
-        overlay_tenors.append(("1M", "dot", 1.5, "rgba(148,163,184,0.5)"))
+        overlay_tenors.append(("1M", "dot", 1.5, "rgba(128,128,128,0.4)"))
     if "1Y" in vol_surface and "1Y" != tenor:
-        overlay_tenors.append(("1Y", "dot", 1.0, "rgba(148,163,184,0.35)"))
+        overlay_tenors.append(("1Y", "dot", 1.0, "rgba(128,128,128,0.25)"))
 
     for ot, dash_style, width, color in overlay_tenors:
         smile_pts = _extract_smile(vol_surface, ot)
@@ -2066,6 +2074,7 @@ def _build_smile_chart(processed_legs, vol_surface, tenor):
             line=dict(color=COLORS["accent_orange"], width=3),
             marker=dict(size=7, color=COLORS["accent_orange"]),
             name=tenor,
+            hovertemplate="%{x}: %{y:.2f}%<extra>" + tenor + "</extra>",
         ))
         # Horizontal ATM reference line
         atm_val = current_smile[2]
@@ -2097,6 +2106,7 @@ def _build_smile_chart(processed_legs, vol_surface, tenor):
                         line=dict(width=2, color="white")),
             name=f"L{lg['leg_num']} {cp_str[0].upper()} {delta_abs:.0%}",
             showlegend=True,
+            hovertemplate=f"Leg {lg['leg_num']}: {vol_pct:.2f}%<br>{cp_str} {delta_abs:.0%} delta<extra></extra>",
         ))
 
     fig.update_layout(
@@ -2107,8 +2117,8 @@ def _build_smile_chart(processed_legs, vol_surface, tenor):
         legend=dict(font=dict(color=COLORS["text_secondary"], size=10),
                     bgcolor="rgba(0,0,0,0)", x=0.01, y=0.99),
         hoverlabel=tpl["hoverlabel"],
-        xaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
-        yaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+        xaxis=dict(gridcolor="#1a1a30"),
+        yaxis=dict(gridcolor="#1a1a30"),
         height=380,
     )
     return fig
@@ -2142,6 +2152,7 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
         x=[f"{v:+.0%}" for v in vol_shifts], y=pnl_vol, mode="lines",
         line=dict(color=COLORS["accent_purple"], width=2),
         name="Vol Sensitivity", showlegend=False,
+        hovertemplate="Vol shift: %{x}<br>P&L: %{y:,.0f}<extra></extra>",
     ), row=1, col=1)
     fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dot"), row=1, col=1)
 
@@ -2160,6 +2171,7 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
         x=dte_points, y=pnl_time, mode="lines",
         line=dict(color=COLORS["accent_orange"], width=2),
         name="Time Decay", showlegend=False,
+        hovertemplate="DTE: %{x:.0f}d<br>P&L: %{y:,.0f}<extra></extra>",
     ), row=2, col=1)
     fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dot"), row=2, col=1)
 
@@ -2178,6 +2190,7 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
         x=[f"{m:+.1%}" for m in spot_moves], y=pnl_spot, mode="lines",
         line=dict(color=COLORS["accent_cyan"], width=2),
         name="Spot Sensitivity", showlegend=False,
+        hovertemplate="Spot move: %{x}<br>P&L: %{y:,.0f}<extra></extra>",
     ), row=3, col=1)
     fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dot"), row=3, col=1)
 
@@ -2186,8 +2199,8 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
         font=tpl["font"], margin=dict(l=55, r=15, t=35, b=30),
         hoverlabel=tpl["hoverlabel"], height=380,
     )
-    fig.update_xaxes(gridcolor="rgba(30,42,69,0.5)")
-    fig.update_yaxes(gridcolor="rgba(30,42,69,0.5)")
+    fig.update_xaxes(gridcolor="#1a1a30")
+    fig.update_yaxes(gridcolor="#1a1a30")
     for ann in fig.layout.annotations:
         ann.font.color = COLORS["text_primary"]
         ann.font.size = 11
@@ -2268,7 +2281,7 @@ def _make_leg_row(idx, cp="call", side="buy", delta=0.25, ratio=1, tenor_mult=1.
                         "minWidth": "65px", "textAlign": "center", "paddingTop": "8px"}),
     ], id={"type": "stb-leg-row", "index": idx}, style={
         "display": display, "gap": "6px", "alignItems": "center",
-        "padding": "5px 8px", "borderRadius": "6px",
+        "padding": "5px 8px", "borderRadius": "0px",
         "backgroundColor": row_bg,
         "marginBottom": "3px",
     })
@@ -2381,7 +2394,7 @@ def layout():
                                 style={**BUTTON_STYLE, "fontSize": "10px",
                                        "padding": "7px 16px", "flex": "1",
                                        "backgroundColor": COLORS["accent_red"],
-                                       "boxShadow": "0 4px 14px rgba(239,68,68,0.3)"}),
+                                       "boxShadow": "0 4px 14px rgba(255,51,51,0.25)"}),
                 ], style={"display": "flex", "gap": "8px", "marginTop": "10px"}),
 
                 # ── Quick Actions ──────────────────────────────────────
@@ -2568,7 +2581,7 @@ def layout():
 def register_callbacks(app):
     # -- Preset selector updates num-legs and leg configs --
     @app.callback(
-        [Output("stb-num-legs", "value")] +
+        [Output("stb-num-legs", "value", allow_duplicate=True)] +
         [Output({"type": "stb-cp", "index": i}, "value") for i in range(MAX_LEGS)] +
         [Output({"type": "stb-side", "index": i}, "value") for i in range(MAX_LEGS)] +
         [Output({"type": "stb-delta", "index": i}, "value") for i in range(MAX_LEGS)] +
@@ -2644,13 +2657,13 @@ def register_callbacks(app):
             if i < num_legs:
                 styles.append({
                     "display": "flex", "gap": "6px", "alignItems": "center",
-                    "padding": "5px 8px", "borderRadius": "6px",
+                    "padding": "5px 8px", "borderRadius": "0px",
                     "backgroundColor": row_bg, "marginBottom": "3px",
                 })
             else:
                 styles.append({
                     "display": "none", "gap": "6px", "alignItems": "center",
-                    "padding": "5px 8px", "borderRadius": "6px",
+                    "padding": "5px 8px", "borderRadius": "0px",
                     "backgroundColor": row_bg, "marginBottom": "3px",
                 })
         return styles
@@ -2767,31 +2780,87 @@ def register_callbacks(app):
                 # Build store: list of best structure names per suggestion
                 sugg_store_data = [sg["structures"][0] for sg in sugg_list[:4]
                                    if sg.get("structures")]
-                sugg_items = []
+
+                # --- Regime badge with signal percentile context ---
+                regime_items = []
                 if regime:
-                    sugg_items.append(html.Span(
-                        f"REGIME: {regime['name']}",
-                        style={"color": regime["color"], "fontSize": "10px",
-                               "fontWeight": "700", "fontFamily": "'JetBrains Mono', monospace",
-                               "marginRight": "16px"}))
+                    regime_items.append(html.Div([
+                        html.Span(regime["name"], style={
+                            "color": regime["color"], "fontWeight": "900",
+                            "fontSize": "11px", "letterSpacing": "1px",
+                        }),
+                    ], style={
+                        "backgroundColor": f"{regime['color']}15",
+                        "border": f"1px solid {regime['color']}44",
+                        "padding": "3px 10px", "marginRight": "8px",
+                    }))
+
+                # Signal percentile mini-bars
+                if signal_pcts:
+                    pct_names = {"atm_pct": "ATM", "rr_pct": "SKEW",
+                                 "bf_pct": "WINGS", "ivrv_pct": "IV-RV"}
+                    for key, label in pct_names.items():
+                        val = signal_pcts.get(key, 50)
+                        bar_color = ("#1565c0" if val < 25 else "#ff8800"
+                                     if val > 75 else "#333355")
+                        regime_items.append(html.Div([
+                            html.Span(f"{label} ", style={"color": "#555555",
+                                      "fontSize": "8px", "letterSpacing": "0.5px"}),
+                            html.Div(style={
+                                "width": "40px", "height": "4px", "backgroundColor": "#111122",
+                                "display": "inline-block", "verticalAlign": "middle",
+                                "position": "relative", "marginRight": "4px",
+                            }, children=[
+                                html.Div(style={
+                                    "width": f"{max(2, val)}%", "height": "100%",
+                                    "backgroundColor": bar_color,
+                                }),
+                            ]),
+                            html.Span(f"{val:.0f}", style={
+                                "color": bar_color, "fontSize": "9px", "fontWeight": "700",
+                            }),
+                        ], style={"display": "inline-flex", "alignItems": "center",
+                                  "gap": "2px", "marginRight": "10px"}))
+
+                # Suggestion action buttons with rationale
+                sugg_btns = []
                 for si, sg in enumerate(sugg_list[:4]):
                     best_struct = sg["structures"][0] if sg["structures"] else None
-                    sugg_items.append(html.Button(
-                        f"\u2022 {sg['signal']}  \u2192 {best_struct or '?'}",
-                        id={"type": "stb-suggestion-btn", "index": si},
-                        n_clicks=0,
-                        style={"color": sg["color"], "fontSize": "9px", "background": "none",
-                               "border": f"1px solid {sg['color']}33", "borderRadius": "2px",
-                               "cursor": "pointer", "padding": "2px 8px",
-                               "fontFamily": "'JetBrains Mono', monospace",
-                               "marginRight": "6px"}))
-                if sugg_items:
-                    suggestions_div = html.Div(sugg_items, style={
-                        "display": "flex", "flexWrap": "wrap", "alignItems": "center",
-                        "padding": "6px 10px", "gap": "4px",
+                    rationale = sg.get("rationale", "")
+                    sugg_btns.append(html.Div([
+                        html.Button(
+                            [html.Span(f"{sg['signal']} ", style={"fontWeight": "700"}),
+                             html.Span(f"\u2192 {best_struct or '?'}",
+                                       style={"color": "#d4d4d4"})],
+                            id={"type": "stb-suggestion-btn", "index": si},
+                            n_clicks=0,
+                            style={"color": sg["color"], "fontSize": "9px", "background": "none",
+                                   "border": f"1px solid {sg['color']}44",
+                                   "cursor": "pointer", "padding": "3px 10px",
+                                   "fontFamily": "'JetBrains Mono', monospace",
+                                   "width": "100%", "textAlign": "left"}),
+                        html.Div(rationale, style={
+                            "fontSize": "8px", "color": "#555555", "paddingLeft": "10px",
+                            "marginTop": "1px", "fontFamily": "'JetBrains Mono', monospace",
+                        }) if rationale else None,
+                    ], style={"flex": "1", "minWidth": "180px"}))
+
+                all_items = []
+                if regime_items:
+                    all_items.append(html.Div(regime_items, style={
+                        "display": "flex", "alignItems": "center", "flexWrap": "wrap",
+                        "marginBottom": "6px",
+                    }))
+                if sugg_btns:
+                    all_items.append(html.Div(sugg_btns, style={
+                        "display": "flex", "gap": "6px", "flexWrap": "wrap",
+                    }))
+
+                if all_items:
+                    suggestions_div = html.Div(all_items, style={
+                        "padding": "8px 10px",
                         "backgroundColor": COLORS["bg_secondary"],
                         "borderLeft": f"3px solid {regime.get('color', COLORS['text_muted'])}",
-                        "borderRadius": "2px",
                     })
             except Exception:
                 logger.debug("Suggestions failed for %s", pair)
@@ -3334,8 +3403,8 @@ def register_callbacks(app):
         return snap, f"B: {snap['label']}"
 
     @app.callback(
-        [Output("stb-compare-section", "style"),
-         Output("stb-compare-section", "children")],
+        [Output("stb-compare-section", "style", allow_duplicate=True),
+         Output("stb-compare-section", "children", allow_duplicate=True)],
         Input("stb-compare-toggle", "n_clicks"),
         [State("stb-compare-a", "data"),
          State("stb-compare-b", "data"),

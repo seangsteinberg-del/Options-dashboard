@@ -183,7 +183,7 @@ def _generate_backtest_data(pair, lookback_years):
     # RR25 and BF25: fetch from Bloomberg historical vol, fallback to synthetic estimate
     rr25_raw = get_fx_historical_vol(pair, "1M", "25D_RR", actual_days)
     bf25_raw = get_fx_historical_vol(pair, "1M", "25D_BF", actual_days)
-    if len(rr25_raw) >= common_len // 2:
+    if rr25_raw is not None and len(rr25_raw) >= common_len // 2:
         rr25_arr = np.array(rr25_raw, dtype=float)[-common_len:]
         if len(rr25_arr) < common_len:
             rr25_arr = np.pad(rr25_arr, (common_len - len(rr25_arr), 0), mode='edge')
@@ -193,7 +193,7 @@ def _generate_backtest_data(pair, lookback_years):
         log_ret = np.diff(np.log(spot_series), prepend=np.log(spot_series[0]))
         rr25_series = pd.Series(log_ret).rolling(22, min_periods=5).mean().fillna(0).values * -500
         rr25_series = np.clip(rr25_series, -3.0, 3.0)
-    if len(bf25_raw) >= common_len // 2:
+    if bf25_raw is not None and len(bf25_raw) >= common_len // 2:
         bf25_arr = np.array(bf25_raw, dtype=float)[-common_len:]
         if len(bf25_arr) < common_len:
             bf25_arr = np.pad(bf25_arr, (common_len - len(bf25_arr), 0), mode='edge')
@@ -222,6 +222,13 @@ def _generate_backtest_data(pair, lookback_years):
         "r_f": rf_series,
     }, index=dates[-common_len:])
 
+    # Compute realised vol (short and long windows) for regime detection
+    log_ret = np.log(df["spot"] / df["spot"].shift(1))
+    df["rv_20d"] = log_ret.rolling(20, min_periods=10).std() * np.sqrt(252) * 100
+    df["rv_60d"] = log_ret.rolling(60, min_periods=30).std() * np.sqrt(252) * 100
+    df["rv_20d"] = df["rv_20d"].ffill().bfill()
+    df["rv_60d"] = df["rv_60d"].ffill().bfill()
+
     return df
 
 
@@ -229,15 +236,42 @@ def _generate_backtest_data(pair, lookback_years):
 # Backtest Engine
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _compute_regime(atm_vol):
-    """Classify vol regime from ATM level."""
-    if atm_vol > 14.0:
-        return "HIGH"
+def _compute_regime(atm_vol, rv_short=None, rv_long=None):
+    """Classify vol regime using ATM level + RV trend (matching fx_analytics.vol_regime_detect logic).
+
+    Parameters
+    ----------
+    atm_vol : float — current ATM implied vol (annualised %)
+    rv_short : float | None — short-window (20d) realised vol
+    rv_long : float | None — long-window (60d) realised vol
+
+    Returns regime string. When RV data is available, the regime can be
+    upgraded/downgraded based on the short/long RV ratio:
+      ratio > 1.25 → vol accelerating → upgrade one level
+      ratio < 0.75 → vol decelerating → downgrade one level
+    """
+    # Base regime from ATM IV level (FX-calibrated thresholds)
+    levels = ["LOW", "NORMAL", "ELEVATED", "HIGH", "CRISIS"]
+    if atm_vol > 20.0:
+        base_idx = 4  # CRISIS
+    elif atm_vol > 14.0:
+        base_idx = 3  # HIGH
     elif atm_vol > 10.0:
-        return "ELEVATED"
+        base_idx = 2  # ELEVATED
     elif atm_vol > 6.0:
-        return "NORMAL"
-    return "LOW"
+        base_idx = 1  # NORMAL
+    else:
+        base_idx = 0  # LOW
+
+    # Adjust based on RV trend if available
+    if rv_short is not None and rv_long is not None and rv_long > 1e-6:
+        ratio = rv_short / rv_long
+        if ratio > 1.25:
+            base_idx = min(base_idx + 1, 4)   # vol accelerating → upgrade
+        elif ratio < 0.75:
+            base_idx = max(base_idx - 1, 0)   # vol decelerating → downgrade
+
+    return levels[base_idx]
 
 
 def _compute_stats_from_trades(trades_list):
@@ -538,7 +572,9 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
         bf_entry = row_entry["bf25"]
         rd_entry = row_entry["r_d"]
         rf_entry = row_entry["r_f"]
-        regime = _compute_regime(vol_entry)
+        rv_short = row_entry.get("rv_20d") if "rv_20d" in row_entry.index else None
+        rv_long = row_entry.get("rv_60d") if "rv_60d" in row_entry.index else None
+        regime = _compute_regime(vol_entry, rv_short, rv_long)
 
         # Build strategy legs at entry
         legs = _build_strategy_legs(
@@ -765,7 +801,7 @@ def layout():
                         "fontSize": "13px",
                         "letterSpacing": "2px",
                         "background": f"linear-gradient(135deg, {COLORS['accent_blue']}, {COLORS['accent_purple']})",
-                        "boxShadow": f"0 6px 20px rgba(59,130,246,0.4)",
+                        "boxShadow": f"0 6px 20px rgba(255,136,0,0.25)",
                     },
                 ),
 
@@ -786,7 +822,7 @@ def layout():
                         ],
                         value="ALL",
                         clearable=False,
-                        style={"backgroundColor": "#0d1117", "color": "#d4d4d4"},
+                        style={"backgroundColor": "#000000", "color": "#d4d4d4"},
                     ),
                 ], style={"marginTop": "12px"}),
 
@@ -862,8 +898,8 @@ def _build_equity_curve(results):
     fig.add_trace(
         go.Scatter(
             x=x, y=dd, fill="tozeroy",
-            fillcolor="rgba(239,68,68,0.12)",
-            line=dict(color="rgba(239,68,68,0.4)", width=1),
+            fillcolor="rgba(255,51,51,0.10)",
+            line=dict(color="rgba(255,51,51,0.35)", width=1),
             name="Drawdown",
             hovertemplate="DD: %{y:,.0f}<extra></extra>",
         ),
@@ -901,9 +937,9 @@ def _build_equity_curve(results):
         margin=dict(l=50, r=20, t=45, b=30),
     ))
     fig.update_yaxes(title_text="Cumulative P&L", secondary_y=False,
-                     gridcolor="rgba(30,42,69,0.5)", tickfont=dict(size=9))
+                     gridcolor="#1a1a30", tickfont=dict(size=9))
     fig.update_yaxes(title_text="Drawdown", secondary_y=True,
-                     gridcolor="rgba(30,42,69,0.3)", tickfont=dict(size=9))
+                     gridcolor="#1a1a30", tickfont=dict(size=9))
     fig.update_xaxes(title_text="Trade #", tickfont=dict(size=9))
 
     return fig
@@ -1117,7 +1153,7 @@ def _build_trade_log(results):
         filter_action="native",
         style_table={
             "overflowX": "auto",
-            "borderRadius": "10px",
+            "borderRadius": "0px",
             "border": f"1px solid {COLORS['border_subtle']}",
         },
         style_header={
@@ -1324,7 +1360,7 @@ def register_callbacks(app):
 
         if not trades:
             empty_fig = go.Figure()
-            empty_fig.update_layout(paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+            empty_fig.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000",
                                     font=dict(color="#808080"))
             return (
                 [html.Div("No trades in selected regime", style={"color": "#808080"})],

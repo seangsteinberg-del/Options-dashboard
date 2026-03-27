@@ -112,7 +112,7 @@ _PRICE_BTN = {
     "fontSize": "14px",
     "letterSpacing": "2px",
     "background": f"linear-gradient(135deg, {COLORS['accent_blue']}, {COLORS['accent_purple']})",
-    "boxShadow": "0 6px 20px rgba(59,130,246,0.4)",
+    "boxShadow": "0 6px 20px rgba(255,136,0,0.25)",
 }
 
 
@@ -168,7 +168,7 @@ def layout():
 
                 # Auto-filled market data (read-only display)
                 html.Div(id="exo-mkt-display", style={
-                    "padding": "8px 12px", "borderRadius": "8px",
+                    "padding": "8px 12px", "borderRadius": "0px",
                     "backgroundColor": COLORS["bg_secondary"],
                     "border": f"1px solid {COLORS['border_subtle']}",
                     "fontSize": "11px", "fontFamily": "monospace",
@@ -375,8 +375,8 @@ def _empty_fig(title=""):
         title=dict(text=title, font=dict(color=COLORS["text_primary"], size=14)),
         paper_bgcolor=TPL["paper_bgcolor"], plot_bgcolor=TPL["plot_bgcolor"],
         font=TPL["font"], margin=dict(l=50, r=20, t=45, b=40),
-        xaxis=dict(gridcolor="rgba(30,42,69,0.5)", visible=False),
-        yaxis=dict(gridcolor="rgba(30,42,69,0.5)", visible=False),
+        xaxis=dict(gridcolor="#1a1a30", visible=False),
+        yaxis=dict(gridcolor="#1a1a30", visible=False),
         hoverlabel=TPL["hoverlabel"],
     )
     fig.add_annotation(text="Press PRICE to compute", xref="paper", yref="paper",
@@ -422,6 +422,7 @@ def _get_mkt(pair, tenor):
         atm_vol_raw = float(vol_surf)
     # Convert vol-points (e.g. 8.5) to decimal (0.085) for GK pricing
     atm_vol = atm_vol_raw / 100.0 if atm_vol_raw > 1.0 else atm_vol_raw
+    atm_vol = max(atm_vol, 0.001)  # guard against zero/negative vol
     return spot, r_d, r_f, atm_vol, T
 
 
@@ -978,27 +979,31 @@ def _build_payoff_chart(product, S, T, rd, rf, sigma, cp, K,
             x=spot_range, y=payoff, mode="lines",
             name="Expiry Payoff",
             line=dict(color=COLORS["accent_cyan"], width=2.5),
-            fill="tozeroy", fillcolor="rgba(6,182,212,0.08)"))
+            fill="tozeroy", fillcolor="rgba(255,136,0,0.06)",
+            hovertemplate="Spot: %{x:.5f}<br>Payoff: %{y:.4f}<extra>Expiry</extra>"))
 
     elif product == "digital":
         payoff = np.where(cp * (spot_range - K) > 0, payout, 0.0)
         fig.add_trace(go.Scatter(
             x=spot_range, y=payoff, mode="lines",
-            name="Digital Payoff", line=dict(color=COLORS["accent_cyan"], width=3, shape="hv")))
+            name="Digital Payoff", line=dict(color=COLORS["accent_cyan"], width=3, shape="hv"),
+            hovertemplate="Spot: %{x:.5f}<br>Payoff: %{y:.4f}<extra>Digital</extra>"))
 
     elif product in ("one_touch", "dnt"):
         payoff = np.ones_like(spot_range) * payout
         fig.add_trace(go.Scatter(
             x=spot_range, y=payoff, mode="lines",
-            name="Max Payout", line=dict(color=COLORS["accent_cyan"], width=2, dash="dash")))
+            name="Max Payout", line=dict(color=COLORS["accent_cyan"], width=2, dash="dash"),
+            hovertemplate="Spot: %{x:.5f}<br>Payout: %{y:.4f}<extra>Max</extra>"))
 
     elif product == "range_accrual":
         in_range = (spot_range >= r_low) & (spot_range <= r_high)
         payoff = np.where(in_range, payout, 0.0)
         fig.add_trace(go.Scatter(
             x=spot_range, y=payoff, mode="lines",
-            name="Accrual Zone", line=dict(color=COLORS["accent_cyan"], width=2.5)))
-        fig.add_vrect(x0=r_low, x1=r_high, fillcolor="rgba(6,182,212,0.1)", line_width=0)
+            name="Accrual Zone", line=dict(color=COLORS["accent_cyan"], width=2.5),
+            hovertemplate="Spot: %{x:.5f}<br>Payoff: %{y:.4f}<extra>Accrual</extra>"))
+        fig.add_vrect(x0=r_low, x1=r_high, fillcolor="rgba(255,136,0,0.08)", line_width=0)
 
     elif product == "tarf":
         gain = np.maximum(spot_range / K - 1, 0.0)
@@ -1008,13 +1013,15 @@ def _build_payoff_chart(product, S, T, rd, rf, sigma, cp, K,
             x=spot_range, y=payoff, mode="lines",
             name="Per-Fixing P&L",
             line=dict(color=COLORS["accent_cyan"], width=2.5),
-            fill="tozeroy", fillcolor="rgba(6,182,212,0.08)"))
+            fill="tozeroy", fillcolor="rgba(255,136,0,0.06)",
+            hovertemplate="Spot: %{x:.5f}<br>P&L: %{y:.4f}<extra>TARF</extra>"))
 
     else:
         payoff = np.maximum(cp * (spot_range - K), 0.0)
         fig.add_trace(go.Scatter(
             x=spot_range, y=payoff, mode="lines",
-            name="Payoff", line=dict(color=COLORS["accent_cyan"], width=2.5)))
+            name="Payoff", line=dict(color=COLORS["accent_cyan"], width=2.5),
+            hovertemplate="Spot: %{x:.5f}<br>Payoff: %{y:.4f}<extra>Expiry</extra>"))
 
     # Overlay levels
     for lbl, val in levels.items():
@@ -1041,8 +1048,8 @@ def _build_payoff_chart(product, S, T, rd, rf, sigma, cp, K,
         xaxis_title="Spot at Expiry", yaxis_title="Payoff",
         paper_bgcolor=TPL["paper_bgcolor"], plot_bgcolor=TPL["plot_bgcolor"],
         font=TPL["font"], margin=dict(l=50, r=20, t=45, b=40),
-        xaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
-        yaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+        xaxis=dict(gridcolor="#1a1a30"),
+        yaxis=dict(gridcolor="#1a1a30"),
         legend=dict(font=dict(color=COLORS["text_secondary"]), bgcolor="rgba(0,0,0,0)"),
         hoverlabel=TPL["hoverlabel"],
     )
@@ -1077,17 +1084,29 @@ def _build_mc_chart(product, S, T, rd, rf, sigma, levels):
         if lower_lev and np.min(path) <= lower_lev:
             hit = True
 
-        color = "rgba(239,68,68,0.4)" if hit else "rgba(6,182,212,0.35)"
+        color = "rgba(255,51,51,0.35)" if hit else "rgba(255,136,0,0.25)"
         fig.add_trace(go.Scatter(
             x=t_axis, y=path, mode="lines",
             line=dict(width=1.2, color=color),
             showlegend=False, hoverinfo="skip"))
 
+    # Percentile bands
+    p10 = np.percentile(paths, 10, axis=0)
+    p90 = np.percentile(paths, 90, axis=0)
+    fig.add_trace(go.Scatter(
+        x=t_axis, y=p90, mode="lines", line=dict(width=0),
+        showlegend=False, hoverinfo="skip"))
+    fig.add_trace(go.Scatter(
+        x=t_axis, y=p10, mode="lines", line=dict(width=0),
+        fill="tonexty", fillcolor="rgba(255,136,0,0.08)",
+        name="10-90 %ile", hoverinfo="skip"))
+
     # Mean path
     mean_path = paths.mean(axis=0)
     fig.add_trace(go.Scatter(
         x=t_axis, y=mean_path, mode="lines",
-        name="Mean Path", line=dict(color=COLORS["accent_cyan"], width=2.5)))
+        name="Mean Path", line=dict(color=COLORS["accent_cyan"], width=2.5),
+        hovertemplate="T: %{x:.3f}y<br>Mean: %{y:.5f}<extra></extra>"))
 
     # Draw level lines
     for lbl, val in levels.items():
@@ -1107,8 +1126,8 @@ def _build_mc_chart(product, S, T, rd, rf, sigma, levels):
         xaxis_title="Time (years)", yaxis_title="Spot",
         paper_bgcolor=TPL["paper_bgcolor"], plot_bgcolor=TPL["plot_bgcolor"],
         font=TPL["font"], margin=dict(l=50, r=20, t=45, b=40),
-        xaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
-        yaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+        xaxis=dict(gridcolor="#1a1a30"),
+        yaxis=dict(gridcolor="#1a1a30"),
         legend=dict(font=dict(color=COLORS["text_secondary"]), bgcolor="rgba(0,0,0,0)"),
         hoverlabel=TPL["hoverlabel"],
     )
@@ -1292,7 +1311,8 @@ def _build_spot_sensitivity(product, S, T, rd, rf, sigma, cp, K, B,
         x=spot_grid, y=prices, mode="lines+markers",
         name="Exotic Price",
         line=dict(color=COLORS["accent_cyan"], width=2.5),
-        marker=dict(size=3)))
+        marker=dict(size=3),
+        hovertemplate="Spot: %{x:.5f}<br>Price: %{y:.6f}<extra></extra>"))
 
     fig.add_vline(x=S, line=dict(color=COLORS["accent_blue"], width=1, dash="dash"),
                   annotation_text=f"Spot={S:.5f}",
@@ -1304,8 +1324,8 @@ def _build_spot_sensitivity(product, S, T, rd, rf, sigma, cp, K, B,
         xaxis_title="Spot Level", yaxis_title="Option Price",
         paper_bgcolor=TPL["paper_bgcolor"], plot_bgcolor=TPL["plot_bgcolor"],
         font=TPL["font"], margin=dict(l=50, r=20, t=45, b=40),
-        xaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
-        yaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+        xaxis=dict(gridcolor="#1a1a30"),
+        yaxis=dict(gridcolor="#1a1a30"),
         legend=dict(font=dict(color=COLORS["text_secondary"]), bgcolor="rgba(0,0,0,0)"),
         hoverlabel=TPL["hoverlabel"],
     )
@@ -1337,7 +1357,8 @@ def _build_vol_sensitivity(product, S, T, rd, rf, sigma, cp, K, B,
         x=[v * 100 for v in vol_grid], y=prices, mode="lines+markers",
         name="Exotic Price",
         line=dict(color=COLORS["accent_purple"], width=2.5),
-        marker=dict(size=3)))
+        marker=dict(size=3),
+        hovertemplate="Vol: %{x:.1f}%<br>Price: %{y:.6f}<extra></extra>"))
 
     fig.add_vline(x=sigma * 100,
                   line=dict(color=COLORS["accent_blue"], width=1, dash="dash"),
@@ -1350,8 +1371,8 @@ def _build_vol_sensitivity(product, S, T, rd, rf, sigma, cp, K, B,
         xaxis_title="Implied Vol (%)", yaxis_title="Option Price",
         paper_bgcolor=TPL["paper_bgcolor"], plot_bgcolor=TPL["plot_bgcolor"],
         font=TPL["font"], margin=dict(l=50, r=20, t=45, b=40),
-        xaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
-        yaxis=dict(gridcolor="rgba(30,42,69,0.5)"),
+        xaxis=dict(gridcolor="#1a1a30"),
+        yaxis=dict(gridcolor="#1a1a30"),
         legend=dict(font=dict(color=COLORS["text_secondary"]), bgcolor="rgba(0,0,0,0)"),
         hoverlabel=TPL["hoverlabel"],
     )

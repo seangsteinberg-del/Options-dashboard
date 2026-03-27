@@ -1,9 +1,13 @@
 """CSV export utility for Plotly figures."""
 
+import logging
+import traceback
 from datetime import datetime
 import numpy as np
 import pandas as pd
-from dash import dcc
+from dash import dcc, no_update
+
+logger = logging.getLogger(__name__)
 
 
 def figure_to_dataframe(fig_dict):
@@ -27,8 +31,11 @@ def figure_to_dataframe(fig_dict):
         t = next((tr for tr in traces if tr.get("type") in ("heatmap", "surface", "heatmapgl")), None)
         if t is None:
             return pd.DataFrame()
-        z = t.get("z", [])
-        x = t.get("x", list(range(len(z[0]) if z else 0)))
+        z = t.get("z") or []
+        if not z or not isinstance(z, (list, np.ndarray)) or len(z) == 0:
+            return pd.DataFrame()
+        first_row = z[0] if isinstance(z[0], (list, np.ndarray)) else []
+        x = t.get("x", list(range(len(first_row))))
         y = t.get("y", list(range(len(z))))
         return pd.DataFrame(z, index=y, columns=x)
 
@@ -75,6 +82,12 @@ def figure_to_dataframe(fig_dict):
     if not frames:
         return pd.DataFrame()
 
+    # Ensure consistent x-column dtype across traces to avoid int/float merge warnings
+    all_numeric = all(pd.api.types.is_numeric_dtype(f["x"]) for f in frames)
+    if all_numeric:
+        for f in frames:
+            f["x"] = f["x"].astype(float)
+
     df = frames[0]
     for f in frames[1:]:
         df = df.merge(f, on="x", how="outer")
@@ -96,9 +109,15 @@ def export_csv(fig_dict, panel_name, chart_type):
     -------
     dict suitable for dcc.Download data property
     """
-    df = figure_to_dataframe(fig_dict)
-    if df.empty:
-        return None
-    ts = datetime.now().strftime("%Y%m%d_%H%M")
-    filename = f"{panel_name}_{chart_type}_{ts}.csv"
-    return dcc.send_data_frame(df.to_csv, filename)
+    try:
+        df = figure_to_dataframe(fig_dict)
+        if df.empty:
+            logger.warning("CSV export: empty DataFrame for %s/%s", panel_name, chart_type)
+            return no_update
+        ts = datetime.now().strftime("%Y%m%d_%H%M")
+        filename = f"{panel_name}_{chart_type}_{ts}.csv"
+        csv_string = df.to_csv()
+        return dcc.send_string(csv_string, filename)
+    except Exception:
+        traceback.print_exc()
+        return no_update

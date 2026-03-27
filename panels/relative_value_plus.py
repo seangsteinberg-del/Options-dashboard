@@ -84,11 +84,15 @@ def _chart_layout(**overrides):
 
 def _empty_fig(title=""):
     fig = go.Figure()
+    for y in [0.2, 0.4, 0.6, 0.8]:
+        fig.add_shape(type="line", x0=0, x1=1, y0=y, y1=y,
+                      xref="paper", yref="paper", line=dict(color="#0d0d1a", width=1))
     fig.update_layout(**_chart_layout(
         height=220, margin=dict(l=20, r=10, t=30, b=10),
         title=dict(text=title, font=dict(size=10, color="#808080")),
-        annotations=[dict(text="No data", x=0.5, y=0.5, showarrow=False,
-                          font=dict(color="#808080", size=11), xref="paper", yref="paper")]))
+        annotations=[dict(text="LOADING", x=0.5, y=0.5, showarrow=False,
+                          font=dict(color="#333355", size=10, family="'JetBrains Mono', monospace"),
+                          xref="paper", yref="paper")]))
     return fig
 
 
@@ -126,23 +130,26 @@ def _build_vol_spread_ts(pair_a, pair_b, tenor, lookback):
 
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         fig.add_trace(go.Scatter(x=x, y=a, mode="lines",
-                                 line=dict(color="#ff8800", width=2.5), name=pair_a), secondary_y=False)
+                                 line=dict(color="#ff8800", width=2.5), name=pair_a,
+                                 hovertemplate="Day %{x}<br>" + pair_a + ": %{y:.2f}v<extra></extra>"), secondary_y=False)
         fig.add_trace(go.Scatter(x=x, y=b, mode="lines",
-                                 line=dict(color="#ff3333", width=1.5), name=pair_b), secondary_y=False)
+                                 line=dict(color="#ff3333", width=1.5), name=pair_b,
+                                 hovertemplate="Day %{x}<br>" + pair_b + ": %{y:.2f}v<extra></extra>"), secondary_y=False)
         fig.add_trace(go.Scatter(x=x, y=a, mode="lines", line=dict(width=0), showlegend=False),
                       secondary_y=False)
         fig.add_trace(go.Scatter(x=x, y=b, mode="lines", line=dict(width=0),
-                                 fill="tonexty", fillcolor="rgba(128,0,128,0.1)", showlegend=False),
+                                 fill="tonexty", fillcolor="rgba(255,136,0,0.06)", showlegend=False),
                       secondary_y=False)
 
         # Z-score line
         if min_len > 20:
             z_line = (spread - np.mean(spread)) / max(np.std(spread), 1e-6)
             fig.add_trace(go.Scatter(x=x, y=z_line, mode="lines",
-                                     line=dict(color="#ffffff", width=1, dash="dash"), name="Z-Score"),
+                                     line=dict(color="#ffffff", width=1, dash="dash"), name="Z-Score",
+                                     hovertemplate="Day %{x}<br>Z-Score: %{y:+.2f}\u03c3<extra></extra>"),
                           secondary_y=True)
             fig.add_hline(y=2, line=dict(color="#ff3333", width=0.5, dash="dot"), secondary_y=True)
-            fig.add_hline(y=-2, line=dict(color="#60a5fa", width=0.5, dash="dot"), secondary_y=True)
+            fig.add_hline(y=-2, line=dict(color="#1565c0", width=0.5, dash="dot"), secondary_y=True)
 
         fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=50, t=30, b=20),
@@ -176,19 +183,27 @@ def _build_zscore_matrix(lookback):
 
         fig = go.Figure(go.Heatmap(
             z=z, x=HEATMAP_TENORS, y=ALL_PAIRS, text=text,
-            texttemplate="%{text}", textfont=dict(size=8),
-            colorscale=[[0, "#0044ff"], [0.5, "#ffffff"], [1, "#ff3333"]],
+            texttemplate="%{text}", textfont=dict(size=9, color="#c0c0c0"),
+            colorscale=[[0, "#1565c0"], [0.25, "#0a1628"],
+                        [0.50, "#0e0e0e"],
+                        [0.75, "#2a1200"], [1.0, "#ff3333"]],
             zmin=-3, zmax=3,
             hovertemplate="<b>%{y}</b> %{x}<br>Z: %{z:+.2f}<extra></extra>",
-            colorbar=dict(title="Z", tickfont=dict(size=8), len=0.5),
-            xgap=1, ygap=1,
+            colorbar=dict(
+                title=dict(text="Z", font=dict(size=9, color="#808080")),
+                tickfont=dict(size=8, color="#808080"),
+                len=0.6, thickness=10, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
+            ),
+            xgap=2, ygap=2,
         ))
         fig.update_layout(**_chart_layout(height=CHART_LG,
                           margin=dict(l=65, r=60, t=30, b=20),
                           title=dict(text=f"ATM Z-SCORE MATRIX ({lookback}D)",
                                      font=dict(size=10, color="#808080")),
-                          yaxis=dict(autorange="reversed", tickfont=dict(size=8)),
-                          xaxis=dict(tickfont=dict(size=9))))
+                          yaxis=dict(autorange="reversed", tickfont=dict(size=8, color="#808080"),
+                                     showgrid=False),
+                          xaxis=dict(tickfont=dict(size=9, color="#808080"),
+                                     showgrid=False)))
         return fig
     except Exception:
         return _empty_fig("Z-SCORE MATRIX")
@@ -207,7 +222,8 @@ def _build_ivrv_panel(pair, tenor, lookback):
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=x, y=spread, mode="lines",
-                                 line=dict(color="#808080", width=1), name="IV-RV"))
+                                 line=dict(color="#808080", width=1), name="IV-RV",
+                                 hovertemplate="Day %{x}<br>IV-RV: %{y:+.2f}v<extra></extra>"))
         fig.add_trace(go.Scatter(x=x, y=[max(0, s) for s in spread], mode="lines",
                                  line=dict(width=0), showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=[0]*len(x), mode="lines", line=dict(width=0),
@@ -243,10 +259,12 @@ def _build_skew_scatter(pair_a, pair_b, tenor, lookback):
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=a[:-1], y=b[:-1], mode="markers",
                                  marker=dict(color="#808080", size=3, opacity=0.5),
-                                 name="History"))
+                                 name="History",
+                                 hovertemplate=pair_a + " RR: %{x:.2f}<br>" + pair_b + " RR: %{y:.2f}<extra>History</extra>"))
         fig.add_trace(go.Scatter(x=[a[-1]], y=[b[-1]], mode="markers",
                                  marker=dict(color="#ff3333", size=10, symbol="diamond"),
-                                 name="Current"))
+                                 name="Current",
+                                 hovertemplate=pair_a + " RR: %{x:.2f}<br>" + pair_b + " RR: %{y:.2f}<extra>Current</extra>"))
         if min_len > 5:
             slope, intercept, r, _, _ = linregress(a, b)
             x_line = np.linspace(a.min(), a.max(), 50)
@@ -353,10 +371,17 @@ def _build_corr_heatmap(window):
                 for j in range(n)] for i in range(n)]
     fig = go.Figure(go.Heatmap(
         z=z_data, x=labels, y=labels, text=text,
-        texttemplate="%{text}", textfont=dict(size=7),
-        colorscale="RdBu", zmin=-1, zmax=1,
-        xgap=1, ygap=1,
-        colorbar=dict(title="ρ", tickfont=dict(size=8), len=0.5),
+        texttemplate="%{text}", textfont=dict(size=8, color="#c0c0c0"),
+        colorscale=[[0, "#ff3333"], [0.35, "#1a0e0e"], [0.50, "#0e0e0e"],
+                    [0.65, "#0a1628"], [1.0, "#00cc66"]],
+        zmin=-1, zmax=1,
+        xgap=2, ygap=2,
+        hovertemplate="<b>%{x} vs %{y}</b><br>ρ = %{z:.3f}<extra></extra>",
+        colorbar=dict(
+            title=dict(text="ρ", font=dict(size=9, color="#808080")),
+            tickfont=dict(size=8, color="#808080"),
+            len=0.6, thickness=10, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
+        ),
     ))
     fig.update_layout(**_chart_layout(height=CHART_LG,
                       margin=dict(l=60, r=50, t=30, b=50),
@@ -389,7 +414,7 @@ def _build_regime_badges():
             color = "#d4d4d4"
 
         regime_colors = {"LOW": "#00cc66", "NORMAL": "#d4d4d4", "ELEVATED": "#ff8800",
-                         "HIGH": "#ff3333", "CRISIS": "#ff0000"}
+                         "HIGH": "#ff3333", "CRISIS": "#ff3333"}
         color = regime_colors.get(regime, color)
 
         badges.append(html.Div([
@@ -593,7 +618,8 @@ def _build_dxy_chart(lookback):
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=list(range(len(index))), y=index, mode="lines",
-                                 line=dict(color="#ff8800", width=2.5), name="DXY Proxy"))
+                                 line=dict(color="#ff8800", width=2.5), name="DXY Proxy",
+                                 hovertemplate="Day %{x}<br>DXY: %{y:.2f}<extra></extra>"))
         fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"DXY PROXY ({lookback}D)",
@@ -760,13 +786,15 @@ def _build_term_chart(pair, comp_pair=None):
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=labels, y=vols, mode="lines+markers",
                                  line=dict(color="#ff8800", width=2), marker=dict(size=5),
-                                 name=pair))
+                                 name=pair,
+                                 hovertemplate="%{x}: %{y:.2f}v<extra>" + pair + "</extra>"))
         if comp_pair and comp_pair != pair:
             surf2 = get_fx_vol_surface(comp_pair) or {}
             vols2 = [_extract_atm(surf2, t) for t in TERM_TENORS]
             fig.add_trace(go.Scatter(x=labels, y=vols2, mode="lines+markers",
                                      line=dict(color="#ffffff", width=1.5, dash="dash"),
-                                     marker=dict(size=4), name=comp_pair))
+                                     marker=dict(size=4), name=comp_pair,
+                                     hovertemplate="%{x}: %{y:.2f}v<extra>" + comp_pair + "</extra>"))
 
         fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=20),
@@ -807,10 +835,12 @@ def _build_fwd_vol(pair):
         fig.add_trace(go.Bar(x=tenors, y=fwd_vols, marker_color="#ff8800",
                               text=[f"{v:.1f}" for v in fwd_vols],
                               textposition="outside", textfont=dict(size=8),
-                              name="Forward Vol"))
+                              name="Forward Vol",
+                              hovertemplate="%{x}: %{y:.2f}v<extra>Forward</extra>"))
         fig.add_trace(go.Scatter(x=tenors, y=spot_vols, mode="lines+markers",
                                   line=dict(color="#ffffff", width=1.5, dash="dot"),
-                                  marker=dict(size=4), name="Spot Vol"))
+                                  marker=dict(size=4), name="Spot Vol",
+                                  hovertemplate="%{x}: %{y:.2f}v<extra>Spot</extra>"))
         fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"FORWARD VOL: {pair}",
@@ -843,11 +873,14 @@ def _build_calendar_spread(pair):
         pos_y = [s if s >= 0 else 0 for s in spread]
         neg_y = [s if s < 0 else 0 for s in spread]
         fig.add_trace(go.Bar(x=x, y=pos_y, marker_color="rgba(255,51,51,0.5)",
-                              name="Backwardation", showlegend=True))
-        fig.add_trace(go.Bar(x=x, y=neg_y, marker_color="rgba(96,165,250,0.5)",
-                              name="Contango", showlegend=True))
+                              name="Backwardation", showlegend=True,
+                              hovertemplate="Day %{x}<br>Backwardation: %{y:.2f}v<extra></extra>"))
+        fig.add_trace(go.Bar(x=x, y=neg_y, marker_color="rgba(21,101,192,0.5)",
+                              name="Contango", showlegend=True,
+                              hovertemplate="Day %{x}<br>Contango: %{y:.2f}v<extra></extra>"))
         fig.add_trace(go.Scatter(x=x, y=spread, mode="lines",
-                                  line=dict(color="#ff8800", width=2.5), name="1M-3M Spread"))
+                                  line=dict(color="#ff8800", width=2.5), name="1M-3M Spread",
+                                  hovertemplate="Day %{x}<br>Spread: %{y:+.2f}v<extra></extra>"))
         fig.add_hline(y=0, line_dash="dot", line_color="#444444", line_width=0.8)
         fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=20),
@@ -1121,13 +1154,13 @@ def register_callbacks(app):
             ],
             style_data_conditional=[
                 {"if": {"filter_query": '{direction} = "BUY VOL"', "column_id": "direction"},
-                 "color": "#60a5fa", "fontWeight": "bold"},
+                 "color": "#1565c0", "fontWeight": "bold"},
                 {"if": {"filter_query": '{direction} = "SELL VOL"', "column_id": "direction"},
                  "color": "#ff3333", "fontWeight": "bold"},
                 {"if": {"filter_query": "{composite} > 30", "column_id": "composite"},
                  "color": "#ff3333", "fontWeight": "bold"},
                 {"if": {"filter_query": "{composite} < -30", "column_id": "composite"},
-                 "color": "#60a5fa", "fontWeight": "bold"},
+                 "color": "#1565c0", "fontWeight": "bold"},
                 {"if": {"filter_query": '{confidence} = "HIGH"', "column_id": "confidence"},
                  "color": "#00cc66", "fontWeight": "bold"},
             ],

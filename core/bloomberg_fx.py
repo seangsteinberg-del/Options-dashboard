@@ -566,7 +566,7 @@ def get_fx_vol_point(pair: str, tenor: str = "1M",
         val = surface[best_tenor].get("atm")
         if val is not None:
             return val
-    return None
+    return 0.0
 
 
 def get_fx_rates(pair: str) -> dict:
@@ -788,11 +788,9 @@ def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
     cached, should_fetch = _cache_wait_or_claim(ck, "historical")
     if cached is not None:
         return cached.tail(days) if len(cached) > days else cached
-    if not _may_fetch() and should_fetch:
-        _cache_done(ck)
-        return pd.DataFrame()
     if not should_fetch:
         return pd.DataFrame()
+    # Allow Dash threads to fetch on cache miss even in cache-only mode
 
     if _HAS_EQUITY_BBG and is_connected():
         try:
@@ -818,6 +816,7 @@ def get_fx_historical_spot(pair: str, days: int = 252) -> pd.DataFrame:
             _cache_done(ck)
             return pd.DataFrame()
 
+    # No Bloomberg — return empty
     _cache_done(ck)
     return pd.DataFrame()
 
@@ -831,11 +830,10 @@ def get_fx_historical_vol(pair: str, tenor: str = "1M",
     cached, should_fetch = _cache_wait_or_claim(ck, "historical")
     if cached is not None:
         return cached.tail(days) if len(cached) > days else cached
-    if not _may_fetch() and should_fetch:
-        _cache_done(ck)
-        return pd.Series(dtype=float)
     if not should_fetch:
         return pd.Series(dtype=float)
+    # Allow Dash threads to fetch on cache miss even in cache-only mode —
+    # returning empty data is worse than a brief Bloomberg call delay
 
     if _HAS_EQUITY_BBG and is_connected():
         try:

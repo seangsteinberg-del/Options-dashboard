@@ -206,7 +206,7 @@ def vol_percentile_surface(pair: str, lookback: int = 252) -> pd.DataFrame:
     Returns DataFrame with tenors as rows, delta labels as columns.
     """
     tenors = ["1W", "2W", "1M", "2M", "3M", "6M", "9M", "1Y"]
-    metrics = ["10D_BF", "25D_RR", "ATM", "25D_RR", "10D_BF"]
+    metrics = ["10D_RR", "25D_BF", "ATM", "25D_RR", "10D_BF"]
     metric_names = ["10P", "25P", "ATM", "25C", "10C"]
 
     rows = []
@@ -227,7 +227,7 @@ def vol_zscore_surface(pair: str, lookback: int = 252) -> pd.DataFrame:
     Returns DataFrame with tenors as rows, delta labels as columns.
     """
     tenors = ["1W", "2W", "1M", "2M", "3M", "6M", "9M", "1Y"]
-    metrics = ["10D_BF", "25D_RR", "ATM", "25D_RR", "10D_BF"]
+    metrics = ["10D_RR", "25D_BF", "ATM", "25D_RR", "10D_BF"]
     metric_names = ["10P", "25P", "ATM", "25C", "10C"]
 
     rows = []
@@ -314,23 +314,23 @@ def vol_regime_detect(pair: str, short_window: int = 20,
 
     if atm_current > 20.0:
         regime = "CRISIS"
-        color = "#ef4444"
+        color = "#ff3333"
         description = "Crisis-level volatility — extreme dislocations, wide spreads"
     elif atm_current > 14.0:
         regime = "HIGH"
-        color = "#f97316"
+        color = "#ff8800"
         description = "High vol regime — significant risk events or repricing"
     elif atm_current > 10.0:
         regime = "ELEVATED"
-        color = "#f59e0b"
+        color = "#ffaa33"
         description = "Elevated volatility — above-average event risk"
     elif atm_current > 6.0:
         regime = "NORMAL"
-        color = "#3b82f6"
+        color = "#1565c0"
         description = "Normal trading range — standard market conditions"
     else:
         regime = "LOW"
-        color = "#10b981"
+        color = "#00cc66"
         description = "Low vol regime — carry-friendly, compressed risk premia"
 
     # Trend detection
@@ -366,15 +366,15 @@ def vol_regime_history(pair: str, lookback: int = 252) -> pd.DataFrame:
     records = []
     for i, v in enumerate(hist):
         if v > 20:
-            regime, color = "CRISIS", "#ef4444"
+            regime, color = "CRISIS", "#ff3333"
         elif v > 14:
-            regime, color = "HIGH", "#f97316"
+            regime, color = "HIGH", "#ff8800"
         elif v > 10:
-            regime, color = "ELEVATED", "#f59e0b"
+            regime, color = "ELEVATED", "#ffaa33"
         elif v > 6:
-            regime, color = "NORMAL", "#3b82f6"
+            regime, color = "NORMAL", "#1565c0"
         else:
-            regime, color = "LOW", "#10b981"
+            regime, color = "LOW", "#00cc66"
         records.append({"day": i, "vol": float(v), "regime": regime, "color": color})
 
     return pd.DataFrame(records)
@@ -537,6 +537,9 @@ def breakeven_vol(pair: str, tenor: str, days_to_expiry: int) -> dict:
     if atm_raw is None:
         return None
     atm_vol = atm_raw / 100.0
+    if atm_vol < 1e-6 or T < 1e-6:
+        return {"breakeven_vol": 0, "breakeven_daily_move": 0, "straddle_pct": 0,
+                "gamma_breakeven": 0, "theta_daily": 0}
 
     # Straddle premium as fraction of spot
     fwd = spot * np.exp((r_dom - r_for) * T)

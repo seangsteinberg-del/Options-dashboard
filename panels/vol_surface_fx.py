@@ -397,12 +397,13 @@ def chart_surface_3d(pair, sd, spot, r_dom, r_for, **kw):
         x=delta_grid_sorted * 100,
         y=sd["T_years"],
         z=sd["vol_grid"],
-        colorscale="Plasma",
+        colorscale=[[0, "#0e0e0e"], [0.25, "#1a1a2e"], [0.5, "#bf5b00"],
+                    [0.75, "#ff8800"], [1.0, "#ffbb55"]],
         opacity=0.92,
         colorbar=dict(
             title=dict(text="Vol %", font=dict(color=COLORS["text_muted"], size=10)),
             tickfont=dict(color=COLORS["text_muted"], size=9),
-            len=0.6, thickness=12, outlinewidth=0,
+            len=0.6, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
         ),
         hovertemplate="Delta: %{x:.0f}<br>Tenor: %{y:.3f}y<br>Vol: %{z:.2f}%<extra></extra>",
         contours=dict(z=dict(show=True, usecolormap=True, project_z=True, width=1)),
@@ -433,16 +434,18 @@ def chart_heatmap(pair, sd, spot, r_dom, r_for, **kw):
         x=sd["delta_labels"],
         y=sd["tenors"],
         z=sd["vol_grid"],
-        colorscale="Plasma",
+        colorscale=[[0, "#0e0e0e"], [0.25, "#1a1a2e"], [0.5, "#bf5b00"],
+                    [0.75, "#ff8800"], [1.0, "#ffbb55"]],
         text=text_vals,
         texttemplate="%{text}",
-        textfont=dict(size=10, color=COLORS["text_primary"]),
+        textfont=dict(size=10, color="#c0c0c0"),
         hovertemplate="Delta: %{x}<br>Tenor: %{y}<br>Vol: %{z:.2f}%<extra></extra>",
         colorbar=dict(
             title=dict(text="Vol %", font=dict(color=COLORS["text_muted"], size=10)),
             tickfont=dict(color=COLORS["text_muted"], size=9),
-            len=0.8, thickness=12, outlinewidth=0,
+            len=0.8, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
         ),
+        xgap=2, ygap=2,
     ))
     _apply_chart_template(fig, f"Vol Heatmap -- {pair}")
     fig.update_layout(
@@ -509,7 +512,7 @@ def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
             fig.update_layout(
                 yaxis2=dict(
                     title="Forward Vol (%)", overlaying="y", side="right",
-                    gridcolor="rgba(30,42,69,0.3)",
+                    gridcolor="#1a1a30",
                     tickfont=dict(size=10, color=COLORS["accent_orange"]),
                     title_font=dict(color=COLORS["accent_orange"], size=11),
                 ),
@@ -534,11 +537,8 @@ def chart_skew_rr(pair, sd, spot, r_dom, r_for, **kw):
     # Get percentiles for color intensity
     pctiles = []
     for t in tenors:
-        try:
-            p = vol_percentile(pair, t, "25D_RR")
-            pctiles.append(p["percentile"])
-        except Exception:
-            pctiles.append(50.0)
+        p = vol_percentile(pair, t, "25D_RR")
+        pctiles.append(p["percentile"] if p is not None else 50.0)
 
     # Color by percentile: deep blue (low) to red (high)
     colors = []
@@ -560,14 +560,12 @@ def chart_skew_rr(pair, sd, spot, r_dom, r_for, **kw):
 
     # 1Y range whiskers
     for i, t in enumerate(tenors):
-        try:
-            p = vol_percentile(pair, t, "25D_RR")
+        p = vol_percentile(pair, t, "25D_RR")
+        if p is not None:
             fig.add_shape(type="line",
                 x0=i, x1=i, y0=p["min"], y1=p["max"],
                 line=dict(color=COLORS["text_muted"], width=1, dash="dot"),
                 xref="x", yref="y")
-        except Exception:
-            pass
 
     fig.add_hline(y=0, line=dict(color=COLORS["border"], width=1))
     _apply_chart_template(fig, f"25D Risk Reversal -- {pair}")
@@ -584,11 +582,8 @@ def chart_smile_bf(pair, sd, spot, r_dom, r_for, **kw):
 
     pctiles = []
     for t in tenors:
-        try:
-            p = vol_percentile(pair, t, "25D_BF")
-            pctiles.append(p["percentile"])
-        except Exception:
-            pctiles.append(50.0)
+        p = vol_percentile(pair, t, "25D_BF")
+        pctiles.append(p["percentile"] if p is not None else 50.0)
 
     colors = []
     for pct in pctiles:
@@ -608,14 +603,12 @@ def chart_smile_bf(pair, sd, spot, r_dom, r_for, **kw):
     ))
 
     for i, t in enumerate(tenors):
-        try:
-            p = vol_percentile(pair, t, "25D_BF")
+        p = vol_percentile(pair, t, "25D_BF")
+        if p is not None:
             fig.add_shape(type="line",
                 x0=i, x1=i, y0=p["min"], y1=p["max"],
                 line=dict(color=COLORS["text_muted"], width=1, dash="dot"),
                 xref="x", yref="y")
-        except Exception:
-            pass
 
     _apply_chart_template(fig, f"25D Butterfly -- {pair}")
     fig.update_layout(xaxis=dict(title="Tenor", type="category"),
@@ -636,11 +629,11 @@ def chart_rich_cheap(pair, sd, spot, r_dom, r_for, **kw):
         row_z = []
         row_txt = []
         for m in metrics:
-            try:
-                p = vol_percentile(pair, t, m)
+            p = vol_percentile(pair, t, m)
+            if p is not None:
                 row_z.append(p["percentile"])
                 row_txt.append(f"{p['percentile']:.0f}%ile")
-            except Exception:
+            else:
                 row_z.append(50.0)
                 row_txt.append("--")
         z_data.append(row_z)
@@ -651,17 +644,21 @@ def chart_rich_cheap(pair, sd, spot, r_dom, r_for, **kw):
         x=metric_labels,
         y=tenors,
         z=z_data,
-        colorscale=[[0, "#3b82f6"], [0.5, "#1e293b"], [1.0, "#ef4444"]],
+        colorscale=[[0, "#1565c0"], [0.15, "#0d47a1"], [0.30, "#0a1628"],
+                    [0.50, "#0e0e0e"], [0.70, "#2a1200"], [0.85, "#bf5b00"],
+                    [1.0, "#ff8800"]],
         text=text_data,
         texttemplate="%{text}",
-        textfont=dict(size=11, color=COLORS["text_primary"]),
+        textfont=dict(size=11, color="#c0c0c0"),
         hovertemplate="Metric: %{x}<br>Tenor: %{y}<br>Percentile: %{z:.0f}<extra></extra>",
         colorbar=dict(
             title=dict(text="%ile", font=dict(color=COLORS["text_muted"], size=10)),
             tickfont=dict(color=COLORS["text_muted"], size=9),
-            len=0.8, thickness=12, outlinewidth=0,
+            len=0.8, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
+            tickvals=[0, 25, 50, 75, 100],
         ),
         zmin=0, zmax=100,
+        xgap=2, ygap=2,
     ))
     _apply_chart_template(fig, f"Rich/Cheap -- {pair}")
     fig.update_layout(
@@ -813,7 +810,7 @@ def chart_vol_ts(pair, sd, spot, r_dom, r_for, **kw):
     fig.add_trace(go.Scatter(
         x=np.concatenate([days, days[::-1]]),
         y=np.concatenate([upper.values, lower.values[::-1]]),
-        fill="toself", fillcolor="rgba(6,182,212,0.08)",
+        fill="toself", fillcolor="rgba(255,136,0,0.06)",
         line=dict(width=0), showlegend=False, hoverinfo="skip",
     ))
 
@@ -834,6 +831,14 @@ def chart_vol_ts(pair, sd, spot, r_dom, r_for, **kw):
     fig.add_trace(go.Scatter(x=days, y=hist, mode="lines", name=f"ATM {sel_tenor}",
         line=dict(color=COLORS["accent_cyan"], width=2),
         hovertemplate="Day %{x}: %{y:.2f}%<extra>ATM</extra>"))
+
+    # Current level marker
+    current_vol = float(hist.iloc[-1]) if hasattr(hist, 'iloc') else float(hist[-1])
+    fig.add_trace(go.Scatter(
+        x=[days[-1]], y=[current_vol], mode="markers",
+        marker=dict(color=COLORS["accent_orange"], size=8, symbol="diamond"),
+        name=f"Current: {current_vol:.2f}%", showlegend=True,
+        hovertemplate=f"Current: {current_vol:.2f}%<extra></extra>"))
 
     _apply_chart_template(fig, f"ATM Vol Time Series -- {pair} {sel_tenor}")
     fig.update_layout(xaxis=dict(title="Days"), yaxis=dict(title="Vol (%)"))
@@ -888,7 +893,7 @@ def chart_iv_rv(pair, sd, spot, r_dom, r_for, **kw):
         x=np.concatenate([days, days[::-1]]),
         y=np.concatenate([iv_arr, rv_arr[::-1]]),
         fill="toself",
-        fillcolor="rgba(244,63,94,0.12)",
+        fillcolor="rgba(255,51,51,0.08)",
         line=dict(width=0), showlegend=False, hoverinfo="skip",
     ))
 
@@ -912,7 +917,7 @@ def chart_iv_rv(pair, sd, spot, r_dom, r_for, **kw):
     fig.update_layout(
         yaxis2=dict(
             title="Spread (vol pts)", overlaying="y", side="right",
-            gridcolor="rgba(30,42,69,0.15)",
+            gridcolor="#1a1a30",
             tickfont=dict(size=9, color=COLORS["text_muted"]),
             title_font=dict(color=COLORS["text_muted"], size=10),
         ),
@@ -920,6 +925,16 @@ def chart_iv_rv(pair, sd, spot, r_dom, r_for, **kw):
 
     # Zero line for spread
     fig.add_hline(y=0, line=dict(color=COLORS["border"], width=0.5))
+
+    # Current spread annotation
+    current_spread = float(spread_arr[-1])
+    spread_label = f"IV-RV: {current_spread:+.1f}v"
+    spread_color = COLORS["accent_green"] if current_spread > 0 else COLORS["accent_red"]
+    fig.add_annotation(
+        x=days[-1], y=float(iv_arr[-1]),
+        text=spread_label, showarrow=True, arrowhead=2,
+        font=dict(color=spread_color, size=10),
+        arrowcolor=spread_color, ax=40, ay=-25)
 
     _apply_chart_template(fig, f"IV vs Realized Vol -- {pair}")
     fig.update_layout(xaxis=dict(title="Days"), yaxis=dict(title="Vol (%)"))
@@ -941,8 +956,8 @@ def chart_vol_cone_chart(pair, sd, spot, r_dom, r_for, **kw):
 
     # Percentile bands (symmetric fill)
     bands = [
-        ("p10", "p90", "rgba(6,182,212,0.06)", "10-90%ile"),
-        ("p25", "p75", "rgba(6,182,212,0.12)", "25-75%ile"),
+        ("p10", "p90", "rgba(255,136,0,0.04)", "10-90%ile"),
+        ("p25", "p75", "rgba(255,136,0,0.08)", "25-75%ile"),
     ]
     for lo, hi, color, name in bands:
         fig.add_trace(go.Scatter(
@@ -970,6 +985,14 @@ def chart_vol_cone_chart(pair, sd, spot, r_dom, r_for, **kw):
         name="Current RV", line=dict(color=COLORS["accent_cyan"], width=2.5),
         marker=dict(size=7, color=COLORS["accent_cyan"]),
         hovertemplate="%{x}d: %{y:.2f}%<extra>Current RV</extra>"))
+
+    # ATM IV reference line (where the market is pricing vol)
+    atm_3m = sd["atm"][min(4, len(sd["atm"]) - 1)] if len(sd["atm"]) > 0 else None
+    if atm_3m and atm_3m > 0:
+        fig.add_hline(y=atm_3m,
+                      line=dict(color=COLORS["accent_orange"], width=1.5, dash="dashdot"),
+                      annotation_text=f"ATM IV: {atm_3m:.1f}%",
+                      annotation_font=dict(color=COLORS["accent_orange"], size=9))
 
     _apply_chart_template(fig, f"Realized Vol Cone -- {pair}")
     fig.update_layout(xaxis=dict(title="Window (days)"), yaxis=dict(title="Vol (%)"))
@@ -1030,17 +1053,19 @@ def chart_surface_change(pair, sd, spot, r_dom, r_for, **kw):
         x=deltas,
         y=tenors,
         z=z,
-        colorscale=[[0, "#10b981"], [0.5, "#1e293b"], [1.0, "#ef4444"]],
+        colorscale=[[0, "#00cc66"], [0.35, "#0a2618"], [0.50, "#0e0e0e"],
+                    [0.65, "#2a1200"], [1.0, "#ff3333"]],
         zmid=0,
         text=text_vals,
         texttemplate="%{text}",
-        textfont=dict(size=10, color=COLORS["text_primary"]),
+        textfont=dict(size=10, color="#c0c0c0"),
         hovertemplate="Delta: %{x}<br>Tenor: %{y}<br>Change: %{z:+.2f}<extra></extra>",
         colorbar=dict(
             title=dict(text="Vol Chg", font=dict(color=COLORS["text_muted"], size=10)),
             tickfont=dict(color=COLORS["text_muted"], size=9),
-            len=0.8, thickness=12, outlinewidth=0,
+            len=0.8, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
         ),
+        xgap=2, ygap=2,
     ))
     label = {1: "1D", 5: "1W", 22: "1M", 66: "3M"}.get(days_ago, f"{days_ago}D")
     _apply_chart_template(fig, f"Surface Change ({label}) -- {pair}")
@@ -1095,8 +1120,8 @@ def chart_sabr_params(pair, sd, spot, r_dom, r_for, **kw):
     _apply_chart_template(fig, f"SABR Parameters -- {pair}")
     fig.update_layout(height=400, showlegend=False)
     for i in range(1, 4):
-        fig.update_yaxes(gridcolor="rgba(30,42,69,0.5)", row=i, col=1)
-        fig.update_xaxes(gridcolor="rgba(30,42,69,0.5)", row=i, col=1)
+        fig.update_yaxes(gridcolor="#1a1a30", row=i, col=1)
+        fig.update_xaxes(gridcolor="#1a1a30", row=i, col=1)
     return fig
 
 
@@ -1116,7 +1141,7 @@ def chart_implied_dist(pair, sd, spot, r_dom, r_for, **kw):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=strikes, y=pdf_vals, mode="lines", name="Risk-Neutral PDF",
-        fill="tozeroy", fillcolor="rgba(6,182,212,0.15)",
+        fill="tozeroy", fillcolor="rgba(255,136,0,0.10)",
         line=dict(color=COLORS["accent_cyan"], width=2),
     ))
 
@@ -1140,7 +1165,7 @@ def chart_implied_dist(pair, sd, spot, r_dom, r_for, **kw):
 # ═══════════════════════════════════════════════════════════════════════════
 
 _CW = CHART_TEMPLATE["layout"].get("colorway") or [
-    "#ff8800", "#00cc66", "#3b82f6", "#a855f7", "#ef4444", "#06b6d4", "#f59e0b", "#ec4899"]
+    "#ff8800", "#00cc66", "#1565c0", "#d4d4d4", "#ff3333", "#808080", "#ffaa33", "#ffffff"]
 _FONT = "'JetBrains Mono', monospace"
 
 
@@ -1274,7 +1299,7 @@ def _lab_build_ts_chart(chart_type, pair, sd, spot, r_dom, r_for, **kw):
 
     # Overlay (secondary Y)
     if has_overlay:
-        ov_colors = ["#ffffff", "#88ff88", "#ff8888", "#88bbff", "#ffcc44"]
+        ov_colors = ["#ffffff", "#00cc66", "#ff3333", "#d4d4d4", "#ffaa33"]
         for idx, p in enumerate(lab_pairs):
             series, label = _lab_fetch_series(p, overlay, tenor, window)
             if series is None or len(series) == 0:
@@ -1313,7 +1338,7 @@ def _lab_build_ts_chart(chart_type, pair, sd, spot, r_dom, r_for, **kw):
                          title_font=dict(size=9, color="#ff8800"))
         fig.update_yaxes(title_text=ov_label, secondary_y=True,
                          title_font=dict(size=9, color="#ffffff"),
-                         gridcolor="rgba(26,26,46,0.3)")
+                         gridcolor="rgba(34,34,64,0.2)")
     return fig
 
 
@@ -1443,8 +1468,10 @@ def _lab_study_pctile_surface(pair, sd, spot, r_dom, r_for, **kw):
         colorscale=[[0, "#00cc66"], [0.25, "#222240"], [0.5, "#808080"],
                     [0.75, "#222240"], [1, "#ff3333"]],
         text=np.round(df.values, 1).astype(str), texttemplate="%{text}",
-        textfont=dict(size=10, color="#d4d4d4")))
+        textfont=dict(size=10, color="#d4d4d4"),
+        hovertemplate="Tenor: %{y}<br>Delta: %{x}<br>Percentile: %{z:.1f}%<extra></extra>"))
     _apply_chart_template(fig, f"{pair} Percentile Surface")
+    fig.update_layout(xaxis_title="Delta", yaxis_title="Tenor")
     return fig
 
 
@@ -1456,8 +1483,10 @@ def _lab_study_zscore_surface(pair, sd, spot, r_dom, r_for, **kw):
         z=df.values, x=df.columns.tolist(), y=df.index.tolist(),
         colorscale=[[0, "#00cc66"], [0.5, "#000000"], [1, "#ff3333"]],
         text=np.round(df.values, 1).astype(str), texttemplate="%{text}",
-        textfont=dict(size=10, color="#d4d4d4")))
+        textfont=dict(size=10, color="#d4d4d4"),
+        hovertemplate="Tenor: %{y}<br>Delta: %{x}<br>Z-Score: %{z:.2f}<extra></extra>"))
     _apply_chart_template(fig, f"{pair} Z-Score Surface")
+    fig.update_layout(xaxis_title="Delta", yaxis_title="Tenor")
     return fig
 
 
@@ -1827,7 +1856,7 @@ def _build_overnight_summary(pair, spot):
         "display": "flex", "alignItems": "center", "flexWrap": "wrap",
         "padding": "8px 14px",
         "backgroundColor": COLORS["bg_secondary"],
-        "borderRadius": "8px",
+        "borderRadius": "0px",
         "border": f"1px solid {COLORS['border']}",
         "marginBottom": "10px",
     })
@@ -1917,7 +1946,7 @@ def _overlay_cross_surface_wireframe(fig, cross_pair, cross_sd):
         x=delta_grid_sorted * 100,
         y=cross_sd["T_years"],
         z=cross_sd["vol_grid"],
-        colorscale="Viridis",
+        colorscale=[[0, "#0e0e0e"], [0.5, "#1565c0"], [1.0, "#42a5f5"]],
         opacity=0.35,
         showscale=False,
         name=f"{cross_pair}",
@@ -2798,7 +2827,8 @@ def register_callbacks(app):
                             t_labels.append(t)
                         fig.add_trace(go.Scatter(
                             x=t_labels, y=rr_vals, mode="lines+markers",
-                            name=pair, line=dict(color=_CW[idx % len(_CW)], width=2)))
+                            name=pair, line=dict(color=_CW[idx % len(_CW)], width=2),
+                            hovertemplate="%{x}: %{y:.2f}v<extra>" + pair + "</extra>"))
                 _apply_chart_template(fig, "25D RR Skew Profile")
                 fig.update_layout(xaxis_title="Tenor", yaxis_title="25D RR (vol pts)")
 
@@ -2817,7 +2847,8 @@ def register_callbacks(app):
                         fig.add_trace(go.Scatter(
                             x=["10P","25P","ATM","25C","10C"], y=vols,
                             mode="lines+markers", name=f"{pair} {tenor}",
-                            line=dict(color=_CW[idx % len(_CW)], width=2)))
+                            line=dict(color=_CW[idx % len(_CW)], width=2),
+                            hovertemplate="%{x}: %{y:.2f}%<extra>" + pair + "</extra>"))
                 _apply_chart_template(fig, f"{tenor} Smile Comparison")
                 fig.update_layout(xaxis_title="Delta", yaxis_title="Vol (%)")
 
@@ -2829,7 +2860,8 @@ def register_callbacks(app):
                             x=cone["window"].tolist(),
                             y=cone["current_c2c"].tolist(),
                             mode="lines+markers", name=pair,
-                            line=dict(color=_CW[idx % len(_CW)], width=2)))
+                            line=dict(color=_CW[idx % len(_CW)], width=2),
+                            hovertemplate="%{x}d: %{y:.2f}%<extra>" + pair + "</extra>"))
                 _apply_chart_template(fig, "RV Cone: Current Level")
                 fig.update_layout(xaxis_title="Window (days)", yaxis_title="RV (%)")
 
@@ -2842,12 +2874,14 @@ def register_callbacks(app):
                             fig.add_trace(go.Scatter(
                                 x=list(range(len(df))), y=df["iv"].tolist(),
                                 mode="lines", name=f"{pair} IV",
-                                line=dict(color=c, width=2)))
+                                line=dict(color=c, width=2),
+                                hovertemplate="Day %{x}<br>IV: %{y:.2f}%<extra>" + pair + "</extra>"))
                         if "rv" in df.columns:
                             fig.add_trace(go.Scatter(
                                 x=list(range(len(df))), y=df["rv"].tolist(),
                                 mode="lines", name=f"{pair} RV",
-                                line=dict(color=c, width=1.5, dash="dash")))
+                                line=dict(color=c, width=1.5, dash="dash"),
+                                hovertemplate="Day %{x}<br>RV: %{y:.2f}%<extra>" + pair + "</extra>"))
                 _apply_chart_template(fig, f"IV vs RV ({tenor})")
                 fig.update_layout(xaxis_title="Days", yaxis_title="Vol (%)")
 
@@ -2861,7 +2895,9 @@ def register_callbacks(app):
                         zmin=-1, zmax=1,
                         text=np.round(corr.values, 2).astype(str),
                         texttemplate="%{text}",
-                        textfont=dict(size=11, color="#d4d4d4")))
+                        textfont=dict(size=11, color="#d4d4d4"),
+                        hovertemplate="<b>%{x} vs %{y}</b><br>\u03c1 = %{z:.3f}<extra></extra>",
+                        xgap=2, ygap=2))
                 _apply_chart_template(fig, "60D Spot Correlation")
 
             elif comp_type == "vol_correlation_matrix":
@@ -2874,7 +2910,9 @@ def register_callbacks(app):
                         zmin=-1, zmax=1,
                         text=np.round(corr.values, 2).astype(str),
                         texttemplate="%{text}",
-                        textfont=dict(size=11, color="#d4d4d4")))
+                        textfont=dict(size=11, color="#d4d4d4"),
+                        hovertemplate="<b>%{x} vs %{y}</b><br>\u03c1 = %{z:.3f}<extra></extra>",
+                        xgap=2, ygap=2))
                 _apply_chart_template(fig, f"60D Vol Change Correlation ({tenor})")
 
             elif comp_type == "rv_heatmap":

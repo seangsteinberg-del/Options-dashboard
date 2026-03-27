@@ -22,6 +22,7 @@ Layout:
 
 import logging
 import numpy as np
+from scipy.stats import percentileofscore
 from dash import html, dcc, Input, Output, State, callback_context, ALL, MATCH, no_update
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
@@ -132,7 +133,7 @@ def _color_chg(v):
 
 def _pct_color(p):
     if p < 20:
-        return "#60a5fa"
+        return "#1565c0"
     if p > 80:
         return COLORS["accent_red"]
     return COLORS["text_primary"]
@@ -471,7 +472,7 @@ def _build_vol_index_chart(pairs):
                                  showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=[mean_v - std_v]*len(x),
                                  mode="lines", line=dict(color="#333355", width=1, dash="dot"),
-                                 fill="tonexty", fillcolor="rgba(51,51,85,0.25)", showlegend=False))
+                                 fill="tonexty", fillcolor="rgba(34,34,64,0.15)", showlegend=False))
         # Mean
         fig.add_trace(go.Scatter(x=x, y=[mean_v]*len(x),
                                  mode="lines", line=dict(color="#808080", width=1, dash="dash"),
@@ -480,7 +481,11 @@ def _build_vol_index_chart(pairs):
         fig.add_trace(go.Scatter(x=x, y=index.tolist(),
                                  mode="lines", line=dict(color="#ff8800", width=2.5),
                                  name="G10 Vol Index",
-                                 hovertemplate="Day %{x}: %{y:.2f}v<extra></extra>"))
+                                 customdata=list(zip(
+                                     [f"{(v - mean_v)/max(std_v, 1e-6):+.1f}\u03c3" for v in index],
+                                     [f"{percentileofscore(index, v):.0f}" for v in index],
+                                 )),
+                                 hovertemplate="Day %{x}<br>Vol: %{y:.2f}v<br>Z: %{customdata[0]}<br>Pctile: %{customdata[1]}%<extra></extra>"))
         # Current dot
         fig.add_trace(go.Scatter(x=[len(index)-1], y=[float(index[-1])],
                                  mode="markers", marker=dict(color="#ff8800", size=7),
@@ -518,7 +523,8 @@ def _build_skew_chart(pairs):
 
         fig = go.Figure(go.Bar(y=pairs_l, x=rrs, orientation="h",
                                 marker_color=colors, text=[f"{r:+.1f}" for r in rrs],
-                                textposition="outside", textfont=dict(size=8, color="#d4d4d4")))
+                                textposition="outside", textfont=dict(size=8, color="#d4d4d4"),
+                                hovertemplate="%{y}: %{x:+.2f}v<br>Skew: %{text}<extra></extra>"))
         fig.update_layout(**_chart_layout( height=_SMALL_H,
                           margin=dict(l=55, r=10, t=25, b=10), showlegend=False,
                           title=dict(text="25D RR (SKEW)", font=dict(size=10, color="#808080")),
@@ -558,7 +564,9 @@ def _build_term_chart(pairs):
         fig = go.Figure(go.Bar(y=pairs_l, x=spreads, orientation="h",
                                 marker_color=colors,
                                 text=[f"{s:+.1f}" for s in spreads],
-                                textposition="outside", textfont=dict(size=8, color="#d4d4d4")))
+                                textposition="outside", textfont=dict(size=8, color="#d4d4d4"),
+                                customdata=[[d["spread"]] for d in data],
+                                hovertemplate="%{y}: %{x:+.2f}v<br>%{text}<extra>1M-1Y Spread</extra>"))
         fig.update_layout(**_chart_layout( height=_SMALL_H,
                           margin=dict(l=55, r=10, t=25, b=10), showlegend=False,
                           title=dict(text="1M-1Y SPREAD", font=dict(size=10, color="#808080")),
@@ -605,8 +613,8 @@ def _build_vol_richness_heatmap(pairs):
         fig = go.Figure(go.Heatmap(
             z=z_vals, x=tenors, y=pair_list, text=text_vals,
             texttemplate="%{text}", textfont=dict(size=9, color="#d4d4d4"),
-            colorscale=[[0, "#1e40af"], [0.2, "#1e40af"], [0.4, "#1a1a2e"],
-                        [0.5, "#1a1a2e"], [0.6, "#1a1a2e"], [0.8, "#dc2626"], [1, "#dc2626"]],
+            colorscale=[[0, "#1565c0"], [0.2, "#1565c0"], [0.4, "#1a1a2e"],
+                        [0.5, "#1a1a2e"], [0.6, "#1a1a2e"], [0.8, "#ff3333"], [1, "#ff3333"]],
             zmin=0, zmax=100, showscale=False,
             hovertemplate="<b>%{y}</b> %{x}<br>Percentile: %{z:.0f}<extra></extra>",
         ))
@@ -628,13 +636,17 @@ def _chart_layout(**overrides):
     return chart_layout(**overrides)
 
 
-def _empty_fig(title="", height=_CHART_H, msg="Awaiting data"):
+def _empty_fig(title="", height=_CHART_H, msg="LOADING"):
     fig = go.Figure()
+    for y in [0.2, 0.4, 0.6, 0.8]:
+        fig.add_shape(type="line", x0=0, x1=1, y0=y, y1=y,
+                      xref="paper", yref="paper", line=dict(color="#0d0d1a", width=1))
     fig.update_layout(**_chart_layout(
         height=height, margin=dict(l=20, r=10, t=30, b=10),
         title=dict(text=title, font=dict(size=10, color="#808080")),
         annotations=[dict(text=msg, x=0.5, y=0.5, showarrow=False,
-                          font=dict(color="#808080", size=11), xref="paper", yref="paper")]))
+                          font=dict(color="#333355", size=10, family="'JetBrains Mono', monospace"),
+                          xref="paper", yref="paper")]))
     return fig
 
 
@@ -683,7 +695,7 @@ def layout():
             "overflowY": "auto",
             "borderLeft": f"3px solid #ff8800",
             "backgroundColor": "#0a0a12",
-            "borderRadius": "2px",
+            "borderRadius": "0px",
         }),
 
         # ── Main Grid: Movers (left) + Charts (right) ──
@@ -697,14 +709,17 @@ def layout():
             # Right column: charts stacked
             html.Div([
                 html.Button("CSV", id=f"{_P}-csv-vol", n_clicks=0, style=CSV_BTN_STYLE),
-                dcc.Graph(id=f"{_P}-vol-index", config={"displayModeBar": False, "responsive": True},
-                          style={"height": f"{_CHART_H}px"}),
+                dcc.Loading(type="dot", color=COLORS["accent_cyan"], children=
+                    dcc.Graph(id=f"{_P}-vol-index", config={"displayModeBar": False, "responsive": True},
+                              style={"height": f"{_CHART_H}px"})),
                 html.Button("CSV", id=f"{_P}-csv-skew", n_clicks=0, style=CSV_BTN_STYLE),
-                dcc.Graph(id=f"{_P}-skew", config={"displayModeBar": False, "responsive": True},
-                          style={"height": f"{_SMALL_H}px"}),
+                dcc.Loading(type="dot", color=COLORS["accent_cyan"], children=
+                    dcc.Graph(id=f"{_P}-skew", config={"displayModeBar": False, "responsive": True},
+                              style={"height": f"{_SMALL_H}px"})),
                 html.Button("CSV", id=f"{_P}-csv-term", n_clicks=0, style=CSV_BTN_STYLE),
-                dcc.Graph(id=f"{_P}-term", config={"displayModeBar": False, "responsive": True},
-                          style={"height": f"{_SMALL_H}px"}),
+                dcc.Loading(type="dot", color=COLORS["accent_cyan"], children=
+                    dcc.Graph(id=f"{_P}-term", config={"displayModeBar": False, "responsive": True},
+                              style={"height": f"{_SMALL_H}px"})),
             ], style={"flex": "1", "minWidth": "350px", "display": "flex",
                        "flexDirection": "column", "gap": GAP}),
         ], style={"display": "flex", "gap": GAP, "marginTop": SECTION_GAP}),
@@ -769,15 +784,15 @@ def _render_kpis(kpis):
 def _render_movers_table(rows, sort_key):
     """Render the movers HTML table."""
     if sort_key == "spot":
-        rows.sort(key=lambda r: abs(r.get("chg_pct", 0)), reverse=True)
+        rows.sort(key=lambda r: (abs(r.get("chg_pct", 0)), r.get("pair", "")), reverse=True)
     elif sort_key == "vol":
-        rows.sort(key=lambda r: abs(r.get("vol_chg", 0)), reverse=True)
+        rows.sort(key=lambda r: (abs(r.get("vol_chg", 0)), r.get("pair", "")), reverse=True)
     elif sort_key == "atm":
-        rows.sort(key=lambda r: r.get("atm_1m", 0), reverse=True)
+        rows.sort(key=lambda r: (r.get("atm_1m", 0), r.get("pair", "")), reverse=True)
     elif sort_key == "pctile":
-        rows.sort(key=lambda r: r.get("pctile", 50), reverse=True)
+        rows.sort(key=lambda r: (r.get("pctile", 50), r.get("pair", "")), reverse=True)
     elif sort_key == "ivrv":
-        rows.sort(key=lambda r: abs(r.get("iv_rv", 0)), reverse=True)
+        rows.sort(key=lambda r: (abs(r.get("iv_rv", 0)), r.get("pair", "")), reverse=True)
     else:
         rows.sort(key=lambda r: r.get("pair", ""))
 
@@ -824,7 +839,7 @@ def _render_movers_table(rows, sort_key):
             html.Td(_ordinal(pctile), style={**TABLE_CELL_STYLE, "color": _pct_color(pctile)}),
             html.Td(f"{term_spread:+.1f}v", style={**TABLE_CELL_STYLE, "color": term_color}),
             html.Td(f"{iv_rv:+.1f}v", style={**TABLE_CELL_STYLE, "color": ivrv_color}),
-            html.Td(f"{breakeven_pips:.0f}p", style={**TABLE_CELL_STYLE, "color": "#60a5fa"}),
+            html.Td(f"{breakeven_pips:.0f}p", style={**TABLE_CELL_STYLE, "color": "#1565c0"}),
         ]))
 
     return html.Table([html.Thead(header), html.Tbody(body_rows)],
@@ -863,7 +878,7 @@ def _render_positioning(extremes):
 
     items = []
     for e in extremes:
-        color = COLORS["accent_red"] if e["direction"] == "RICH" else "#60a5fa"
+        color = COLORS["accent_red"] if e["direction"] == "RICH" else "#1565c0"
         items.append(html.Div([
             html.Span(e["pair"], style={"color": "#d4d4d4", "fontWeight": "700",
                                          "marginRight": "8px", "fontSize": "10px"}),
