@@ -1677,10 +1677,11 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
                   annotation_text=f"Spot {S:.4f}",
                   annotation_font=dict(color=COLORS["accent_blue"], size=9))
 
-    # Breakeven lines
+    # Breakeven lines with distance from spot
     for be in agg["breakevens"]:
+        pct_from_spot = (be - S) / S * 100
         fig.add_vline(x=be, line=dict(color=COLORS["accent_orange"], width=1, dash="dashdot"),
-                      annotation_text=f"BE {be:.4f}",
+                      annotation_text=f"BE {be:.4f} ({pct_from_spot:+.1f}%)",
                       annotation_font=dict(color=COLORS["accent_orange"], size=8))
 
     # Probability density overlay: implied (risk-neutral) vs historical (physical)

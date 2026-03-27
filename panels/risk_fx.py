@@ -1735,8 +1735,8 @@ def register_callbacks(app):
             after = result.get("after", {})
             change = result.get("change", {})
 
-            greeks = ["delta", "gamma", "vega", "theta", "price"]
-            greek_labels = ["Delta (USD)", "Gamma", "Vega", "Theta", "MtM Value"]
+            greeks = ["delta", "gamma", "vega", "theta", "vanna", "volga", "price"]
+            greek_labels = ["Delta (USD)", "Gamma", "Vega", "Theta", "Vanna", "Volga", "MtM Value"]
 
             table_data = []
             for gk, label in zip(greeks, greek_labels):

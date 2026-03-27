@@ -1058,7 +1058,7 @@ def what_if_add(positions, new_trade, spots, rates, vol_surfaces):
     Returns dict with before/after risk comparison.
     """
     # Compute risk before
-    before = {k: 0.0 for k in ("delta", "gamma", "vega", "theta", "price")}
+    before = {k: 0.0 for k in ("delta", "gamma", "vega", "theta", "vanna", "volga", "price")}
     for pos in positions:
         if pos.get("status") != "open":
             continue

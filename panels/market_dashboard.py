@@ -371,7 +371,7 @@ def _gather_events():
 
 
 def _build_positioning(pairs):
-    """Find pairs with |z-score| > 1.2."""
+    """Find pairs with |z-score| > 0.8 (extreme > 1.5, notable > 0.8)."""
     extremes = []
     try:
         from core.fx_analytics import vol_zscore
@@ -379,15 +379,17 @@ def _build_positioning(pairs):
             try:
                 info = vol_zscore(pair, "3M", "ATM", 252)
                 z = _sf(info.get("zscore", 0) if isinstance(info, dict) else info)
-                if abs(z) > 1.2:
+                if abs(z) > 0.8:
+                    severity = "EXTREME" if abs(z) > 1.5 else "NOTABLE"
                     extremes.append({"pair": pair, "z": z,
-                                     "direction": "RICH" if z > 0 else "CHEAP"})
+                                     "direction": "RICH" if z > 0 else "CHEAP",
+                                     "severity": severity})
             except Exception:
                 continue
     except Exception:
         pass
     extremes.sort(key=lambda e: abs(e["z"]), reverse=True)
-    return extremes[:10]
+    return extremes[:12]
 
 
 def _detect_crossings(current_rows, previous):
@@ -871,21 +873,26 @@ def _render_events(events):
 
 
 def _render_positioning(extremes):
-    """Render positioning extremes."""
+    """Render positioning extremes with severity distinction."""
     if not extremes:
-        return html.Div("No positioning extremes (|z| > 1.2)",
+        return html.Div("No positioning extremes",
                         style={"color": "#808080", "fontSize": "10px"})
 
     items = []
     for e in extremes:
         color = COLORS["accent_red"] if e["direction"] == "RICH" else "#1565c0"
+        severity = e.get("severity", "NOTABLE")
+        opacity = "1.0" if severity == "EXTREME" else "0.6"
         items.append(html.Div([
             html.Span(e["pair"], style={"color": "#d4d4d4", "fontWeight": "700",
                                          "marginRight": "8px", "fontSize": "10px"}),
             html.Span(f"z={e['z']:+.1f}", style={"color": color, "fontWeight": "600",
-                                                    "fontSize": "10px", "marginRight": "6px"}),
+                                                    "fontSize": "10px", "marginRight": "6px",
+                                                    "opacity": opacity}),
             html.Span(e["direction"], style={"color": color, "fontSize": "9px",
-                                              "letterSpacing": "1px"}),
+                                              "letterSpacing": "1px", "marginRight": "6px"}),
+            html.Span(severity, style={"color": COLORS["text_muted"], "fontSize": "8px",
+                                        "fontWeight": "600" if severity == "EXTREME" else "400"}),
         ], style={"padding": "2px 0"}))
     return html.Div(items)
 
