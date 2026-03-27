@@ -2005,6 +2005,66 @@ def max_drawdown(returns: np.ndarray) -> dict:
     }
 
 
+def omega_ratio(pnl_array, mar: float = 0.0) -> float:
+    """
+    Omega ratio: probability-weighted gains above MAR / losses below MAR.
+    More robust than Sharpe for non-normal return distributions.
+    """
+    pnl = np.asarray(pnl_array, dtype=float)
+    pnl = pnl[np.isfinite(pnl)]
+    if len(pnl) < 2:
+        return 0.0
+    gains = pnl[pnl > mar] - mar
+    losses = mar - pnl[pnl <= mar]
+    total_loss = np.sum(losses)
+    if total_loss < 1e-10:
+        return 10.0  # cap at 10 if no losses
+    return float(np.sum(gains) / total_loss)
+
+
+def ulcer_index(pnl_array) -> float:
+    """
+    Ulcer Index: RMS of drawdown percentages.
+    Penalises prolonged and deep drawdowns more than max drawdown alone.
+    """
+    pnl = np.asarray(pnl_array, dtype=float)
+    pnl = pnl[np.isfinite(pnl)]
+    if len(pnl) < 2:
+        return 0.0
+    cum = np.cumsum(pnl)
+    running_max = np.maximum.accumulate(cum)
+    dd_pct = np.where(running_max > 0, (cum - running_max) / np.maximum(running_max, 1e-10) * 100, 0)
+    return float(np.sqrt(np.mean(dd_pct ** 2)))
+
+
+def max_consecutive(pnl_array, direction: str = "loss") -> int:
+    """
+    Longest consecutive winning or losing streak.
+    direction: 'loss' or 'win'
+    """
+    pnl = np.asarray(pnl_array, dtype=float)
+    if direction == "loss":
+        flags = (pnl < 0).astype(int)
+    else:
+        flags = (pnl > 0).astype(int)
+    max_streak = 0
+    current = 0
+    for f in flags:
+        if f:
+            current += 1
+        else:
+            max_streak = max(max_streak, current)
+            current = 0
+    return max(max_streak, current)
+
+
+def recovery_factor(total_pnl: float, max_dd: float) -> float:
+    """Total P&L / abs(max drawdown). Higher = faster recovery."""
+    if abs(max_dd) < 1e-10:
+        return 0.0
+    return float(total_pnl / abs(max_dd))
+
+
 def tail_risk_metrics(returns: np.ndarray) -> dict:
     """
     Comprehensive tail risk metrics:

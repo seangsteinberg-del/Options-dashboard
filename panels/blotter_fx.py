@@ -750,6 +750,11 @@ def register_callbacks(app):
                 * (-1 if t.get("side", "BUY").upper() == "BUY" else 1)
                 for t in today_trades
             )
+            net_gamma = sum(
+                t.get("gamma", 0)
+                * (1 if t.get("side", "BUY").upper() == "BUY" else -1)
+                for t in today_trades
+            )
 
             def _stat_box(label, value, color):
                 return html.Div([
@@ -773,6 +778,7 @@ def register_callbacks(app):
                 _stat_box("Total Notional", f"{total_notional:,.0f}", COLORS["accent_blue"]),
                 _stat_box("Net Delta Added", f"{net_delta:,.0f}", COLORS["accent_purple"]),
                 _stat_box("Net Vega Added", f"{net_vega:,.0f}", COLORS["accent_orange"]),
+                _stat_box("Net Gamma", f"{net_gamma:+,.4f}", COLORS["accent_teal"]),
                 _stat_box(prem_label, f"{abs(net_premium):,.0f}", prem_color),
             ]
 

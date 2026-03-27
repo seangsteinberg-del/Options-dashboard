@@ -1335,6 +1335,26 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
             ], style={**make_stat_style(ev_data["edge_color"]), "flex": "1", "minWidth": "100px"}),
         ]
 
+    # ── Efficiency metrics ──
+    net_vega_scaled = agg["net_vega"] * notional
+    net_theta_scaled = agg["net_theta"] * notional
+    net_gamma_scaled = agg["net_gamma"] * notional
+    prem_paid = abs(agg.get("net_premium_pips", 0))
+
+    cost_per_vega = prem_paid / abs(net_vega_scaled) if abs(net_vega_scaled) > 1e-6 else 0
+    theta_gamma = abs(net_theta_scaled) / abs(net_gamma_scaled) if abs(net_gamma_scaled) > 1e-6 else 0
+
+    efficiency_boxes = [
+        html.Div([
+            html.Div(f"{cost_per_vega:.2f}p", style={**val_s, "color": COLORS["accent_blue"]}),
+            html.Div("COST / VEGA", style=label_s),
+        ], style={**make_stat_style(COLORS["accent_blue"]), "flex": "1", "minWidth": "100px"}),
+        html.Div([
+            html.Div(f"{theta_gamma:.1f}", style={**val_s, "color": COLORS["accent_orange"]}),
+            html.Div("\u03b8/\u03b3 RATIO", style=label_s),
+        ], style={**make_stat_style(COLORS["accent_orange"]), "flex": "1", "minWidth": "100px"}),
+    ]
+
     # ── Per-leg edge (delta-specific percentile) ──
     leg_rows = []
     for lg in processed_legs:
@@ -1458,8 +1478,10 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
         ], style={"marginBottom": "10px"}),
 
         # EV boxes
-        html.Div(ev_boxes, style={"display": "flex", "gap": "8px", "flexWrap": "wrap",
-                                   "marginBottom": "10px"}) if ev_boxes else html.Div(),
+        html.Div(ev_boxes + efficiency_boxes, style={"display": "flex", "gap": "8px", "flexWrap": "wrap",
+                                   "marginBottom": "10px"}) if ev_boxes else
+        html.Div(efficiency_boxes, style={"display": "flex", "gap": "8px", "flexWrap": "wrap",
+                                   "marginBottom": "10px"}),
 
         # Per-leg edge
         html.Div([

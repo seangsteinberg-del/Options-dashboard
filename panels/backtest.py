@@ -318,6 +318,14 @@ def _compute_stats_from_trades(trades_list):
     best_trade = float(np.max(pnls)) if len(pnls) > 0 else 0.0
     worst_trade = float(np.min(pnls)) if len(pnls) > 0 else 0.0
 
+    # Extended risk metrics
+    from core.fx_analytics import omega_ratio, ulcer_index, max_consecutive, recovery_factor
+    omega = omega_ratio(pnls) if len(pnls) > 1 else 0.0
+    ulcer = ulcer_index(pnls) if len(pnls) > 1 else 0.0
+    max_streak_wins = max_consecutive(pnls, "win") if len(pnls) > 0 else 0
+    max_streak_losses = max_consecutive(pnls, "loss") if len(pnls) > 0 else 0
+    rec_factor = recovery_factor(total_pnl, max_dd) if abs(max_dd) > 0 else 0.0
+
     # Monthly P&L
     trades_df["entry_dt"] = pd.to_datetime(trades_df["entry_date"])
     trades_df["month"] = trades_df["entry_dt"].dt.to_period("M").astype(str)
@@ -354,6 +362,11 @@ def _compute_stats_from_trades(trades_list):
         "regime_stats": regime_stats,
         "sortino": sortino,
         "profit_factor": profit_factor,
+        "omega": omega,
+        "ulcer_index": ulcer,
+        "max_streak_wins": max_streak_wins,
+        "max_streak_losses": max_streak_losses,
+        "recovery_factor": rec_factor,
     }
 
 
@@ -671,6 +684,9 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
             "exit_value": round(exit_value * notional, 2),
             "pnl": round(trade_pnl, 2),
             "pnl_pct": round(trade_pnl / max(abs(entry_cost), 1.0) * 100, 2),
+            "spot_move_pct": round((S_exit - S_entry) / S_entry * 100, 2),
+            "mae": round(worst_mtm, 0),
+            "mfe": round(best_mtm, 0),
             "regime": regime,
             "signal": sig_label,
             "hold_days": hold_d,
@@ -1115,6 +1131,11 @@ def _build_stats_row(results):
         _build_stat_box("AVG HOLD (D)", results["avg_hold"], ".0f", COLORS["accent_blue"]),
         _build_stat_box("BEST TRADE", results["best_trade"], ",.0f", COLORS["accent_green"]),
         _build_stat_box("WORST TRADE", results["worst_trade"], ",.0f", COLORS["accent_red"]),
+        _build_stat_box("OMEGA", results.get("omega", 0), ".2f", COLORS["accent_teal"]),
+        _build_stat_box("RECOVERY", results.get("recovery_factor", 0), ".1f", COLORS["accent_blue"]),
+        _build_stat_box("WIN STREAK", results.get("max_streak_wins", 0), ".0f", COLORS["accent_green"]),
+        _build_stat_box("LOSS STREAK", results.get("max_streak_losses", 0), ".0f", COLORS["accent_red"]),
+        _build_stat_box("ULCER IDX", results.get("ulcer_index", 0), ".2f", COLORS["accent_purple"]),
     ]
 
 
