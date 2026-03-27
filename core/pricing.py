@@ -479,6 +479,7 @@ def generate_vol_surface(S=100.0, base_vol=0.20, skew_slope=-0.15,
                          skew_convexity=0.10, term_slope=0.02,
                          num_strikes=40, num_expiries=20,
                          strike_range=(0.70, 1.30), expiry_range=(0.02, 2.0)):
+    """Parametric vol surface for analytical use (no random noise)."""
     moneyness = np.linspace(strike_range[0], strike_range[1], num_strikes)
     strikes = S * moneyness
     expiries = np.linspace(expiry_range[0], expiry_range[1], num_expiries)
@@ -489,8 +490,7 @@ def generate_vol_surface(S=100.0, base_vol=0.20, skew_slope=-0.15,
         skew_factor = skew_slope / np.sqrt(T + 0.1)
         conv_factor = skew_convexity / (T + 0.1)
         term_adj = term_slope * np.log(T + 0.1)
-        vol_matrix[i, :] = (base_vol + skew_factor * log_m + conv_factor * log_m ** 2
-                             + term_adj + np.random.normal(0, 0.002, num_strikes))
+        vol_matrix[i, :] = base_vol + skew_factor * log_m + conv_factor * log_m ** 2 + term_adj
 
     vol_matrix = np.clip(vol_matrix, 0.02, None)
     return strikes, expiries, vol_matrix
@@ -522,13 +522,8 @@ def interpolate_vol_surface(strikes, expiries, vol_matrix):
 # Realized Volatility Estimators
 # ═══════════════════════════════════════════════════════════════════════════
 
-def generate_price_history(S=100, mu=0.08, sigma=0.20, days=252, seed=42):
-    """Generate synthetic daily price history via GBM."""
-    rng = np.random.RandomState(seed)
-    dt = 1 / 252
-    returns = (mu - 0.5 * sigma ** 2) * dt + sigma * np.sqrt(dt) * rng.standard_normal(days)
-    prices = S * np.exp(np.cumsum(np.concatenate([[0], returns])))
-    return prices
+
+# generate_price_history removed — use Bloomberg historical data via get_fx_historical_spot()
 
 
 def realized_vol_close_to_close(prices, window=20):
@@ -561,7 +556,7 @@ def realized_vol_garman_klass(opens, highs, lows, closes, window=20):
 
 def generate_options_chain(S, r, q, base_vol=0.20, skew=-0.10,
                            expiry_days=30, strike_step=2.5, num_strikes=20):
-    """Generate a synthetic options chain with bid/ask spreads."""
+    """Generate an analytical options chain for structure analysis (no synthetic volume/OI)."""
     T = expiry_days / 365.0
     center = round(S / strike_step) * strike_step
     strikes = np.arange(center - num_strikes * strike_step,
@@ -584,10 +579,9 @@ def generate_options_chain(S, r, q, base_vol=0.20, skew=-0.10,
             spread_mult = 1 + 2 * abs(moneyness)
             half_spread = max(0.01, mid * 0.02 * spread_mult)
 
-            # Volume/OI simulation
             atm_dist = abs(moneyness)
-            volume = max(1, int(5000 * np.exp(-8 * atm_dist ** 2) * np.random.lognormal(0, 0.5)))
-            oi = max(10, int(volume * np.random.uniform(3, 15)))
+            volume = 0  # Live volume from Bloomberg
+            oi = 0      # Live OI from Bloomberg
 
             chain.append({
                 "strike": K,

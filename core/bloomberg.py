@@ -742,8 +742,6 @@ def _expiry_to_years(expiry_str):
 
 def _build_vol_surface_from_chain(underlying, r, q):
     """Build vol surface from options chain data when OVDV isn't available."""
-    from core.pricing import generate_vol_surface
-
     chain = get_options_chain(underlying)
     if chain.empty or "iv" not in chain.columns:
         logger.warning(f"No chain data for {underlying} — returning empty surface")

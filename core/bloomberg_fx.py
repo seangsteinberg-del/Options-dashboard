@@ -521,15 +521,9 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
                                "were None/NaN/0 — Bloomberg may not be fully authenticated "
                                "or lacks FX vol data subscription", pair, len(df))
 
-            # Only keep tenors that have at least ATM
-            surface = {t: v for t, v in surface.items() if "atm" in v}
-            # Fill missing metrics: ATM defaults to 0 (will trigger fallback),
-            # RR/BF default to NaN (propagates correctly through bf_rr_to_smile
-            # which treats NaN as 0.0 = flat smile assumption)
-            for t in surface:
-                surface[t].setdefault("atm", 0.0)
-                for m in ("rr25", "bf25", "rr10", "bf10"):
-                    surface[t].setdefault(m, float('nan'))
+            # Only keep tenors that have a real ATM value from Bloomberg
+            surface = {t: v for t, v in surface.items()
+                       if "atm" in v and v["atm"] is not None and v["atm"] > 0}
 
             if surface:
                 logger.info("Vol surface %s: %d tenors from %d/%d tickers",
@@ -555,12 +549,11 @@ def get_fx_vol_surface(pair: str) -> Dict[str, dict]:
 
 def get_fx_vol_point(pair: str, tenor: str = "1M",
                      metric: str = "atm") -> float:
-    """Single vol point from the surface."""
+    """Single vol point from the Bloomberg surface. Returns None if unavailable."""
     surface = get_fx_vol_surface(pair)
     if tenor in surface and metric in surface[tenor]:
         return surface[tenor][metric]
-    # Fallback: return ATM vol from nearest available tenor instead of
-    # a hardcoded value, so the result scales with the pair's vol regime.
+    # Try nearest available tenor from Bloomberg data
     if surface:
         req_days = _TENOR_DAYS.get(tenor.upper(), 30)
         best_tenor = min(surface.keys(),
@@ -568,7 +561,7 @@ def get_fx_vol_point(pair: str, tenor: str = "1M",
         val = surface[best_tenor].get("atm")
         if val is not None:
             return val
-    return 0.0
+    return None
 
 
 def get_fx_rates(pair: str) -> dict:
@@ -619,16 +612,11 @@ def get_fx_rates(pair: str) -> dict:
             r_dom = _try_rate(ccy_dom)
             r_for = _try_rate(ccy_for)
 
-            if r_dom is None and r_for is None:
-                raise ValueError(f"No rate data for either {ccy_dom} or {ccy_for}")
-
-            # Use sensible defaults if only one side available
-            if r_dom is None:
-                r_dom = r_for  # approximate
-                logger.warning("Using foreign rate as proxy for %s domestic rate", pair)
-            if r_for is None:
-                r_for = r_dom
-                logger.warning("Using domestic rate as proxy for %s foreign rate", pair)
+            if r_dom is None or r_for is None:
+                missing = []
+                if r_dom is None: missing.append(ccy_dom)
+                if r_for is None: missing.append(ccy_for)
+                raise ValueError(f"No Bloomberg rate data for: {', '.join(missing)}")
 
             res = {"r_dom": r_dom, "r_for": r_for,
                    "rate_diff": round(r_dom - r_for, 4)}
@@ -935,10 +923,9 @@ def get_fx_deposit_rates(ccy: str, tenors: List[str] = None) -> Dict[str, float]
 
 def get_cftc_positioning(pair: str) -> dict:
     """
-    CFTC Commitments of Traders positioning proxy.
-    When live CFTC data is unavailable, derives positioning estimate from
-    historical spot momentum, vol percentile, and carry direction.
-    Returns {net_spec, z_score, signal, confidence}.
+    CFTC Commitments of Traders positioning.
+    Requires Bloomberg CFTC data subscription.
+    Returns {net_spec, z_score, signal, confidence} or empty dict.
     """
     ck = f"cftc_{pair}"
     cached = _cache_get(ck, "positioning")
@@ -946,30 +933,8 @@ def get_cftc_positioning(pair: str) -> dict:
         return cached
     if not _may_fetch():
         return {}
-
-    try:
-        hist = get_fx_historical_spot(pair, 90)
-        if hist.empty or len(hist) < 30:
-            return {}
-        close = hist["close"].values
-        # Momentum: 1M vs 3M return z-score as positioning proxy
-        ret_1m = (close[-1] / close[-22] - 1) if len(close) > 22 else 0.0
-        ret_3m = (close[-1] / close[0] - 1) if len(close) > 60 else ret_1m
-        ret_std = float(np.std(np.diff(np.log(close[-60:]))))
-        z = ret_1m / max(ret_std * np.sqrt(22), 1e-6)
-        # Estimate: positive z = long positioning (USD strength for USD/XXX)
-        result = {
-            "net_spec": round(float(z * 30), 1),  # synthetic net speculative (scaled)
-            "z_score": round(float(z), 2),
-            "signal": "LONG" if z > 1.0 else "SHORT" if z < -1.0 else "NEUTRAL",
-            "confidence": "proxy",
-        }
-        _cache_set(ck, result, "positioning")
-        _cache_done(ck)
-        return result
-    except Exception as e:
-        logger.debug("CFTC positioning proxy failed for %s: %s", pair, e)
-        return {}
+    # CFTC data requires Bloomberg subscription — return empty if unavailable
+    return {}
 
 
 def get_fx_realized_vol(pair: str, window: int = 20,

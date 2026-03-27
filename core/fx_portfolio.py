@@ -256,10 +256,8 @@ def _validate_position(pos):
 
 def create_sample_portfolio():
     """
-    Create a realistic sample FX options portfolio with ~25 positions
-    spread across books, strategies, G10/EM pairs, and expiry tenors.
-
-    Resets the global portfolio state.
+    Initialize an empty portfolio with all books ready for live trading.
+    Positions are added via the blotter panel or add_position() API.
     """
     global _PORTFOLIO
     _PORTFOLIO = {
@@ -267,10 +265,11 @@ def create_sample_portfolio():
         "trade_history": [],
         "risk_limits": deepcopy(DEFAULT_RISK_LIMITS),
     }
+    return _PORTFOLIO
 
-    today = date.today()
-    rng = np.random.RandomState(42)
 
+def _REMOVED_sample_positions():
+    """Sample positions removed — Bloomberg live data only. Use blotter to add trades."""
     positions = [
         # --- G10_FLOW: client hedging activity ---
         {"pair": "EURUSD", "option_type": "call", "direction": "buy", "strike": 1.0900,
@@ -447,16 +446,7 @@ def create_sample_portfolio():
          "book": "CLIENT_FACILITATION", "tags": ["dairy"], "notes": "NZD dairy exporter"},
     ]
 
-    for pos in positions:
-        pos["id"] = str(uuid.uuid4())
-        pos.setdefault("notional_ccy", pos["pair"][:3])
-        pos.setdefault("tags", [])
-        pos.setdefault("notes", "")
-        pos["status"] = "open"
-        book = pos["book"]
-        _PORTFOLIO["books"][book].append(pos)
-
-    return _PORTFOLIO
+    pass  # Dead code — sample positions removed
 
 
 def add_position(book, position_dict):

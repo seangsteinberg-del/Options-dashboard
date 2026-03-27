@@ -43,8 +43,8 @@ def _ensure_packages():
                                   stderr=subprocess.DEVNULL)
             print("  [OK] blpapi installed.")
         except Exception:
-            print("  [!] blpapi install failed — running with synthetic data.")
-            print("      If Bloomberg Terminal is on this machine, you may need to:")
+            print("  [!] blpapi install failed — Bloomberg Terminal required.")
+            print("      This application requires a live Bloomberg connection.")
             print("      1. Install Bloomberg C++ SDK (WAPI<GO> on terminal)")
             print("      2. Set BLPAPI_ROOT environment variable")
             print("      3. Then: pip install blpapi\n")
@@ -327,7 +327,7 @@ def make_header():
     bbg = is_connected()
     dot_color = COLORS["accent_green"] if bbg else COLORS["accent_orange"]
     badge_class = "bbg-badge connected" if bbg else "bbg-badge disconnected"
-    badge_text = "BLOOMBERG LIVE" if bbg else "SYNTHETIC MODE"
+    badge_text = "BLOOMBERG LIVE" if bbg else "DISCONNECTED"
 
     preset_buttons = [
         _preset_button(name, i) for i, name in enumerate(WORKSPACE_PRESETS.keys())
@@ -707,7 +707,7 @@ def make_sub_tabs_container():
 # ═══════════════════════════════════════════════════════════════════════════
 
 def make_footer():
-    data_label = "BLOOMBERG API" if is_connected() else "SYNTHETIC DATA"
+    data_label = "BLOOMBERG API" if is_connected() else "NO DATA — CONNECT BLOOMBERG"
     total_panels = sum(len(ws["tabs"]) for ws in WORKSPACES)
     return html.Div([
         html.Div([
@@ -1346,8 +1346,11 @@ def _update_data_source_status(_n):
             }),
         ]), timestamp
     else:
-        # SYNTHETIC — dev mode, no Bloomberg. This is expected.
-        return html.Span(""), timestamp  # Bloomberg badge already says "SYNTHETIC MODE"
+        # No Bloomberg connection — show warning
+        return html.Span("BLOOMBERG DISCONNECTED — NO LIVE DATA", style={
+            "color": "#ff3333", "fontSize": "9px",
+            "fontFamily": "'JetBrains Mono', monospace",
+        }), timestamp
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1369,11 +1372,10 @@ backtest.register_callbacks(app)
 # ═══════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    # Connect to Bloomberg FIRST — once connected, synthetic data is
-    # permanently blocked for this entire session.
+    # Connect to Bloomberg Terminal — required for all market data.
     print("  Connecting to Bloomberg Terminal...")
     bbg_connected = is_connected()
-    bbg_status = "BLOOMBERG LIVE" if bbg_connected else "SYNTHETIC MODE"
+    bbg_status = "BLOOMBERG LIVE" if bbg_connected else "DISCONNECTED"
     panels_total = sum(len(ws["tabs"]) for ws in WORKSPACES)
 
     # Start background fetcher if Bloomberg is available.

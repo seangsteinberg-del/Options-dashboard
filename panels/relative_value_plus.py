@@ -55,14 +55,14 @@ LOOKBACK_OPTIONS = [
 ]
 
 _CB_BANKS = {
-    "FED":  {"rate": 4.25, "direction": "HOLD"},
-    "ECB":  {"rate": 2.75, "direction": "HOLD"},
-    "BOE":  {"rate": 4.25, "direction": "CUTTING"},
-    "BOJ":  {"rate": 0.50, "direction": "HIKING"},
-    "SNB":  {"rate": 0.75, "direction": "HOLD"},
-    "RBA":  {"rate": 3.85, "direction": "HOLD"},
-    "RBNZ": {"rate": 3.75, "direction": "CUTTING"},
-    "BOC":  {"rate": 2.75, "direction": "HOLD"},
+    "FED":  {"rate": None, "direction": "—"},
+    "ECB":  {"rate": None, "direction": "—"},
+    "BOE":  {"rate": None, "direction": "—"},
+    "BOJ":  {"rate": None, "direction": "—"},
+    "SNB":  {"rate": None, "direction": "—"},
+    "RBA":  {"rate": None, "direction": "—"},
+    "RBNZ": {"rate": None, "direction": "—"},
+    "BOC":  {"rate": None, "direction": "—"},
 }
 
 
@@ -704,12 +704,12 @@ def _build_cb_chart():
                         rate_pct = actual * 100 if actual < 1 else actual
                         _CB_BANKS[bank]["rate"] = round(rate_pct, 2)
             except Exception:
-                pass  # Keep hardcoded default for this bank
+                pass  # Bloomberg rate fetch failed for this bank
     except Exception:
-        pass  # Use hardcoded defaults entirely
+        pass  # Bloomberg rate fetch failed
 
     banks = list(_CB_BANKS.keys())
-    rates = [_CB_BANKS[b]["rate"] for b in banks]
+    rates = [_CB_BANKS[b]["rate"] or 0.0 for b in banks]
     dirs = [_CB_BANKS[b]["direction"] for b in banks]
     colors = ["#ff3333" if d == "HIKING" else "#00cc66" if d == "CUTTING" else "#ff8800" for d in dirs]
 

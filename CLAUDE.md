@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-FX Options Workstation — a Bloomberg Terminal-style analytics dashboard built for an FX options strategist. Covers the full workflow: market monitoring, vol surface analysis, trade structuring & pricing (Garman-Kohlhagen), execution, portfolio risk management, and backtesting. Connects to Bloomberg Terminal for live data with a synthetic fallback for development.
+FX Options Workstation — a Bloomberg Terminal-style analytics dashboard built for an FX options strategist. Covers the full workflow: market monitoring, vol surface analysis, trade structuring & pricing (Garman-Kohlhagen), execution, portfolio risk management, and backtesting. Requires a live Bloomberg Terminal connection for all market data.
 
 ## Running the App
 
@@ -14,7 +14,7 @@ python app.py
 
 Launches on `localhost:8765` via pywebview (desktop) or falls back to `localhost:8050` in browser. Auto-installs missing pip packages on first run. No build step required.
 
-Bloomberg Terminal on localhost:8194 is optional — the app falls back to synthetic data when unavailable.
+Bloomberg Terminal on localhost:8194 is **required** — the app has no synthetic data fallback.
 
 ## Testing
 
@@ -31,7 +31,7 @@ No automated test suite exists. Manual testing is done by running the app and in
 ### Entry Point & Panel Lifecycle
 
 `app.py` is the single entry point (~1400 lines). It:
-1. Connects to Bloomberg (or enables synthetic fallback)
+1. Connects to Bloomberg Terminal (required)
 2. Starts a background data fetcher thread (`core/bg_fetcher.py`) on a 2-min cycle
 3. Pre-renders ALL panel layouts into the DOM at startup
 4. Tab switching toggles `display:none/block` — panels are never destroyed/recreated
@@ -57,7 +57,7 @@ Callbacks never hit Bloomberg directly. The cache layer (`bloomberg_fx.py`) serv
 | Module | Purpose |
 |--------|---------|
 | `core/bloomberg.py` | blpapi session wrapper (BDP/BDH/BDS) |
-| `core/bloomberg_fx.py` | FX data provider with cache-only mode + synthetic fallback |
+| `core/bloomberg_fx.py` | FX data provider with cache-only mode (Bloomberg required) |
 | `core/bg_fetcher.py` | Background daemon thread pre-populating cache |
 | `core/fx_conventions.py` | `FXPairSpec` registry for 30 pairs, delta systems, tenor utils, cut times |
 | `core/fx_analytics.py` | Vol percentile, z-score, regime, cone, IV-RV, correlation, carry, VaR |
@@ -105,5 +105,5 @@ All reusable styles are exported from `core/theme.py`: `CARD_STYLE`, `BUTTON_STY
 
 - **CSV export:** `core/csv_export.py` extracts trace data from Plotly figure dicts. Each panel has a `dcc.Download` component and a callback that calls `export_csv(fig, panel_name, chart_type)`.
 - **Analytics caching:** `fx_analytics.py` uses a TTL memoization decorator (120s) for expensive computations.
-- **Synthetic data:** When Bloomberg is unavailable, `bloomberg_fx.py` generates plausible synthetic surfaces, spots, and rates so the UI is fully functional for development.
+- **No synthetic data:** All market data comes from Bloomberg Terminal. Without a connection, panels show empty states.
 - **Panel sizing:** `CHART_SM=240`, `CHART_MD=320`, `CHART_LG=400` (px heights). Spacing: `GAP="8px"`, `SECTION_GAP="16px"`.

@@ -355,11 +355,8 @@ def _gather_events():
         "RBNZ": [14, 56, 112, 168, 224, 280, 336],
         "BOC":  [21, 63, 105, 147, 189, 231, 273, 315],
     }
-    # Approximate current policy rates (updated Q1 2026)
-    _policy_rates = {
-        "FED": "4.25%", "ECB": "2.75%", "BOE": "4.25%", "BOJ": "0.50%",
-        "SNB": "0.75%", "RBA": "3.85%", "RBNZ": "3.75%", "BOC": "2.75%",
-    }
+    # Policy rates from Bloomberg (populated at runtime)
+    _policy_rates = {}
 
     year_start = datetime(now.year, 1, 1)
     day_of_year = (now - year_start).days

@@ -182,7 +182,7 @@ def _generate_backtest_data(pair, lookback_years):
     spot_series = spot_series[-common_len:]
     vol_series = vol_series[-common_len:]
 
-    # RR25 and BF25: fetch from Bloomberg historical vol, fallback to synthetic estimate
+    # RR25 and BF25: fetch from Bloomberg historical vol (required)
     rr25_raw = get_fx_historical_vol(pair, "1M", "25D_RR", actual_days)
     bf25_raw = get_fx_historical_vol(pair, "1M", "25D_BF", actual_days)
     if rr25_raw is not None and len(rr25_raw) >= common_len // 2:
@@ -191,18 +191,16 @@ def _generate_backtest_data(pair, lookback_years):
             rr25_arr = np.pad(rr25_arr, (common_len - len(rr25_arr), 0), mode='edge')
         rr25_series = np.nan_to_num(rr25_arr, nan=0.0)
     else:
-        # Synthetic: estimate RR from spot momentum (negative momentum → negative skew)
-        log_ret = np.diff(np.log(spot_series), prepend=np.log(spot_series[0]))
-        rr25_series = pd.Series(log_ret).rolling(22, min_periods=5).mean().fillna(0).values * -500
-        rr25_series = np.clip(rr25_series, -3.0, 3.0)
+        # No Bloomberg RR data — use flat skew (0)
+        rr25_series = np.zeros(common_len)
     if bf25_raw is not None and len(bf25_raw) >= common_len // 2:
         bf25_arr = np.array(bf25_raw, dtype=float)[-common_len:]
         if len(bf25_arr) < common_len:
             bf25_arr = np.pad(bf25_arr, (common_len - len(bf25_arr), 0), mode='edge')
         bf25_series = np.nan_to_num(bf25_arr, nan=0.25)
     else:
-        # Synthetic: BF correlates with vol level (higher vol → wider smile)
-        bf25_series = np.clip(vol_series * 0.03, 0.05, 1.5)
+        # No Bloomberg BF data — use flat butterfly (0.25)
+        bf25_series = np.full(common_len, 0.25)
 
     # Rates
     rates_data = get_fx_rates(pair) or {}
