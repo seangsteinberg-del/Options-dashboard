@@ -19,7 +19,7 @@ from typing import Tuple, Optional
 # ═══════════════════════════════════════════════════════════════════════════
 
 def bs_d1_d2(S, K, T, r, q, sigma):
-    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+    if T <= 0 or sigma <= 1e-10 or S <= 0 or K <= 0 or not np.isfinite(sigma):
         return 0.0, 0.0
     d1 = (np.log(S / K) + (r - q + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
@@ -27,7 +27,7 @@ def bs_d1_d2(S, K, T, r, q, sigma):
 
 
 def bs_price(S, K, T, r, q, sigma, option_type="call"):
-    if T <= 0:
+    if T <= 0 or S <= 0 or K <= 0 or sigma <= 1e-10:
         return max(S - K, 0) if option_type == "call" else max(K - S, 0)
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     if option_type == "call":
@@ -241,6 +241,9 @@ def dual_delta(S, K, T, r, q, sigma, option_type="call"):
 
 
 def compute_all_greeks(S, K, T, r, q, sigma, option_type="call") -> dict:
+    if not np.isfinite(sigma) or sigma <= 0 or S <= 0 or K <= 0:
+        return {k: 0.0 for k in ("price", "delta", "gamma", "theta", "vega", "rho",
+                                   "vanna", "volga", "charm", "speed", "color", "ultima", "dual_delta")}
     return {
         "price": bs_price(S, K, T, r, q, sigma, option_type),
         "delta": delta(S, K, T, r, q, sigma, option_type),

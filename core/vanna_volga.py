@@ -23,6 +23,10 @@ from scipy.optimize import brentq
 
 def _gk_d1_d2(S, K, T, r_d, r_f, sigma):
     """Return (d1, d2) for the Garman-Kohlhagen model."""
+    sigma = max(sigma, 1e-10)
+    T = max(T, 1e-10)
+    S = max(S, 1e-10)
+    K = max(K, 1e-10)
     sqrt_T = np.sqrt(T)
     d1 = (np.log(S / K) + (r_d - r_f + 0.5 * sigma ** 2) * T) / (sigma * sqrt_T)
     d2 = d1 - sigma * sqrt_T
