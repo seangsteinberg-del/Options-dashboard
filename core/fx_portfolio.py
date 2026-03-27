@@ -191,6 +191,7 @@ def _lookup_vol(pair, K, T, S, vol_surfaces):
     """
     surf = vol_surfaces.get(pair)
     if surf is None:
+        logger.warning("Vol surface missing for %s, using default 0.10", pair)
         return 0.10
     if isinstance(surf, (int, float)):
         return float(surf)

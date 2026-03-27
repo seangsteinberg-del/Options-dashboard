@@ -1946,7 +1946,7 @@ def register_callbacks(app):
             Output("fxrisk-hedge-container", "style"),
         ],
         Input("fxrisk-tabs", "value"),
-        prevent_initial_call=False,
+        prevent_initial_call=True,
     )
     def toggle_tab_containers(tab):
         show = {"display": "block"}

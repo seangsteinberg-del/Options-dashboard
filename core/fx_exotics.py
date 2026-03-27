@@ -356,6 +356,8 @@ def double_no_touch_price(S, B_up, B_down, T, r_d, r_f, sigma, payout=1.0,
                            n_paths=50000, n_steps=252, seed=None):
     """Double no-touch: pays if spot stays within [B_down, B_up].  MC simulation
     with Brownian bridge correction for barrier crossing between discrete steps."""
+    if abs(B_up - B_down) < 1e-10 or B_up <= B_down:
+        return {'price': 0.0, 'std_error': 0.0, 'prob_no_touch': 0.0}
     paths, dt = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
     n = paths.shape[0]
 
@@ -462,7 +464,10 @@ def asian_price(S, K, T, r_d, r_f, sigma, cp, fixing_freq='monthly',
     n_steps = max(n_fixings, 252)
     paths, _ = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
 
-    fix_idx = np.round(np.linspace(1, n_steps, n_fixings)).astype(int)
+    if n_fixings <= 1:
+        fix_idx = np.array([n_steps])  # single fixing uses final spot
+    else:
+        fix_idx = np.round(np.linspace(1, n_steps, n_fixings)).astype(int)
     fix_spots = paths[:, fix_idx]
 
     arith_avg = fix_spots.mean(axis=1)

@@ -267,7 +267,7 @@ def implied_vol(price, S, K, T, r, q, option_type="call"):
         return None
     intrinsic = max(S * np.exp(-q * T) - K * np.exp(-r * T), 0) if option_type == "call" \
         else max(K * np.exp(-r * T) - S * np.exp(-q * T), 0)
-    if price <= intrinsic + 1e-10:
+    if price <= intrinsic * (1.0 + 1e-6) + 1e-10:
         return None
     try:
         return brentq(lambda sig: bs_price(S, K, T, r, q, sig, option_type) - price,

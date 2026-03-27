@@ -1456,7 +1456,7 @@ def spot_correlation_matrix(pairs: List[str] = None,
         ret = np.diff(np.log(hist[-(window + 1):]))
         returns[p] = ret[:window]
 
-    if not returns:
+    if len(returns) < 2:
         return pd.DataFrame()
     df = pd.DataFrame(returns)
     return df.corr()
@@ -1478,7 +1478,7 @@ def vol_correlation_matrix(pairs: List[str] = None, tenor: str = "3M",
         ch = np.diff(hist[-(window + 1):])
         changes[p] = ch[:window]
 
-    if not changes:
+    if len(changes) < 2:
         return pd.DataFrame()
     df = pd.DataFrame(changes)
     return df.corr()

@@ -1362,15 +1362,18 @@ def _lab_study_vol_cone(pair, sd, spot, r_dom, r_for, **kw):
                       ("p25", "25th"), ("p10", "10th")]:
         if col in df.columns:
             fig.add_trace(go.Scatter(x=w, y=df[col].tolist(), mode="lines",
-                          name=name, line=dict(color="#808080", width=1, dash="dot")))
+                          name=name, line=dict(color="#808080", width=1, dash="dot"),
+                          hovertemplate="%{x}d: %{y:.2f}%<extra>" + name + "</extra>"))
     if "median" in df.columns:
         fig.add_trace(go.Scatter(x=w, y=df["median"].tolist(), mode="lines",
-                      name="Median", line=dict(color="#d4d4d4", width=1.5, dash="dash")))
+                      name="Median", line=dict(color="#d4d4d4", width=1.5, dash="dash"),
+                      hovertemplate="%{x}d: %{y:.2f}%<extra>Median</extra>"))
     if "current_c2c" in df.columns:
         fig.add_trace(go.Scatter(x=w, y=df["current_c2c"].tolist(),
                       mode="lines+markers", name="Current",
                       line=dict(color="#ff8800", width=2.5),
-                      marker=dict(size=6, color="#ff8800")))
+                      marker=dict(size=6, color="#ff8800"),
+                      hovertemplate="%{x}d: %{y:.2f}%<extra>Current RV</extra>"))
     _apply_chart_template(fig, f"{pair} Realized Vol Cone")
     fig.update_layout(xaxis_title="Window (days)", yaxis_title="RV (%)",
                       hovermode="x unified")
@@ -1393,7 +1396,8 @@ def _lab_study_smile(pair, sd, spot, r_dom, r_for, **kw):
                 atm + rr25/2 + bf25, atm + rr10/2 + bf10]
         fig.add_trace(go.Scatter(x=["10P", "25P", "ATM", "25C", "10C"],
                       y=vols, mode="lines+markers", name=t,
-                      line=dict(color=_CW[idx % len(_CW)], width=2)))
+                      line=dict(color=_CW[idx % len(_CW)], width=2),
+                      hovertemplate="%{x}: %{y:.2f}%<extra>" + t + "</extra>"))
     _apply_chart_template(fig, f"{pair} Vol Smile")
     fig.update_layout(xaxis_title="Delta", yaxis_title="IV (%)",
                       hovermode="x unified")
@@ -1409,7 +1413,8 @@ def _lab_study_implied_pdf(pair, sd, spot, r_dom, r_for, **kw):
     fig.add_trace(go.Scatter(x=df["strike"].tolist(), y=df["pdf"].tolist(),
                   mode="lines", name="Implied PDF", fill="tozeroy",
                   line=dict(color="#ff8800", width=2),
-                  fillcolor="rgba(255,136,0,0.15)"))
+                  fillcolor="rgba(255,136,0,0.15)",
+                  hovertemplate="Strike: %{x:.4f}<br>Density: %{y:.4f}<extra></extra>"))
     spots = get_fx_spots([pair]) or {}
     s = spots.get(pair, {}).get("mid")
     if s:
@@ -1429,7 +1434,8 @@ def _lab_study_vol_regime(pair, sd, spot, r_dom, r_for, **kw):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df["day"].tolist(), y=df["vol"].tolist(),
                   mode="lines", name=f"{pair} ATM",
-                  line=dict(color="#ff8800", width=2)))
+                  line=dict(color="#ff8800", width=2),
+                  hovertemplate="Day %{x}<br>Vol: %{y:.2f}%<extra></extra>"))
     for level, color, lbl in [(20, "#ff3333", "CRISIS"), (14, "#ff8800", "HIGH"),
                                (10, "#ffaa33", "ELEVATED"), (6, "#808080", "NORMAL")]:
         fig.add_hline(y=level, line_dash="dot", line_color=color,
@@ -1453,11 +1459,13 @@ def _lab_study_fwd_vol_curve(pair, sd, spot, r_dom, r_for, **kw):
     if "spot_vol" in df.columns:
         fig.add_trace(go.Scatter(x=df["end_tenor"].tolist(),
                       y=df["spot_vol"].tolist(), mode="lines+markers",
-                      name="Spot Vol", line=dict(color="#d4d4d4", width=1.5)))
+                      name="Spot Vol", line=dict(color="#d4d4d4", width=1.5),
+                      hovertemplate="%{x}: %{y:.2f}%<extra>Spot</extra>"))
     fig.add_trace(go.Scatter(x=df["end_tenor"].tolist(),
                   y=df["forward_vol"].tolist(), mode="lines+markers",
                   name="Forward Vol", line=dict(color="#ff8800", width=2.5),
-                  marker=dict(size=6)))
+                  marker=dict(size=6),
+                  hovertemplate="%{x}: %{y:.2f}%<extra>Forward</extra>"))
     _apply_chart_template(fig, f"{pair} Forward Vol (from {tenor})")
     fig.update_layout(xaxis_title="End Tenor", yaxis_title="Vol (%)",
                       hovermode="x unified")

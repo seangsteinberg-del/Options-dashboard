@@ -132,6 +132,10 @@ def vv_price(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol, cp):
     if T <= 1e-10:
         return max(cp * (S - K), 0.0)
 
+    # Flat vol surface: no smile adjustment needed
+    if np.std([p25_vol, atm_vol, c25_vol]) < 1e-6:
+        return gk_price(S, K, T, r_d, r_f, atm_vol, cp)
+
     # Pivot strikes
     K2 = _atm_dns_strike(S, T, r_d, r_f, atm_vol)
     K1 = _delta_to_strike(S, T, r_d, r_f, p25_vol, -0.25, -1)

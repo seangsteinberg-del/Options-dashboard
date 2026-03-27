@@ -298,9 +298,9 @@ def _compute_stats_from_trades(trades_list):
 
     avg_hold = float(np.mean(trades_df["hold_days"])) if n_trades > 0 else 0.0
 
-    if len(pnls) > 1 and np.std(pnls) > 0:
+    if len(pnls) > 1 and np.std(pnls) > 1e-10:
         trades_per_year = 252.0 / max(avg_hold, 1)
-        sharpe = float((np.mean(pnls) / np.std(pnls)) * np.sqrt(trades_per_year))
+        sharpe = float(np.clip((np.mean(pnls) / np.std(pnls)) * np.sqrt(trades_per_year), -10, 10))
     else:
         sharpe = 0.0
 
