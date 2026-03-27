@@ -528,7 +528,8 @@ def _build_rolling_chart(pair_a, pair_b):
                     rolling.append(0)
             fig.add_trace(go.Scatter(x=list(range(len(rolling))), y=rolling,
                                      mode="lines", line=dict(color=c, width=1.5),
-                                     name=f"{w}d"))
+                                     name=f"{w}d",
+                                     hovertemplate="Day %{x}<br>\u03c1: %{y:.3f}<extra>" + f"{w}d" + "</extra>"))
 
         fig.add_hline(y=0, line=dict(color="#808080", width=0.5, dash="dot"))
         fig.add_hline(y=0.7, line=dict(color="#00cc66", width=0.5, dash="dash"))

@@ -92,7 +92,12 @@ def figure_to_dataframe(fig_dict):
     for f in frames[1:]:
         df = df.merge(f, on="x", how="outer")
     df = df.set_index("x").sort_index()
-    df.index.name = ""
+    # Preserve a meaningful index name from axis title if available
+    xaxis = fig_dict.get("layout", {}).get("xaxis", {})
+    x_title = xaxis.get("title", {})
+    if isinstance(x_title, dict):
+        x_title = x_title.get("text", "")
+    df.index.name = x_title if x_title else ""
     return df
 
 

@@ -574,6 +574,11 @@ def register_callbacks(app):
         reb = _safe_float(rebate, 0.0)
         r_low = _safe_float(range_low, S * 0.97)
         r_high = _safe_float(range_high, S * 1.03)
+        # Validate barrier/range ordering
+        if B_up <= B_dn:
+            B_up, B_dn = max(B_up, B_dn), min(B_up, B_dn)
+        if r_high <= r_low:
+            r_high, r_low = max(r_high, r_low), min(r_high, r_low)
         fixfreq = fixfreq or "monthly"
         avgtype = avgtype or "arithmetic"
         lbtype = lbtype or "floating"

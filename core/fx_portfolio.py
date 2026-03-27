@@ -993,10 +993,17 @@ def hedge_suggestion(portfolio_risk, target="delta_neutral"):
     suggestions = []
     by_pair = portfolio_risk.get("by_pair", {})
 
+    # Scale thresholds by total portfolio notional
+    total_notional = sum(risk.get("notional", 0) for risk in by_pair.values())
+    scale = max(total_notional / 10_000_000, 1.0)  # baseline = 10M
+    delta_threshold = 10_000 * scale
+    vega_threshold = 5_000 * scale
+    gamma_threshold = 5_000 * scale
+
     if target == "delta_neutral":
         for pair, risk in by_pair.items():
             net_delta = risk.get("delta", 0.0)
-            if abs(net_delta) < 10_000:
+            if abs(net_delta) < delta_threshold:
                 continue
             direction = "sell" if net_delta > 0 else "buy"
             suggestions.append({
@@ -1010,7 +1017,7 @@ def hedge_suggestion(portfolio_risk, target="delta_neutral"):
     elif target == "vega_neutral_3M":
         for pair, risk in by_pair.items():
             net_vega = risk.get("vega", 0.0)
-            if abs(net_vega) < 5_000:
+            if abs(net_vega) < vega_threshold:
                 continue
             direction = "sell" if net_vega > 0 else "buy"
             # Approximate: 3M ATM straddle vega per 1M notional is ~10k-20k
@@ -1026,7 +1033,7 @@ def hedge_suggestion(portfolio_risk, target="delta_neutral"):
     elif target == "gamma_neutral":
         for pair, risk in by_pair.items():
             net_gamma = risk.get("gamma", 0.0)
-            if abs(net_gamma) < 5_000:
+            if abs(net_gamma) < gamma_threshold:
                 continue
             if net_gamma < 0:
                 # Short gamma: buy options to hedge

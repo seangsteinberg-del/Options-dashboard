@@ -174,6 +174,20 @@ PRESETS = {
         {"cp": "call", "side": "sell", "delta": 0.20, "ratio": 1},
         {"cp": "put", "side": "sell", "delta": 0.25, "ratio": 1},
     ],
+    # ── Ratio Plays ─────────────────────────────────────────────────────
+    "1x3 Call Spread": [
+        {"cp": "call", "side": "buy", "delta": 0.50, "ratio": 1},
+        {"cp": "call", "side": "sell", "delta": 0.25, "ratio": 3},
+    ],
+    "1x3 Put Spread": [
+        {"cp": "put", "side": "buy", "delta": 0.50, "ratio": 1},
+        {"cp": "put", "side": "sell", "delta": 0.25, "ratio": 3},
+    ],
+    "Jade Lizard": [
+        {"cp": "call", "side": "sell", "delta": 0.30, "ratio": 1},
+        {"cp": "call", "side": "buy", "delta": 0.15, "ratio": 1},
+        {"cp": "put", "side": "sell", "delta": 0.25, "ratio": 1},
+    ],
 }
 
 
@@ -212,6 +226,9 @@ STRUCTURE_VIEWS = {
     "Diagonal Spread":       {"view": "Directional + term structure", "type": "hybrid", "vol_view": "term_structure"},
     "Christmas Tree":        {"view": "Moderately bullish, low cost", "type": "directional", "vol_view": "neutral"},
     "Ladder":                {"view": "Directional with distributed risk", "type": "hybrid", "vol_view": "neutral"},
+    "1x3 Call Spread":       {"view": "Leveraged bullish (high ratio risk above)", "type": "hybrid", "vol_view": "short_vol"},
+    "1x3 Put Spread":        {"view": "Leveraged bearish (high ratio risk below)", "type": "hybrid", "vol_view": "short_vol"},
+    "Jade Lizard":           {"view": "Short vol, no upside risk, short downside", "type": "vol", "vol_view": "short_vol"},
 }
 
 

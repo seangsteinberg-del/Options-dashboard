@@ -1109,13 +1109,16 @@ def chart_sabr_params(pair, sd, spot, r_dom, r_for, **kw):
 
     fig.add_trace(go.Scatter(x=tenors, y=alphas, mode="lines+markers", name="Alpha",
         line=dict(color=COLORS["accent_cyan"], width=2),
-        marker=dict(size=6)), row=1, col=1)
+        marker=dict(size=6),
+        hovertemplate="%{x}: \u03b1=%{y:.4f}<extra></extra>"), row=1, col=1)
     fig.add_trace(go.Scatter(x=tenors, y=rhos, mode="lines+markers", name="Rho",
         line=dict(color=COLORS["accent_rose"], width=2),
-        marker=dict(size=6)), row=2, col=1)
+        marker=dict(size=6),
+        hovertemplate="%{x}: \u03c1=%{y:.3f}<extra></extra>"), row=2, col=1)
     fig.add_trace(go.Scatter(x=tenors, y=nus, mode="lines+markers", name="Nu",
         line=dict(color=COLORS["accent_orange"], width=2),
-        marker=dict(size=6)), row=3, col=1)
+        marker=dict(size=6),
+        hovertemplate="%{x}: \u03bd=%{y:.3f}<extra></extra>"), row=3, col=1)
 
     _apply_chart_template(fig, f"SABR Parameters -- {pair}")
     fig.update_layout(height=400, showlegend=False)
