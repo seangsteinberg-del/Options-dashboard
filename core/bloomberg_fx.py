@@ -85,10 +85,12 @@ _CACHE_TTL = {
     "positioning": 86400,
 }
 
-# Longer TTLs when background fetcher is active (must outlast fetch interval)
+# Longer TTLs when background fetcher is active (must outlast fetch interval).
+# Set to 3x the fetcher interval (120s) so cache NEVER expires between cycles.
+# The fetcher force-refreshes every cycle regardless of TTL.
 _CACHE_TTL_BG = {
-    "spot": 180,        # 3 min (fetcher runs every 2 min)
-    "vol_surface": 300,  # 5 min
+    "spot": 360,         # 6 min — 3x fetcher interval, never expires between cycles
+    "vol_surface": 600,  # 10 min — 5x fetcher interval
     "rates": 3600,       # 1 hr
     "forwards": 600,     # 10 min
     "historical": 7200,  # 2 hr
@@ -192,8 +194,8 @@ def _cache_wait_or_claim(key: str, category: str = "spot"):
             _inflight[key] = evt
             return None, True  # caller should fetch
 
-    # Wait for the other thread to finish (max 30s)
-    evt.wait(timeout=30)
+    # Wait for the other thread to finish (max 10s — keep UI responsive)
+    evt.wait(timeout=10)
     # Now check cache for the result
     cached = _cache_get(key, category)
     if cached is not None:
@@ -214,6 +216,14 @@ def _cache_invalidate(key: str):
     """Remove a specific key from cache, forcing a re-fetch."""
     with _cache_lock:
         _cache.pop(key, None)
+
+
+def _cache_invalidate_prefix(prefix: str):
+    """Remove all cache keys starting with *prefix*, forcing re-fetch."""
+    with _cache_lock:
+        keys = [k for k in _cache if k.startswith(prefix)]
+        for k in keys:
+            del _cache[k]
 
 
 def cache_clear():

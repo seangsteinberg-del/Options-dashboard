@@ -65,6 +65,7 @@ class BloombergFetcher(threading.Thread):
                      len(pairs), self.interval)
 
         first_cycle = True
+        consecutive_failures = 0
         while not self._stop_event.is_set():
             if not is_connected():
                 logger.warning("BG fetcher: Bloomberg not connected, skipping cycle")
@@ -74,6 +75,7 @@ class BloombergFetcher(threading.Thread):
                 self._sleep(10)
                 continue
 
+            ok = False
             try:
                 include_hist = first_cycle or self._historical_due()
                 ok = self._fetch_cycle(pairs, include_hist)
@@ -86,7 +88,15 @@ class BloombergFetcher(threading.Thread):
                 first_cycle = False
                 self._first_cycle_done.set()
 
-            self._sleep(self.interval)
+            if ok:
+                consecutive_failures = 0
+                self._sleep(self.interval)
+            else:
+                # Retry quickly with backoff: 10s, 20s, 30s, then cap at 30s
+                consecutive_failures += 1
+                retry_delay = min(10 * consecutive_failures, 30)
+                logger.warning("BG fetcher: cycle failed, retrying in %ds", retry_delay)
+                self._sleep(retry_delay)
 
         logger.info("Background fetcher stopped")
 
@@ -105,15 +115,17 @@ class BloombergFetcher(threading.Thread):
         from core.bloomberg_fx import (
             get_fx_spots, get_fx_vol_surface, get_fx_rates,
             get_fx_historical_spot, get_fx_historical_vol,
-            cache_clear,
+            cache_clear, _cache_invalidate_prefix,
         )
 
         t0 = time.monotonic()
         spots_ok = False
 
         # 1. Spots — single BDP call for all 30 pairs
-        # No need to invalidate — the data function checks cache TTL,
-        # and if expired, fetches fresh data and overwrites the cache.
+        # Invalidate first so the fetcher ALWAYS hits Bloomberg and writes
+        # fresh data. Without this, the fetcher returns cached data when TTL
+        # hasn't expired, creating gaps when cache finally does expire.
+        _cache_invalidate_prefix("spots_")
         try:
             result = get_fx_spots(pairs)
             if result:
@@ -125,6 +137,7 @@ class BloombergFetcher(threading.Thread):
             logger.error("BG: spots failed: %s", e)
 
         # 2. Vol surfaces — one BDP per pair (most expensive)
+        _cache_invalidate_prefix("volsurf_")
         ok, fail = 0, 0
         for pair in pairs:
             try:
@@ -139,6 +152,7 @@ class BloombergFetcher(threading.Thread):
         logger.info("BG: vol surfaces %d/%d OK", ok, ok + fail)
 
         # 3. Rates — one BDP per pair
+        _cache_invalidate_prefix("rates_")
         ok, fail = 0, 0
         for pair in pairs:
             try:

@@ -1001,17 +1001,27 @@ def command_palette_navigate(selected_value):
 # 6. Global Pair Linking (uses set_props to avoid errors on unmounted panels)
 # ---------------------------------------------------------------------------
 app.clientside_callback(
-    """function(pair) {
+    """function(pair, activeTab) {
         if (!pair) return window.dash_clientside.no_update;
-        var targets = ['vsfx-pair', 'stb-pair', 'fxb-pair', 'rvp-pair-a',
-                        'bt-pair', 'fxrisk-wi-pair'];
-        targets.forEach(function(id) {
-            window.dash_clientside.set_props(id, {value: pair});
-        });
+        // Only push pair to the ACTIVE panel's dropdown so that inactive
+        // panels keep whatever pair the user previously selected on them.
+        var tabToDropdown = {
+            'vol-surface-fx':      'vsfx-pair',
+            'structure-builder':   'stb-pair',
+            'blotter-fx':          'fxb-pair',
+            'relative-value-plus': 'rvp-pair-a',
+            'backtest':            'bt-pair',
+            'risk-fx':             'fxrisk-wi-pair'
+        };
+        var target = tabToDropdown[activeTab];
+        if (target) {
+            window.dash_clientside.set_props(target, {value: pair});
+        }
         return window.dash_clientside.no_update;
     }""",
     Output("global-pair", "id"),
     Input("global-pair", "data"),
+    State("sub-tabs", "value"),
 )
 # Market Dashboard → global pair
 app.clientside_callback(

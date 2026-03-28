@@ -181,7 +181,7 @@ _conn_lock = threading.Lock()
 # through if the session temporarily drops.
 _bloomberg_ever_connected = False
 _last_connect_attempt = 0.0  # monotonic time of last failed connection attempt
-_RECONNECT_COOLDOWN = 30.0   # seconds before retrying a failed connection
+_RECONNECT_COOLDOWN = 10.0   # seconds before retrying a failed connection
 
 
 def get_connection() -> BloombergConnection:
