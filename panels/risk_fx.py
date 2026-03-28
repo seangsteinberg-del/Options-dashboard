@@ -2394,7 +2394,13 @@ def _build_position_table(positions, spots, rates, vol_surfaces):
         S = spots.get(pair, 1.0)
         r_d = _get_rate(pair, rates, "domestic")
         r_f = _get_rate(pair, rates, "foreign")
-        pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+        try:
+            pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+        except Exception:
+            pg = {k: 0.0 for k in ("delta", "gamma", "vega", "theta",
+                                     "rho_d", "rho_f", "vanna", "volga", "price")}
+            pg["pair"] = pair
+            pg["position_id"] = pos.get("id", "")
 
         direction = pos.get("direction", "buy")
         opt_type = pos.get("option_type", "call")

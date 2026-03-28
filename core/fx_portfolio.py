@@ -474,7 +474,13 @@ def compute_book_risk(book, spots, rates, vol_surfaces):
         S = spots.get(pair, 1.0) if isinstance(spots, dict) else spots
         r_d = _get_rate(pair, rates, "domestic")
         r_f = _get_rate(pair, rates, "foreign")
-        pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+        try:
+            pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+        except Exception:
+            # Skip positions that fail Greeks computation
+            pg = {k: 0.0 for k in totals}
+            pg["pair"] = pair
+            pg["position_id"] = pos.get("id", "")
         pos_greeks.append(pg)
 
         for k in totals:
