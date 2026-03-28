@@ -178,7 +178,10 @@ def chart_layout(**overrides):
     # Deep-merge: axis defaults + caller overrides (caller wins on conflict)
     base["xaxis"] = {**AXIS_DEFAULTS, **(overrides.pop("xaxis", {}))}
     base["yaxis"] = {**AXIS_DEFAULTS, **(overrides.pop("yaxis", {}))}
-    base["title"] = {**TITLE_DEFAULTS, **(overrides.pop("title", {}))}
+    _title_override = overrides.pop("title", {})
+    if isinstance(_title_override, str):
+        _title_override = {"text": _title_override}
+    base["title"] = {**TITLE_DEFAULTS, **_title_override}
 
     if "margin" not in overrides:
         base["margin"] = {"l": 50, "r": 20, "t": 40, "b": 40}

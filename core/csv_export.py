@@ -10,12 +10,27 @@ from dash import dcc, no_update
 logger = logging.getLogger(__name__)
 
 
+def _trace_get(trace, key, default=None):
+    """Safely get an attribute from a Plotly trace object or a plain dict."""
+    if isinstance(trace, dict):
+        return trace.get(key, default)
+    # Plotly graph object — use attribute access
+    val = getattr(trace, key, default)
+    # Plotly returns None for unset attributes; treat same as missing
+    return val if val is not None else default
+
+
 def figure_to_dataframe(fig_dict):
-    """Extract data from a Plotly figure dict into a pandas DataFrame.
+    """Extract data from a Plotly figure dict or Figure object into a pandas DataFrame.
 
     Handles scatter/bar (columnar), heatmap/surface (matrix), and histogram traces.
     Multi-trace figures are merged on shared x-axis via outer join.
     """
+    # Normalise: accept both go.Figure objects and plain dicts
+    if hasattr(fig_dict, "to_plotly_json"):
+        # It's a go.Figure — convert to plain dict for uniform handling
+        fig_dict = fig_dict.to_plotly_json()
+
     if not fig_dict or "data" not in fig_dict:
         return pd.DataFrame()
 
