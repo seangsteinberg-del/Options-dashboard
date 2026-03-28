@@ -141,7 +141,11 @@ def _safe_fmt(val, fmt="+,.0f", fallback="\u2014"):
 
 def _fmt_usd(val):
     """Format a USD value with sign and K/M suffix."""
-    if val is None or not np.isfinite(val):
+    try:
+        val = float(val)
+    except (TypeError, ValueError):
+        return "$\u2014"
+    if not np.isfinite(val):
         return "$\u2014"
     if abs(val) >= 1_000_000:
         return f"${val / 1_000_000:+,.2f}M"
