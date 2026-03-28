@@ -60,7 +60,7 @@ def _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed=None):
     for t in range(n_steps):
         log_S[:, t + 1] = log_S[:, t] + drift + diff * Z[:, t]
 
-    return np.exp(log_S), dt
+    return np.exp(log_S), dt, rng
 
 
 def _correlated_mc_paths(S1, S2, T, r_d1, r_d2, sigma1, sigma2, rho,
@@ -192,8 +192,9 @@ def barrier_price(S, K, B, T, r_d, r_f, sigma, cp, barrier_type, rebate=0.0):
         if S <= B:
             return _gk_price(S, K, T, r_d, r_f, sigma, -1) + _F(1)
         if K >= B:
-            return _A(-1) - _B(-1) + _D(-1, 1) + _F(1)
-        return _C(-1, 1) + _F(1)
+            return _B(-1) - _C(-1, 1) + _D(-1, 1) + _F(1)
+        # K < B: in continuous time, spot must cross B to reach K, so DIP = vanilla
+        return _A(-1) + _F(1)
 
     if bt == 'down-and-out-put':
         if S <= B:
@@ -207,7 +208,7 @@ def barrier_price(S, K, B, T, r_d, r_f, sigma, cp, barrier_type, rebate=0.0):
         if S >= B:
             return _gk_price(S, K, T, r_d, r_f, sigma, -1) + _F(-1)
         if K >= B:
-            return _A(-1) - _B(-1) + _D(-1, -1) + _C(-1, -1) + _F(-1)
+            return _A(-1) - _B(-1) + _D(-1, -1) + _F(-1)
         return _C(-1, -1) + _F(-1)
 
     if bt == 'up-and-out-put':
@@ -231,7 +232,7 @@ def double_barrier_price(S, K, B_up, B_down, T, r_d, r_f, sigma, cp,
 
     barrier_type : 'knock-out' or 'knock-in'
     """
-    paths, dt = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
+    paths, dt, bridge_rng = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
     n = paths.shape[0]
 
     # Brownian-bridge barrier-hit probability between consecutive steps
@@ -257,7 +258,7 @@ def double_barrier_price(S, K, B_up, B_down, T, r_d, r_f, sigma, cp,
             l1 = np.log(S_t[mask] / barrier)
             l2 = np.log(S_t1[mask] / barrier)
             p_cross = np.exp(-2.0 * l1 * l2 / (sigma ** 2 * dt))
-            bridge_hit = np.random.random(mask.sum()) < p_cross
+            bridge_hit = bridge_rng.random(mask.sum()) < p_cross
             idx = np.where(mask)[0]
             hit[idx[bridge_hit]] = True
 
@@ -307,12 +308,12 @@ def digital_greeks(S, K, T, r_d, r_f, sigma, cp, payout=1.0):
     # vega (derivative w.r.t. sigma, expressed per 1% move)
     vega = -cp * payout * df * pdf_d2 * d1 / sigma / 100.0
 
-    # theta (derivative w.r.t. time, per day)
-    theta_val = cp * payout * df * (
-        r_d * norm.cdf(cp * d2)
-        + pdf_d2 * ((r_d - r_f - 0.5 * sigma ** 2) / sqrt_T - d2 / (2 * T))
-    )
-    theta = -theta_val / 365.0
+    # theta via numerical finite-difference (per day)
+    dT = 1.0 / 365.0
+    T_down = max(T - dT, 1e-6)
+    price_base = digital_price(S, K, T, r_d, r_f, sigma, cp, payout)
+    price_down = digital_price(S, K, T_down, r_d, r_f, sigma, cp, payout)
+    theta = (price_down - price_base) / dT / 365.0
 
     return {'delta': delta, 'gamma': gamma, 'vega': vega, 'theta': theta}
 
@@ -327,8 +328,14 @@ def one_touch_price(S, B, T, r_d, r_f, sigma, payout=1.0):
     Analytical closed form using the reflection principle for GBM.
     """
     if sigma <= 0.001:
-        # In near-zero vol regime, barrier is hit iff spot is already past it
-        return payout * np.exp(-r_d * T) if abs(B - S) < 1e-12 else 0.0
+        # In near-zero vol regime, check if deterministic drift path crosses barrier
+        fwd = S * np.exp((r_d - r_f) * T)
+        if abs(B - S) < 1e-12:
+            return payout * np.exp(-r_d * T)
+        # Check if the forward path crosses the barrier
+        if (B > S and fwd >= B) or (B < S and fwd <= B):
+            return payout * np.exp(-r_d * T)
+        return 0.0
     if T <= 0:
         # Barrier already breached if spot is at or past the barrier
         if abs(B - S) < 1e-12:
@@ -337,17 +344,25 @@ def one_touch_price(S, B, T, r_d, r_f, sigma, payout=1.0):
     if abs(B - S) < 1e-12:
         return payout * np.exp(-r_d * T)
 
-    mu = (r_d - r_f - 0.5 * sigma ** 2) / (sigma ** 2)
-    lam = np.sqrt(mu ** 2 + 2 * r_d / (sigma ** 2))
+    alpha = r_d - r_f - 0.5 * sigma ** 2
     sqrt_T = sigma * np.sqrt(T)
-    log_BS = np.log(B / S)
+    b = np.log(B / S)
 
-    eta = 1.0 if B > S else -1.0  # up or down barrier
+    # Deferred-payment one-touch: payout * exp(-r_d*T) * Prob_Q(hit barrier)
+    # Using reflection principle for GBM under risk-neutral measure.
+    # X_t = alpha*t + sigma*W_t, where alpha = r_d - r_f - sigma^2/2
+    if B > S:
+        # Up barrier: P(max X_t >= b) for b > 0
+        d1 = (alpha * T - b) / sqrt_T
+        d2 = (-alpha * T - b) / sqrt_T
+    else:
+        # Down barrier: P(min X_t <= b) for b < 0
+        d1 = (b - alpha * T) / sqrt_T
+        d2 = (b + alpha * T) / sqrt_T
 
-    term1 = (B / S) ** (mu + lam) * norm.cdf(eta * (log_BS + lam * sigma ** 2 * T) / sqrt_T)
-    term2 = (B / S) ** (mu - lam) * norm.cdf(eta * (log_BS - lam * sigma ** 2 * T) / sqrt_T)
+    prob = norm.cdf(d1) + np.exp(2 * alpha * b / (sigma ** 2)) * norm.cdf(d2)
 
-    return payout * (term1 + term2)
+    return payout * np.exp(-r_d * T) * prob
 
 
 def no_touch_price(S, B, T, r_d, r_f, sigma, payout=1.0):
@@ -361,7 +376,7 @@ def double_no_touch_price(S, B_up, B_down, T, r_d, r_f, sigma, payout=1.0,
     with Brownian bridge correction for barrier crossing between discrete steps."""
     if abs(B_up - B_down) < 1e-10 or B_up <= B_down:
         return {'price': 0.0, 'std_error': 0.0, 'prob_no_touch': 0.0}
-    paths, dt = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
+    paths, dt, bridge_rng = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
     n = paths.shape[0]
 
     alive = np.ones(n, dtype=bool)
@@ -385,7 +400,7 @@ def double_no_touch_price(S, B_up, B_down, T, r_d, r_f, sigma, payout=1.0,
             l1 = np.log(S_t[mask] / barrier)
             l2 = np.log(S_t1[mask] / barrier)
             p_cross = np.exp(-2.0 * l1 * l2 / (sigma ** 2 * dt))
-            bridge_hit = np.random.random(mask.sum()) < p_cross
+            bridge_hit = bridge_rng.random(mask.sum()) < p_cross
             idx = np.where(mask)[0]
             hit[idx[bridge_hit]] = True
 
@@ -411,7 +426,7 @@ def range_accrual_price(S, B_low, B_high, T, r_d, r_f, sigma, payout=1.0,
     n_fixings = max(1, int(freq_map.get(fixing_freq, 252) * T))
     n_steps = max(n_fixings, 252)
 
-    paths, _ = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
+    paths, _, _rng = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
 
     # Pick fixing indices evenly spaced through the path
     fix_idx = np.round(np.linspace(1, n_steps, n_fixings)).astype(int)
@@ -465,7 +480,7 @@ def asian_price(S, K, T, r_d, r_f, sigma, cp, fixing_freq='monthly',
 
     # Arithmetic Asian via MC with geometric control variate
     n_steps = max(n_fixings, 252)
-    paths, _ = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
+    paths, _, _rng = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
 
     if n_fixings <= 1:
         fix_idx = np.array([n_steps])  # single fixing uses final spot
@@ -532,7 +547,7 @@ def _lookback_floating_analytical(S, T, r_d, r_f, sigma, cp):
                         - np.exp(b * T) * norm.cdf(-a1)))
         else:
             part3 = S * np.exp(-r_d * T) * sqrt_T * (norm.pdf(a1) + a1 * (norm.cdf(a1) - 1))
-        return -part1 + part2 + part3
+        return part1 + part2 + part3
 
 
 def lookback_price(S, T, r_d, r_f, sigma, cp, lookback_type='floating', K=None,
@@ -549,7 +564,7 @@ def lookback_price(S, T, r_d, r_f, sigma, cp, lookback_type='floating', K=None,
     # Fixed-strike lookback via MC
     if K is None:
         K = S
-    paths, _ = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
+    paths, _, _rng = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
     if cp == 1:
         payoff = np.maximum(paths.max(axis=1) - K, 0.0)
     else:
@@ -606,9 +621,8 @@ def best_of_price(S1, S2, K, T, r_d1, r_d2, r_f, sigma1, sigma2, rho, cp,
         perf = np.minimum(perf1, perf2)
 
     payoff = np.maximum(cp * (perf - K), 0.0)
-    avg_rd = 0.5 * (r_d1 + r_d2)
-    price = np.exp(-avg_rd * T) * np.mean(payoff)
-    se = np.exp(-avg_rd * T) * np.std(payoff) / np.sqrt(n_paths)
+    price = np.exp(-r_d1 * T) * np.mean(payoff)
+    se = np.exp(-r_d1 * T) * np.std(payoff) / np.sqrt(n_paths)
     return {'price': price, 'std_error': se, 'n_paths': n_paths,
             'avg_perf1': float(np.mean(perf1)), 'avg_perf2': float(np.mean(perf2))}
 
@@ -631,7 +645,7 @@ def tarf_price(S, K, B, T, r_d, r_f, sigma, n_fixings=12, target_profit=0.05,
     early termination, expected number of fixings, and expected P&L.
     """
     n_steps = max(n_fixings * 21, 252)
-    paths, _ = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
+    paths, _, _rng = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
 
     fix_idx = np.round(np.linspace(1, n_steps, n_fixings)).astype(int)
     dt_fix = T / n_fixings
@@ -757,10 +771,15 @@ def exotic_greeks(price_func: Callable, base_params: dict,
         elif param == 'sigma':
             up_params['sigma'] = base_params['sigma'] + h
             dn_params['sigma'] = max(base_params['sigma'] - h, 0.001)
-            greeks['vega'] = (_price(up_params) - _price(dn_params)) / (2 * h) / 100.0
+            actual_h = up_params['sigma'] - dn_params['sigma']
+            greeks['vega'] = (_price(up_params) - _price(dn_params)) / actual_h / 100.0
         elif param == 'T':
             dn_params['T'] = max(base_params['T'] - h, 1e-6)
-            greeks['theta'] = (_price(dn_params) - base_px) / h / 365.0
+            actual_h_T = base_params['T'] - dn_params['T']
+            if actual_h_T < 1e-10:
+                greeks['theta'] = 0.0
+            else:
+                greeks['theta'] = (_price(dn_params) - base_px) / actual_h_T / 365.0
         elif param == 'r_d':
             up_params['r_d'] = base_params['r_d'] + h
             dn_params['r_d'] = base_params['r_d'] - h

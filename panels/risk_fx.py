@@ -141,7 +141,7 @@ def _safe_fmt(val, fmt="+,.0f", fallback="\u2014"):
 
 def _fmt_usd(val):
     """Format a USD value with sign and K/M suffix."""
-    if not np.isfinite(val):
+    if val is None or not np.isfinite(val):
         return "$\u2014"
     if abs(val) >= 1_000_000:
         return f"${val / 1_000_000:+,.2f}M"
@@ -151,7 +151,7 @@ def _fmt_usd(val):
 
 
 def _pnl_color(val):
-    if not np.isfinite(val):
+    if val is None or not np.isfinite(val):
         return COLORS["text_muted"]
     if val > 0:
         return COLORS["pnl_profit"]
@@ -317,7 +317,7 @@ def layout():
 
         # ---- Tab content containers (visibility toggled by callback) ----
         # Greeks
-        html.Div(id="fxrisk-greeks-container", style={"display": "none"}, children=[
+        html.Div(id="fxrisk-greeks-container", style={"display": "block"}, children=[
             html.Div([
                 html.Div("VEGA HEATMAP (PAIR x TENOR BUCKET)", style=CARD_HEADER_STYLE),
                 html.Button("CSV", id="fxrisk-csv-vega", n_clicks=0, style=CSV_BTN_STYLE),
@@ -1092,11 +1092,12 @@ def register_callbacks(app):
 
         # --- Fetch analytics for the clicked cell ---
         pct_info = vol_percentile(pair, tenor, "ATM")
-        if pct_info is not None:
-            pct_val = _ordinal(pct_info['percentile'])
+        if pct_info is not None and isinstance(pct_info, dict):
+            _pct = pct_info.get('percentile', 50)
+            pct_val = _ordinal(_pct)
             pct_color = (
-                COLORS["accent_red"] if pct_info["percentile"] > 80
-                else COLORS["accent_green"] if pct_info["percentile"] < 20
+                COLORS["accent_red"] if _pct > 80
+                else COLORS["accent_green"] if _pct < 20
                 else COLORS["accent_cyan"]
             )
         else:
@@ -1449,7 +1450,7 @@ def register_callbacks(app):
 
         # Clamp inputs to safe bounds
         spot_shock = max(-50.0, min(50.0, float(spot_shock or 0)))
-        vol_mult = max(0.0, min(2.0, float(vol_mult or 1.0)))
+        vol_mult = max(0.0, min(4.0, float(vol_mult or 1.0)))
         rate_shock = max(-500, min(500, int(rate_shock or 0)))
 
         try:
@@ -1578,7 +1579,7 @@ def register_callbacks(app):
                 surfaces_new[pair] = vol * (1 + rng.normal(0, 0.02))
 
             attr = pnl_attribution(positions, spots, spots_new, vol_surfaces,
-                                    surfaces_new, rates, dt=1 / 252)
+                                    surfaces_new, rates, dt=1 / 365)
 
             # Waterfall chart
             components = [
@@ -1732,9 +1733,10 @@ def register_callbacks(app):
             T = days / 365.0
             cp_sign = 1 if opt_type == "call" else -1
             # Invert delta to strike via normal approximation
-            d_val = delta_val if opt_type == "call" else delta_val
+            # For calls, delta = N(d1)*exp(-rf*T) ≈ N(d1); for puts, |delta| = N(-d1)*exp(-rf*T)
+            d_val = delta_val if opt_type == "call" else (1 - delta_val)
             z = scipy_norm.ppf(d_val)
-            K = spot * np.exp(-cp_sign * z * vol * np.sqrt(T) + 0.5 * vol ** 2 * T)
+            K = spot * np.exp(-z * vol * np.sqrt(T) + (r_d - r_f + 0.5 * vol ** 2) * T)
 
             new_trade = {
                 "pair": pair,
@@ -1954,7 +1956,6 @@ def register_callbacks(app):
             Output("fxrisk-hedge-container", "style"),
         ],
         Input("fxrisk-tabs", "value"),
-        prevent_initial_call=True,
     )
     def toggle_tab_containers(tab):
         show = {"display": "block"}

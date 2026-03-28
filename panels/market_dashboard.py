@@ -125,12 +125,14 @@ def _pairs_for(group):
 
 def _sf_display(v, fmt=".2f", suffix="", prefix=""):
     """Safe format: returns '—' for NaN/inf values."""
-    if v is None or not np.isfinite(v):
+    if v is None or not isinstance(v, (int, float)) or not np.isfinite(v):
         return "—"
     return f"{prefix}{v:{fmt}}{suffix}"
 
 
 def _color_chg(v):
+    if v is None:
+        return COLORS["text_muted"]
     if not np.isfinite(v):
         return COLORS["text_secondary"]
     if v > 0:
@@ -141,6 +143,8 @@ def _color_chg(v):
 
 
 def _pct_color(p):
+    if p is None or (isinstance(p, float) and not np.isfinite(p)):
+        return COLORS["text_primary"]
     if p < 20:
         return "#1565c0"
     if p > 80:

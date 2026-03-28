@@ -508,7 +508,7 @@ def close_position(book, position_id, close_price=None, close_date=None):
                     "close_date": pos["close_date"],
                     "details": deepcopy(pos),
                 })
-            return True
+                return True
     return False
 
 
@@ -519,12 +519,13 @@ def roll_position(book, position_id, new_expiry, new_strike=None):
     Returns the new position ID.
     """
     global _PORTFOLIO
-    positions = _PORTFOLIO["books"].get(book, [])
-    old_pos = None
-    for pos in positions:
-        if pos["id"] == position_id and pos.get("status") == "open":
-            old_pos = deepcopy(pos)
-            break
+    with _portfolio_lock:
+        positions = _PORTFOLIO["books"].get(book, [])
+        old_pos = None
+        for pos in positions:
+            if pos["id"] == position_id and pos.get("status") == "open":
+                old_pos = deepcopy(pos)
+                break
     if old_pos is None:
         return None
 
@@ -701,7 +702,7 @@ def compute_portfolio_risk(spots, rates, vol_surfaces):
 # ============================================================================
 
 def pnl_attribution(positions, spots_old, spots_new, surfaces_old, surfaces_new,
-                    rates, dt=1 / 252):
+                    rates, dt=1 / 365):
     """
     Full Taylor P&L decomposition.
 
@@ -749,7 +750,7 @@ def pnl_attribution(positions, spots_old, spots_new, surfaces_old, surfaces_new,
         d_pnl = greeks["delta"] * dS * sc
         g_pnl = 0.5 * greeks["gamma"] * dS ** 2 * sc
         v_pnl = greeks["vega"] * d_sigma * 100.0 * sc  # vega is per vol point
-        t_pnl = greeks["theta"] * sc                    # theta is per calendar day
+        t_pnl = greeks["theta"] * (dt * 365.0) * sc       # theta per day * calendar days elapsed
         r_pnl = greeks["rho_d"] * 0.0 * sc             # rates unchanged in this call
         va_pnl = greeks.get("vanna", 0) * dS * d_sigma * sc
         volga_pnl = 0.5 * greeks.get("volga", 0) * d_sigma ** 2 * sc
@@ -958,8 +959,11 @@ def check_risk_limits(risk_totals, limits=None):
               "max_total_delta")
     _classify(abs(totals.get("vega", 0)), limits.get("max_total_vega", 1e18),
               "max_total_vega")
-    _classify(totals.get("theta", 0), limits.get("max_daily_theta", -1e18),
-              "max_daily_theta")  # theta is negative
+    # Only check theta limit when theta is negative (decay cost)
+    theta_val = totals.get("theta", 0)
+    if theta_val < 0:
+        _classify(abs(theta_val), abs(limits.get("max_daily_theta", -1e18)),
+                  "max_daily_theta")
 
     # Per-pair checks
     for pair, pr in by_pair.items():
@@ -1128,7 +1132,9 @@ def load_portfolio(filepath=None):
     if os.path.exists(filepath):
         try:
             with open(filepath, "r") as f:
-                _PORTFOLIO = json.load(f)
+                loaded = json.load(f)
+            with _portfolio_lock:
+                _PORTFOLIO = loaded
         except (json.JSONDecodeError, PermissionError, OSError) as exc:
             logger.error("Failed to load portfolio from %s: %s", filepath, exc)
             _PORTFOLIO = {
@@ -1142,5 +1148,7 @@ def load_portfolio(filepath=None):
 
 
 def get_portfolio():
-    """Get the current in-memory portfolio state."""
-    return _PORTFOLIO
+    """Get the current in-memory portfolio state (returns a deep copy for safety)."""
+    from copy import deepcopy
+    with _portfolio_lock:
+        return deepcopy(_PORTFOLIO)

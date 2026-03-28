@@ -505,7 +505,7 @@ def _apply_norm(s, mode):
     arr = s.values if isinstance(s, pd.Series) else np.asarray(s)
     if mode == "indexed":
         f = arr[0]
-        if f == 0 or np.isnan(f): return s
+        if abs(f) < 1e-6 or np.isnan(f): return s
         result = (arr / f) * 100
     elif mode == "zscore":
         mu, sig = np.nanmean(arr), np.nanstd(arr)
@@ -514,7 +514,7 @@ def _apply_norm(s, mode):
     elif mode == "pct_change":
         f = arr[0]
         if abs(f) < 1e-10 or np.isnan(f): return s
-        result = ((arr - f) / f) * 100
+        result = ((arr - f) / abs(f)) * 100
     else:
         return s
     return pd.Series(result, index=s.index if isinstance(s, pd.Series) else None, name=getattr(s, 'name', None))
@@ -684,12 +684,12 @@ def _study_surface_heatmap(pair, func, title_prefix):
     try:
         df = func(pair)
         if df is None or df.empty: return _empty("No surface data")
-        is_pctile = "percentile" in title_prefix.lower() or df.values.max() > 10
+        is_pctile = "percentile" in title_prefix.lower() or np.nanmax(df.values) > 10
         cscale = [[0, "#00cc66"], [0.5, "#000000"], [1, "#ff3333"]] if not is_pctile else \
                  [[0, "#00cc66"], [0.25, "#222240"], [0.5, "#808080"], [0.75, "#222240"], [1, "#ff3333"]]
         fig = go.Figure(data=go.Heatmap(
             z=df.values, x=df.columns.tolist(), y=df.index.tolist(),
-            colorscale=cscale, text=np.round(df.values, 1).astype(str), texttemplate="%{text}",
+            colorscale=cscale, text=np.where(np.isnan(df.values), "", np.round(np.nan_to_num(df.values, nan=0.0), 1).astype(str)), texttemplate="%{text}",
             textfont=dict(size=10, family=_FONT, color="#d4d4d4"),
             xgap=2, ygap=2))
         fig.update_layout(**chart_layout(
@@ -815,7 +815,7 @@ def _build_slot_figure(metric, pairs, tenor, timeframe, chart_type, normalize, o
         return "rgba(255,136,0,0.15)"
 
     def _xy(series):
-        x = series.index if isinstance(series, pd.Series) and series.index.dtype != object else list(range(len(series)))
+        x = series.index if isinstance(series, pd.Series) and str(series.index.dtype) != 'object' else list(range(len(series)))
         y = series.values if isinstance(series, pd.Series) else series
         return x, y
 

@@ -655,6 +655,15 @@ def apply_rate_shock(current_rate, shock_bps):
 # Single Position Stress Test
 # =====================================================================
 
+def _get_shock_from_scenario(scenario_dict, pair):
+    """Get shock vector for a pair from a scenario dict (not the global registry).
+
+    Falls back to the scenario's default_shock if the pair is not in shocks.
+    """
+    return scenario_dict["shocks"].get(pair,
+                                        scenario_dict.get("default_shock", _default(0.0, 1.0, 0)))
+
+
 def stress_single_position(position, spot, r_d, r_f, vol, scenario_name):
     """
     Stress test a single FX option position.
@@ -688,6 +697,8 @@ def stress_single_position(position, spot, r_d, r_f, vol, scenario_name):
         T = float(_exp) if _exp else 0.25
     cp = position.get("option_type", "call")
     notional = position.get("notional", 1_000_000)
+    direction = position.get("direction", "buy")
+    dir_sign = 1.0 if direction == "buy" else -1.0
 
     shock = get_pair_shock(scenario_name, pair)
 
@@ -701,8 +712,8 @@ def stress_single_position(position, spot, r_d, r_f, vol, scenario_name):
     base_greeks = _gk_greeks(spot, K, T, r_d, r_f, vol, cp)
     stressed_greeks = _gk_greeks(S_stressed, K, T, r_d_stressed, r_f_stressed, vol_stressed, cp)
 
-    base_value = base_greeks["price"] * notional
-    stressed_value = stressed_greeks["price"] * notional
+    base_value = base_greeks["price"] * notional * dir_sign
+    stressed_value = stressed_greeks["price"] * notional * dir_sign
     pnl_impact = stressed_value - base_value
     pnl_pct = pnl_impact / max(abs(base_value), 1e-10)
 
@@ -721,7 +732,7 @@ def stress_single_position(position, spot, r_d, r_f, vol, scenario_name):
         "vol_base": vol,
         "vol_stressed": vol_stressed,
         "stressed_greeks": {
-            k: v * notional if k != "price" else v * notional
+            k: v * notional * dir_sign
             for k, v in stressed_greeks.items()
         },
     }
@@ -730,6 +741,130 @@ def stress_single_position(position, spot, r_d, r_f, vol, scenario_name):
 # =====================================================================
 # Portfolio Stress Test
 # =====================================================================
+
+def _stress_portfolio_with_scenario(positions, spots, rates, vol_surfaces, scenario_dict):
+    """Stress test using a scenario dict directly (avoids mutating global state).
+
+    scenario_dict must have keys: shocks, default_shock, and optionally name/severity.
+    """
+    by_position = []
+    by_pair = {}
+    total_base = 0.0
+    total_stressed = 0.0
+
+    for pos in positions:
+        pair = pos.get("pair", "EURUSD")
+        spot = spots.get(pair, 1.0)
+        rate_info = rates.get(pair, {"r_d": 0.03, "r_f": 0.02})
+        if isinstance(rate_info, dict):
+            r_d = rate_info.get("r_d", 0.03)
+            r_f = rate_info.get("r_f", 0.02)
+        elif isinstance(rate_info, (tuple, list)) and len(rate_info) >= 2:
+            r_d, r_f = rate_info[0], rate_info[1]
+        else:
+            r_d, r_f = 0.03, 0.02
+
+        vol_entry = vol_surfaces.get(pair, 0.10)
+        if callable(vol_entry):
+            vol = vol_entry(pos["strike"], pos["expiry"])
+        else:
+            vol = vol_entry
+
+        K = pos["strike"]
+        _exp = pos["expiry"]
+        if isinstance(_exp, str):
+            from datetime import datetime
+            try:
+                T = max((datetime.strptime(_exp, "%Y-%m-%d") - datetime.now()).days / 365.0, 1e-6)
+            except ValueError:
+                T = 0.25
+        else:
+            T = float(_exp) if _exp else 0.25
+
+        cp = pos.get("option_type", "call")
+        notional = pos.get("notional", 1_000_000)
+        direction = pos.get("direction", "buy")
+        dir_sign = 1.0 if direction == "buy" else -1.0
+
+        shock = _get_shock_from_scenario(scenario_dict, pair)
+
+        S_stressed = apply_spot_shock(spot, shock["spot"])
+        vol_stressed = apply_vol_shock(vol, shock["vol_mult"])
+        r_d_stressed = apply_rate_shock(r_d, shock["rate"])
+        r_f_stressed = apply_rate_shock(r_f, -shock["rate"] * 0.3)
+
+        base_greeks = _gk_greeks(spot, K, T, r_d, r_f, vol, cp)
+        stressed_greeks = _gk_greeks(S_stressed, K, T, r_d_stressed, r_f_stressed, vol_stressed, cp)
+
+        base_value = base_greeks["price"] * notional * dir_sign
+        stressed_value = stressed_greeks["price"] * notional * dir_sign
+        pnl_impact = stressed_value - base_value
+        pnl_pct = pnl_impact / max(abs(base_value), 1e-10)
+
+        result = {
+            "pair": pair,
+            "strike": K,
+            "expiry": T,
+            "option_type": cp,
+            "notional": notional,
+            "base_value": base_value,
+            "stressed_value": stressed_value,
+            "pnl_impact": pnl_impact,
+            "pnl_pct": pnl_pct,
+            "spot_base": spot,
+            "spot_stressed": S_stressed,
+            "vol_base": vol,
+            "vol_stressed": vol_stressed,
+            "stressed_greeks": {
+                k: v * notional * dir_sign
+                for k, v in stressed_greeks.items()
+            },
+        }
+        by_position.append(result)
+
+        total_base += result["base_value"]
+        total_stressed += result["stressed_value"]
+
+        if pair not in by_pair:
+            by_pair[pair] = 0.0
+        by_pair[pair] += result["pnl_impact"]
+
+    total_pnl = total_stressed - total_base
+    worst_positions = sorted(by_position, key=lambda x: x["pnl_impact"])
+
+    limit_breaches = []
+    if total_pnl < -1_000_000:
+        limit_breaches.append({
+            "limit": "MAX_STRESS_LOSS",
+            "threshold": -1_000_000,
+            "actual": total_pnl,
+            "severity": "CRITICAL" if total_pnl < -5_000_000 else "WARNING",
+        })
+    for pair, pair_pnl in by_pair.items():
+        if abs(pair_pnl) > 500_000:
+            limit_breaches.append({
+                "limit": f"CONCENTRATION_{pair}",
+                "threshold": 500_000,
+                "actual": pair_pnl,
+                "severity": "WARNING",
+            })
+
+    return {
+        "scenario_name": scenario_dict.get("name", "Custom"),
+        "scenario_display": scenario_dict.get("name", "Custom"),
+        "severity": scenario_dict.get("severity", "CUSTOM"),
+        "total_base_value": total_base,
+        "total_stressed_value": total_stressed,
+        "total_pnl": total_pnl,
+        "by_pair": by_pair,
+        "by_position": by_position,
+        "worst_positions": worst_positions[:10],
+        "limit_breaches": limit_breaches,
+        "n_positions": len(positions),
+        "n_losers": sum(1 for p in by_position if p["pnl_impact"] < 0),
+        "n_winners": sum(1 for p in by_position if p["pnl_impact"] > 0),
+    }
+
 
 def stress_portfolio(positions, spots, rates, vol_surfaces, scenario_name):
     """
@@ -761,8 +896,13 @@ def stress_portfolio(positions, spots, rates, vol_surfaces, scenario_name):
         pair = pos.get("pair", "EURUSD")
         spot = spots.get(pair, 1.0)
         rate_info = rates.get(pair, {"r_d": 0.03, "r_f": 0.02})
-        r_d = rate_info["r_d"]
-        r_f = rate_info["r_f"]
+        if isinstance(rate_info, dict):
+            r_d = rate_info.get("r_d", 0.03)
+            r_f = rate_info.get("r_f", 0.02)
+        elif isinstance(rate_info, (tuple, list)) and len(rate_info) >= 2:
+            r_d, r_f = rate_info[0], rate_info[1]
+        else:
+            r_d, r_f = 0.03, 0.02
 
         vol_entry = vol_surfaces.get(pair, 0.10)
         if callable(vol_entry):
@@ -875,9 +1015,9 @@ def custom_stress(positions, spots, rates, vol_surfaces, custom_shocks):
     -------
     Same structure as stress_portfolio.
     """
-    # Build a temporary scenario without mutating global state (thread-safe)
-    import uuid
-    temp_name = f"__CUSTOM_{uuid.uuid4().hex[:8]}__"
+    # Build a temporary scenario WITHOUT mutating the global dict (thread-safe).
+    # Previous code inserted into FX_STRESS_SCENARIOS which caused race conditions
+    # when concurrent callbacks or reverse_stress_test optimisation loops ran.
     temp_scenario = {
         "name": "Custom Scenario",
         "description": "User-defined custom stress",
@@ -889,11 +1029,7 @@ def custom_stress(positions, spots, rates, vol_surfaces, custom_shocks):
         },
         "default_shock": _default(0.0, 1.0, 0),
     }
-    FX_STRESS_SCENARIOS[temp_name] = temp_scenario
-    try:
-        result = stress_portfolio(positions, spots, rates, vol_surfaces, temp_name)
-    finally:
-        FX_STRESS_SCENARIOS.pop(temp_name, None)
+    result = _stress_portfolio_with_scenario(positions, spots, rates, vol_surfaces, temp_scenario)
 
     result["scenario_name"] = "Custom"
     result["scenario_display"] = "Custom Scenario"

@@ -373,7 +373,7 @@ def make_header():
             # ── Watchlist Editor Button ──
             html.Div([
                 html.Button("WATCHLIST", id="watchlist-edit-btn", n_clicks=0, style={
-                    "backgroundColor": COLORS["bg_dark"],
+                    "backgroundColor": COLORS["bg_primary"],
                     "color": COLORS["accent_orange"],
                     "border": f"1px solid {COLORS['border_subtle']}",
                     "borderRadius": "0px",
@@ -462,7 +462,7 @@ def make_watchlist_modal():
                 ),
                 html.Div([
                     html.Button("SAVE", id="watchlist-save-btn", n_clicks=0, style={
-                        "backgroundColor": COLORS["accent_orange"], "color": COLORS["bg_dark"],
+                        "backgroundColor": COLORS["accent_orange"], "color": COLORS["bg_primary"],
                         "border": "none", "borderRadius": "0px",
                         "padding": "6px 16px", "fontSize": "10px",
                         "fontFamily": "'JetBrains Mono', monospace",
@@ -748,13 +748,8 @@ def make_footer():
 # App Layout
 # ═══════════════════════════════════════════════════════════════════════════
 
-_cached_layout = None
-
 def serve_layout():
-    global _cached_layout
-    if _cached_layout is not None:
-        return _cached_layout
-    _cached_layout = html.Div([
+    return html.Div([
 
         # ── Global State Stores ──
         dcc.Store(id="global-pair",  data="EURUSD"),
@@ -809,7 +804,6 @@ def serve_layout():
         "minHeight": "100vh",
         "fontFamily": "'JetBrains Mono', monospace",
     })
-    return _cached_layout
 
 
 app.layout = serve_layout
@@ -825,8 +819,10 @@ app.layout = serve_layout
 @app.callback(
     Output("subtab-container", "children"),
     [Input("workspace-tabs", "value")],
+    [State("preset-result", "data"),
+     State("cmd-nav-result", "data")],
 )
-def render_subtabs(workspace_id):
+def render_subtabs(workspace_id, preset_data, cmd_data):
     ws = next((w for w in WORKSPACES if w["id"] == workspace_id), None)
     if ws is None:
         raise PreventUpdate
@@ -843,9 +839,17 @@ def render_subtabs(workspace_id):
             )
         )
 
+    # If a preset or command palette navigation is pending, use its target tab
+    valid_tab_ids = {t["id"] for t in ws["tabs"]}
+    target_tab = ws["tabs"][0]["id"]
+    if preset_data and isinstance(preset_data, dict) and preset_data.get("tab") in valid_tab_ids:
+        target_tab = preset_data["tab"]
+    elif cmd_data and isinstance(cmd_data, dict) and cmd_data.get("tab") in valid_tab_ids:
+        target_tab = cmd_data["tab"]
+
     return dcc.Tabs(
         id="sub-tabs",
-        value=ws["tabs"][0]["id"],
+        value=target_tab,
         children=sub_children,
         style={
             "marginTop": "2px",

@@ -267,7 +267,7 @@ def _build_scanner_rows(pairs, lookback):
                 composite_data = rv_signal_composite(pair, lookback)
             except Exception as exc:
                 logger.debug("rv_signal_composite failed for %s: %s", pair, exc)
-            composite_score = composite_data["composite_score"] if composite_data else 0
+            composite_score = composite_data.get("composite_score", 0) if composite_data else 0
             signal = _compute_signal(composite_score, rr3m_pct, term_z)
 
             # Group label
@@ -556,7 +556,7 @@ def _build_volcone_chart(pair, lookback):
                                      hovertemplate="Window: %{x}d<br>RV: %{y:.2f}%<extra>Current</extra>"))
 
         if not fig.data:
-            return _empty_fig(f"{pair} VOL CONE", CHART_SM, "No cone data columns available")
+            return _empty_fig(f"{pair} VOL CONE", msg="No cone data columns available")
 
         fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
@@ -817,7 +817,7 @@ def _build_tail_table(pair, tenor):
         body = []
         for move in TAIL_MOVES:
             try:
-                tp = tail_probabilities(pair, tenor, move)
+                tp = tail_probabilities(pair, tenor, [move / 100.0])
                 if isinstance(tp, dict):
                     up = _sf(tp.get("prob_up", 0))
                     dn = _sf(tp.get("prob_down", 0))
@@ -855,9 +855,13 @@ def _spark_term_structure(pair):
         from core.bloomberg_fx import get_fx_vol_surface
         surf = get_fx_vol_surface(pair) or {}
         tenors = ["1M", "2M", "3M", "6M", "9M", "1Y", "2Y"]
-        vols = [_extract_atm(surf, t) for t in tenors]
-        vols = [v for v in vols if v > 0]
-        labels = tenors[:len(vols)]
+        raw_vols = [_extract_atm(surf, t) for t in tenors]
+        paired = [(t, v) for t, v in zip(tenors, raw_vols) if v > 0]
+        if not paired:
+            labels, vols = [], []
+        else:
+            labels, vols = zip(*paired)
+            labels, vols = list(labels), list(vols)
 
         if not vols:
             return _empty_fig(f"{pair} TERM", msg=f"No vol surface data for {pair}")

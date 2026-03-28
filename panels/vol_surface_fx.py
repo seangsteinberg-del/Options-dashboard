@@ -475,7 +475,7 @@ def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
         hist_1w = []
         for t in tenors:
             ch = vol_change(pair, t, "ATM", days_ago=5)
-            hist_1w.append(ch["previous"])
+            hist_1w.append(ch.get("previous") if ch else None)
         fig.add_trace(go.Scatter(
             x=tenors, y=hist_1w, mode="lines",
             name="1W ago", line=dict(color=COLORS["accent_blue"], width=1.5, dash="dash"),
@@ -489,7 +489,7 @@ def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
         hist_1m = []
         for t in tenors:
             ch = vol_change(pair, t, "ATM", days_ago=22)
-            hist_1m.append(ch["previous"])
+            hist_1m.append(ch.get("previous") if ch else None)
         fig.add_trace(go.Scatter(
             x=tenors, y=hist_1m, mode="lines",
             name="1M ago", line=dict(color=COLORS["accent_purple"], width=1.5, dash="dot"),
@@ -538,7 +538,7 @@ def chart_skew_rr(pair, sd, spot, r_dom, r_for, **kw):
     pctiles = []
     for t in tenors:
         p = vol_percentile(pair, t, "25D_RR")
-        pctiles.append(p["percentile"] if p is not None else 50.0)
+        pctiles.append(p.get("percentile", 50.0) if isinstance(p, dict) else 50.0)
 
     # Color by percentile: deep blue (low) to red (high)
     colors = []
@@ -561,9 +561,11 @@ def chart_skew_rr(pair, sd, spot, r_dom, r_for, **kw):
     # 1Y range whiskers
     for i, t in enumerate(tenors):
         p = vol_percentile(pair, t, "25D_RR")
-        if p is not None:
+        if isinstance(p, dict):
+            p_min = p.get("min", rr_vals[i] if i < len(rr_vals) else 0)
+            p_max = p.get("max", rr_vals[i] if i < len(rr_vals) else 0)
             fig.add_shape(type="line",
-                x0=i, x1=i, y0=p["min"], y1=p["max"],
+                x0=i, x1=i, y0=p_min, y1=p_max,
                 line=dict(color=COLORS["text_muted"], width=1, dash="dot"),
                 xref="x", yref="y")
 
@@ -583,7 +585,7 @@ def chart_smile_bf(pair, sd, spot, r_dom, r_for, **kw):
     pctiles = []
     for t in tenors:
         p = vol_percentile(pair, t, "25D_BF")
-        pctiles.append(p["percentile"] if p is not None else 50.0)
+        pctiles.append(p.get("percentile", 50.0) if isinstance(p, dict) else 50.0)
 
     colors = []
     for pct in pctiles:
@@ -604,9 +606,11 @@ def chart_smile_bf(pair, sd, spot, r_dom, r_for, **kw):
 
     for i, t in enumerate(tenors):
         p = vol_percentile(pair, t, "25D_BF")
-        if p is not None:
+        if isinstance(p, dict):
+            p_min = p.get("min", bf_vals[i] if i < len(bf_vals) else 0)
+            p_max = p.get("max", bf_vals[i] if i < len(bf_vals) else 0)
             fig.add_shape(type="line",
-                x0=i, x1=i, y0=p["min"], y1=p["max"],
+                x0=i, x1=i, y0=p_min, y1=p_max,
                 line=dict(color=COLORS["text_muted"], width=1, dash="dot"),
                 xref="x", yref="y")
 
@@ -631,8 +635,9 @@ def chart_rich_cheap(pair, sd, spot, r_dom, r_for, **kw):
         for m in metrics:
             p = vol_percentile(pair, t, m)
             if p is not None:
-                row_z.append(p["percentile"])
-                row_txt.append(f"{p['percentile']:.0f}%ile")
+                pct_val = p.get("percentile", 50.0)
+                row_z.append(pct_val)
+                row_txt.append(f"{pct_val:.0f}%ile")
             else:
                 row_z.append(50.0)
                 row_txt.append("--")
@@ -1242,7 +1247,7 @@ def _lab_apply_norm(s, mode):
     arr = s.values if isinstance(s, pd.Series) else np.asarray(s)
     if mode == "indexed":
         f = arr[0]
-        if f == 0 or np.isnan(f):
+        if abs(f) < 1e-6 or np.isnan(f):
             return s
         result = (arr / f) * 100
     elif mode == "zscore":
@@ -1650,7 +1655,7 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
     atm_1m_delta = 0.0
     try:
         ch = vol_change(pair, "1M", "ATM", days_ago=1)
-        atm_1m_delta = ch["abs_change"]
+        atm_1m_delta = ch.get("abs_change", 0) if ch else 0
     except Exception:
         pass
 
@@ -1658,7 +1663,7 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
     atm_pctile = 50.0
     try:
         p = vol_percentile(pair, "1M", "ATM")
-        atm_pctile = p["percentile"]
+        atm_pctile = p.get("percentile", 50.0) if p else 50.0
     except Exception:
         pass
 
@@ -1674,7 +1679,7 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
             idx = -1
         rr_3m = sd["rr25"][idx] if 0 <= idx < len(sd.get("rr25", [])) else 0.0
         p = vol_percentile(pair, "3M", "25D_RR")
-        rr_pctile = p["percentile"]
+        rr_pctile = p.get("percentile", 50.0) if p else 50.0
     except Exception:
         pass
 
@@ -1690,7 +1695,7 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
     iv_rv_spr = 0.0
     try:
         irp = iv_rv_percentile(pair, "3M", rv_window=20)
-        iv_rv_spr = irp["current_spread"]
+        iv_rv_spr = irp.get("current_spread", 0) if irp else 0
     except Exception:
         pass
 
@@ -1701,7 +1706,7 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
     skew_pctile = 50.0
     try:
         p = vol_percentile(pair, "3M", "25D_RR")
-        skew_pctile = p["percentile"]
+        skew_pctile = p.get("percentile", 50.0) if p else 50.0
     except Exception:
         pass
 
@@ -1710,8 +1715,8 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
     regime_color = COLORS["accent_blue"]
     try:
         reg = vol_regime_detect(pair)
-        regime_text = reg["regime"]
-        regime_color = reg["color"]
+        regime_text = reg.get("regime", "NORMAL") if reg else "NORMAL"
+        regime_color = reg.get("color", COLORS["accent_blue"]) if reg else COLORS["accent_blue"]
     except Exception:
         pass
 
@@ -1785,8 +1790,8 @@ def _build_overnight_summary(pair, spot):
     vol_current = 0.0
     try:
         ch = vol_change(pair, "1M", "ATM", days_ago=1)
-        vol_chg_bp = ch["abs_change"]
-        vol_current = ch["current"]
+        vol_chg_bp = ch.get("abs_change", 0) if ch else 0
+        vol_current = ch.get("current", 0) if ch else 0
     except Exception:
         pass
 
@@ -1849,7 +1854,7 @@ def _build_overnight_summary(pair, spot):
     rr_chg = 0.0
     try:
         rr_ch = vol_change(pair, "3M", "25D_RR", days_ago=1)
-        rr_chg = rr_ch["abs_change"]
+        rr_chg = rr_ch.get("abs_change", 0) if rr_ch else 0
     except Exception:
         pass
     rr_arrow = "\u25bc" if rr_chg < 0 else ("\u25b2" if rr_chg > 0 else "\u25ac")

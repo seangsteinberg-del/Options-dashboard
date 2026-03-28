@@ -607,6 +607,9 @@ def register_callbacks(app):
 
         cp_label = "Call" if cp == 1 else "Put"
 
+        def _fmt(v, fmt_str):
+            return f"{v:{fmt_str}}" if np.isfinite(v) else "—"
+
         try:
             # ── Compute price per product ──────────────────────────────
             if product == "barrier":
@@ -761,6 +764,7 @@ def register_callbacks(app):
                 S2 = spot2_data.get(pair2, {}).get("mid", 1.0)
                 rates2 = get_fx_rates(pair2) or {}
                 rd2 = rates2.get("r_dom", 0.05)
+                rf2 = rates2.get("r_for", 0.03)
                 vol_surf2 = get_fx_vol_surface(pair2) or {}
                 sigma2_raw = 8.0
                 if isinstance(vol_surf2, dict):
@@ -833,9 +837,6 @@ def register_callbacks(app):
         price_ccy2 = price_val * notional
         price_pips = price_val / pip_size if pip_size > 0 else 0.0
         price_pct = (price_val / S * 100) if S > 0 else 0.0
-
-        def _fmt(v, fmt_str):
-            return f"{v:{fmt_str}}" if np.isfinite(v) else "—"
 
         se_str = ""
         if price_result and isinstance(price_result, dict) and "std_error" in price_result:

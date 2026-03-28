@@ -82,12 +82,13 @@ _EXIT_RULES = [
     {"label": "Trailing stop 20%",        "value": "trailing_20"},
 ]
 
-_REGIME_LABELS = ["LOW", "NORMAL", "ELEVATED", "HIGH"]
+_REGIME_LABELS = ["LOW", "NORMAL", "ELEVATED", "HIGH", "CRISIS"]
 _REGIME_COLORS = {
     "LOW": COLORS["accent_green"],
     "NORMAL": COLORS["accent_blue"],
     "ELEVATED": COLORS["accent_orange"],
     "HIGH": COLORS["accent_red"],
+    "CRISIS": COLORS["accent_purple"],
 }
 
 
@@ -97,7 +98,7 @@ _REGIME_COLORS = {
 
 def _gk_price(S, K, T, r_d, r_f, sigma, cp):
     """Garman-Kohlhagen vanilla price.  cp = +1 call, -1 put."""
-    if T <= 0 or sigma <= 0:
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
         return max(cp * (S - K), 0.0)
     from scipy.stats import norm as _norm
     d1 = (np.log(S / K) + (r_d - r_f + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
@@ -332,7 +333,7 @@ def _compute_stats_from_trades(trades_list):
     monthly_pnl = trades_df.groupby("month")["pnl"].sum().reset_index()
 
     # Regime stats
-    regime_labels = ["LOW", "NORMAL", "ELEVATED", "HIGH"]
+    regime_labels = _REGIME_LABELS
     regime_stats = {}
     for reg in regime_labels:
         mask = trades_df["regime"] == reg
@@ -476,8 +477,9 @@ def _value_strategy(legs, S, T_remaining, r_d, r_f, atm_vol_new):
     ref_vol = max(legs[0]["vol"], 0.005)
 
     for leg in legs:
-        # Scale remaining time proportionally for each leg
+        # Scale remaining time proportionally for each leg (T_remaining is in years)
         T_r = T_remaining * leg["T"] / ref_T if ref_T > 0 else 0.0
+        # T_remaining is already in years; T_r preserves proportional scaling for multi-leg
 
         # At or past expiry for this leg: use intrinsic value
         if T_r <= 1e-6:
@@ -621,10 +623,10 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
 
             row_d = data.iloc[day_idx]
             S_d = row_d["spot"]
-            vol_d = row_d["atm_vol"] / 100
+            vol_d = row_d["atm_vol"] / 100 if np.isfinite(row_d["atm_vol"]) else 0.10
             T_rem = max((hold_days - d) / 365.0, 1e-6)
 
-            mtm_value = _value_strategy(legs, S_d, T_rem / T, row_d["r_d"], row_d["r_f"], vol_d)
+            mtm_value = _value_strategy(legs, S_d, T_rem, row_d["r_d"], row_d["r_f"], vol_d)
             mtm_pnl = (mtm_value - entry_premium) * notional
 
             daily_pnl.iloc[day_idx] += mtm_pnl / max(hold_days, 1)
@@ -668,7 +670,7 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
             )
         else:
             exit_value = _value_strategy(
-                legs, S_exit, T_exit / T, row_exit["r_d"], row_exit["r_f"],
+                legs, S_exit, T_exit, row_exit["r_d"], row_exit["r_f"],
                 vol_exit / 100,
             )
 

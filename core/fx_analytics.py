@@ -37,7 +37,7 @@ def _ttl_memo(ttl_seconds=120):
                 if isinstance(x, set):
                     return frozenset(_hashable(i) for i in x)
                 return x
-            key = (fn.__name__,) + tuple(_hashable(a) for a in args) + tuple(sorted(kwargs.items()))
+            key = (fn.__name__,) + tuple(_hashable(a) for a in args) + tuple(sorted((_hashable(k), _hashable(v)) for k, v in kwargs.items()))
             with _memo_lock:
                 entry = _memo_cache.get(key)
                 if entry is not None:
@@ -223,15 +223,15 @@ def vol_percentile_surface(pair: str, lookback: int = 252) -> pd.DataFrame:
     Returns DataFrame with tenors as rows, delta labels as columns.
     """
     tenors = ["1W", "2W", "1M", "2M", "3M", "6M", "9M", "1Y"]
-    metrics = ["10D_RR", "25D_BF", "ATM", "25D_RR", "10D_BF"]
-    metric_names = ["10P", "25P", "ATM", "25C", "10C"]
+    metrics = ["10D_BF", "25D_BF", "ATM", "25D_RR", "10D_RR"]
+    metric_names = ["10D_BF", "25D_BF", "ATM", "25D_RR", "10D_RR"]
 
     rows = []
     for t in tenors:
         row = {"tenor": t}
         for m, label in zip(metrics, metric_names):
             info = vol_percentile(pair, t, m, lookback)
-            row[label] = round(info["percentile"], 1) if info is not None else None
+            row[label] = round(info.get("percentile", 50.0), 1) if info is not None and isinstance(info, dict) else None
         rows.append(row)
 
     return pd.DataFrame(rows).set_index("tenor")
@@ -244,15 +244,15 @@ def vol_zscore_surface(pair: str, lookback: int = 252) -> pd.DataFrame:
     Returns DataFrame with tenors as rows, delta labels as columns.
     """
     tenors = ["1W", "2W", "1M", "2M", "3M", "6M", "9M", "1Y"]
-    metrics = ["10D_RR", "25D_BF", "ATM", "25D_RR", "10D_BF"]
-    metric_names = ["10P", "25P", "ATM", "25C", "10C"]
+    metrics = ["10D_BF", "25D_BF", "ATM", "25D_RR", "10D_RR"]
+    metric_names = ["10D_BF", "25D_BF", "ATM", "25D_RR", "10D_RR"]
 
     rows = []
     for t in tenors:
         row = {"tenor": t}
         for m, label in zip(metrics, metric_names):
             info = vol_zscore(pair, t, m, lookback)
-            row[label] = round(info["zscore"], 2) if info is not None else None
+            row[label] = round(info.get("zscore", 0.0), 2) if info is not None and isinstance(info, dict) else None
         rows.append(row)
 
     return pd.DataFrame(rows).set_index("tenor")
@@ -290,7 +290,7 @@ def vol_surface_diff(pair: str, days_ago: int = 1) -> pd.DataFrame:
     Returns DataFrame of vol changes across tenor x delta grid.
     """
     tenors = ["1W", "1M", "2M", "3M", "6M", "9M", "1Y"]
-    metrics = ["10D_BF", "25D_RR", "ATM", "25D_RR", "10D_BF"]
+    metrics = ["10D_BF", "25D_BF", "ATM", "25D_RR", "10D_RR"]
     metric_names = ["10P", "25P", "ATM", "25C", "10C"]
 
     rows = []
@@ -385,7 +385,9 @@ def vol_regime_history(pair: str, lookback: int = 252) -> pd.DataFrame:
 
     records = []
     for i, v in enumerate(hist):
-        if v > 20:
+        if not np.isfinite(v):
+            regime, color = "UNKNOWN", "#808080"
+        elif v > 20:
             regime, color = "CRISIS", "#ff3333"
         elif v > 14:
             regime, color = "HIGH", "#ff8800"
@@ -445,7 +447,8 @@ def vol_cone(pair: str,
         # Garman-Klass estimator
         gk_var = 0.5 * hl_ratio ** 2 - (2 * np.log(2) - 1) * log_ret ** 2
         gk_rv = pd.Series(gk_var).rolling(w).mean() * 252
-        gk = np.sqrt(np.abs(gk_rv.dropna().values)) * 100
+        gk_vals = gk_rv.dropna().values
+        gk = np.sqrt(np.maximum(gk_vals, 0.0)) * 100  # Floor at zero instead of abs()
 
         if len(c2c_clean) < 5:
             continue
@@ -562,7 +565,7 @@ def breakeven_vol(pair: str, tenor: str, days_to_expiry: int) -> dict:
         return None
     atm_vol = atm_raw / 100.0
     if atm_vol < 1e-6 or T < 1e-6:
-        return {"breakeven_vol": 0, "breakeven_daily_move": 0, "straddle_pct": 0,
+        return {"breakeven_rv": 0, "breakeven_daily_move": 0, "straddle_pct": 0,
                 "gamma_breakeven": 0, "theta_daily": 0}
 
     # Straddle premium as fraction of spot
@@ -909,7 +912,7 @@ def smile_implied_pdf(pair: str, tenor: str,
     # Parametric smile: quadratic in log-moneyness
     log_m_25 = np.log(fwd / (fwd * 0.96))  # approximate 25D strike shift
     a = bf25 / max(log_m_25 ** 2, 1e-8)
-    b = rr25 / max(2 * log_m_25, 1e-8)
+    b = -rr25 / max(2 * log_m_25, 1e-8)
 
     def smile_vol(K):
         lm = np.log(fwd / K)
@@ -1424,9 +1427,16 @@ def correlation_richness(pair_a: str, pair_b: str, cross_pair: str,
         return None
     implied_rho = impl["implied_corr"]
 
-    realized_rho = get_fx_correlation(pair_a, pair_b, window=60)
-    if realized_rho is None:
+    realized_rho_series = get_fx_correlation(pair_a, pair_b, window=60)
+    if realized_rho_series is None:
         return None
+    # get_fx_correlation returns a Series; extract the last value
+    if hasattr(realized_rho_series, 'iloc'):
+        if len(realized_rho_series) == 0:
+            return None
+        realized_rho = float(realized_rho_series.iloc[-1])
+    else:
+        realized_rho = float(realized_rho_series)
 
     gap = implied_rho - realized_rho
 
@@ -1436,7 +1446,7 @@ def correlation_richness(pair_a: str, pair_b: str, cross_pair: str,
         "cross_pair": cross_pair,
         "tenor": tenor,
         "implied_corr": float(implied_rho),
-        "realized_corr": float(realized_rho),
+        "realized_corr": realized_rho,
         "gap": float(gap),
         "signal": "CORR_RICH" if gap > 0.10 else ("CORR_CHEAP" if gap < -0.10 else "FAIR"),
     }
@@ -1543,6 +1553,10 @@ def correlation_regime(pairs: List[str] = None,
     for i, p1 in enumerate(pairs):
         for j, p2 in enumerate(pairs):
             if j <= i:
+                continue
+            if p1 not in corr_short.index or p2 not in corr_short.columns:
+                continue
+            if p1 not in corr_long.index or p2 not in corr_long.columns:
                 continue
             short_c = corr_short.loc[p1, p2]
             long_c = corr_long.loc[p1, p2]
@@ -1723,6 +1737,8 @@ def carry_per_vol(pairs: List[str] = None) -> pd.DataFrame:
         })
 
     df = pd.DataFrame(records)
+    if not records:
+        return df
     df = df.sort_values("sharpe_proxy", ascending=False).reset_index(drop=True)
     return df
 
@@ -1775,7 +1791,7 @@ def cftc_positioning_data(pair: str) -> dict:
     Returns net speculative, commercial, and open interest.
     """
     data = get_cftc_positioning(pair)
-    if data is None:
+    if not data:
         return None
 
     return {
@@ -1838,7 +1854,9 @@ def positioning_extremes(pairs: List[str] = None) -> pd.DataFrame:
         })
 
     df = pd.DataFrame(records)
-    df = df.sort_values("zscore", key=abs, ascending=False).reset_index(drop=True)
+    if not records:
+        return df
+    df = df.sort_values("zscore", key=lambda s: s.abs(), ascending=False, na_position="last").reset_index(drop=True)
     return df
 
 
@@ -1877,7 +1895,9 @@ def historical_var(returns: np.ndarray, confidence: float = 0.95,
     returns = returns[np.isfinite(returns)]
 
     if len(returns) < 10:
-        return {"var": 0.0, "confidence": confidence, "horizon": horizon}
+        return {"var_1d": 0.0, "var_horizon": 0.0, "confidence": confidence,
+                "horizon": horizon, "n_observations": 0,
+                "worst_return": 0.0, "best_return": 0.0}
 
     sorted_ret = np.sort(returns)
     idx = int((1 - confidence) * len(sorted_ret))
@@ -1901,6 +1921,9 @@ def parametric_var(sigma: float, notional: float, confidence: float = 0.95,
     Gaussian (parametric) VaR.
     VaR = z * sigma * sqrt(T) * notional
     """
+    # Ensure sigma is in decimal (e.g. 0.08 for 8%), not percentage points
+    if sigma > 1.0:
+        sigma = sigma / 100.0
     z = norm.ppf(confidence)
     daily_vol = sigma / np.sqrt(252)
     var_val = z * daily_vol * np.sqrt(horizon) * notional
@@ -1926,7 +1949,9 @@ def expected_shortfall(returns: np.ndarray, confidence: float = 0.95,
     returns = returns[np.isfinite(returns)]
 
     if len(returns) < 10:
-        return {"cvar": 0.0, "var": 0.0, "confidence": confidence}
+        return {"cvar_1d": 0.0, "cvar_horizon": 0.0, "var_1d": 0.0,
+                "confidence": confidence, "horizon": horizon,
+                "n_tail_obs": 0, "tail_ratio": 0.0}
 
     sorted_ret = np.sort(returns)
     cutoff = int((1 - confidence) * len(sorted_ret))
@@ -1956,7 +1981,10 @@ def cornish_fisher_var(returns: np.ndarray, confidence: float = 0.95) -> dict:
     returns = returns[np.isfinite(returns)]
 
     if len(returns) < 20:
-        return {"cf_var": 0.0, "gaussian_var": 0.0}
+        return {"cf_var": 0.0, "gaussian_var": 0.0, "adjustment": 0.0,
+                "skewness": 0.0, "excess_kurtosis": 0.0,
+                "z_gaussian": 0.0, "z_cornish_fisher": 0.0,
+                "confidence": confidence}
 
     mu = np.mean(returns)
     sigma = np.std(returns)
@@ -1995,7 +2023,10 @@ def max_drawdown(returns: np.ndarray) -> dict:
     returns = returns[np.isfinite(returns)]
 
     if len(returns) < 2:
-        return {"max_drawdown": 0.0, "peak_idx": 0, "trough_idx": 0}
+        return {"max_drawdown": 0.0, "max_drawdown_pct": 0.0,
+                "peak_idx": 0, "trough_idx": 0, "recovery_idx": None,
+                "duration_to_trough": 0, "duration_to_recovery": None,
+                "peak_value": 0.0, "trough_value": 0.0}
 
     # Cumulative wealth
     cum = np.cumprod(1 + returns)
@@ -2057,7 +2088,11 @@ def ulcer_index(pnl_array) -> float:
         return 0.0
     cum = np.cumsum(pnl)
     running_max = np.maximum.accumulate(cum)
-    dd_pct = np.where(running_max > 0, (cum - running_max) / np.maximum(running_max, 1e-10) * 100, 0)
+    dd_pct = np.where(running_max > 0,
+                      (cum - running_max) / np.maximum(running_max, 1e-10) * 100,
+                      np.where(running_max < 0,
+                               (running_max - cum) / np.maximum(np.abs(running_max), 1e-10) * 100,
+                               0))
     return float(np.sqrt(np.mean(dd_pct ** 2)))
 
 
@@ -2102,8 +2137,11 @@ def tail_risk_metrics(returns: np.ndarray) -> dict:
     if len(returns) < 20:
         return {
             "skewness": 0.0, "excess_kurtosis": 0.0,
-            "jarque_bera": 0.0, "jb_pvalue": 1.0,
-            "hill_index": 2.0,
+            "jarque_bera_stat": 0.0, "jb_pvalue": 1.0,
+            "normality": "NOT_REJECTED",
+            "hill_tail_index": 2.0,
+            "tail_assessment": "NORMAL_TAILS",
+            "n_observations": 0,
         }
 
     s = float(pd.Series(returns).skew())
@@ -2115,7 +2153,7 @@ def tail_risk_metrics(returns: np.ndarray) -> dict:
     sorted_abs = np.sort(np.abs(returns))[::-1]
     # Use top 10% of observations
     n_tail = max(int(len(sorted_abs) * 0.10), 5)
-    threshold = sorted_abs[n_tail - 1]
+    threshold = sorted_abs[n_tail] if n_tail < len(sorted_abs) else sorted_abs[n_tail - 1]
 
     if threshold > 0:
         log_exceedances = np.log(sorted_abs[:n_tail] / threshold)

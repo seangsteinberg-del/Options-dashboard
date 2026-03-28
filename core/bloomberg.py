@@ -635,7 +635,7 @@ def get_vol_surface(underlying: str, r: float = 0.05, q: float = 0.015) -> Tuple
     bbg = _to_bbg_ticker(underlying)
 
     if not conn.connected:
-        return np.array([]), np.array([]), np.array([[]])
+        return np.array([]), np.array([]), np.empty((0, 0))
 
     try:
         # Pull OVDV surface via bulk data
@@ -666,7 +666,7 @@ def get_vol_surface(underlying: str, r: float = 0.05, q: float = 0.015) -> Tuple
 
     except Exception as e:
         logger.error(f"Vol surface request failed: {e}")
-        return np.array([]), np.array([]), np.array([[]])
+        return np.array([]), np.array([]), np.empty((0, 0))
 
 
 def get_historical_prices(ticker: str, days: int = 252) -> pd.DataFrame:
@@ -691,7 +691,7 @@ def get_dividend_yield(ticker: str) -> float:
     df = bdp([_to_bbg_ticker(ticker)], ["EQY_DVD_YLD_IND"])
     if not df.empty:
         val = df.iloc[0, 0]
-        return _safe_float(val) / 100.0 if val else 0.015
+        return _safe_float(val) / 100.0 if val is not None else 0.015
     return 0.015
 
 
@@ -700,7 +700,7 @@ def get_risk_free_rate() -> float:
     df = bdp(["GB3 Govt"], ["PX_LAST"])
     if not df.empty:
         val = df.iloc[0, 0]
-        return _safe_float(val) / 100.0 if val else 0.05
+        return _safe_float(val) / 100.0 if val is not None else 0.05
     return 0.05
 
 
@@ -745,13 +745,13 @@ def _build_vol_surface_from_chain(underlying, r, q):
     chain = get_options_chain(underlying)
     if chain.empty or "iv" not in chain.columns:
         logger.warning(f"No chain data for {underlying} — returning empty surface")
-        return np.array([]), np.array([]), np.array([[]])
+        return np.array([]), np.array([]), np.empty((0, 0))
 
     # Group by expiry and build surface
     calls = chain[chain["type"].str.upper() == "CALL"]
     if calls.empty:
         logger.warning(f"No call data for {underlying} — returning empty surface")
-        return np.array([]), np.array([]), np.array([[]])
+        return np.array([]), np.array([]), np.empty((0, 0))
 
     expiries = sorted(calls["expiry"].unique())
     strikes = np.sort(calls["strike"].unique().astype(float))

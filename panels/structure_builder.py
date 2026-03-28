@@ -101,9 +101,9 @@ PRESETS = {
     ],
     # ── Butterflies & Condors ────────────────────────────────────────────
     "Butterfly": [
-        {"cp": "call", "side": "buy", "delta": 0.35, "ratio": 1},
+        {"cp": "call", "side": "buy", "delta": 0.25, "ratio": 1},
         {"cp": "call", "side": "sell", "delta": 0.50, "ratio": 2},
-        {"cp": "call", "side": "buy", "delta": 0.65, "ratio": 1},
+        {"cp": "call", "side": "buy", "delta": 0.75, "ratio": 1},
     ],
     "Iron Butterfly": [
         {"cp": "put", "side": "sell", "delta": 0.50, "ratio": 1},
@@ -725,16 +725,16 @@ def _build_suggestions(pair, tenor, vol_surface, spots, rates):
 
     # ATM vol percentile
     atm_info = vol_percentile(pair, tenor, "ATM", 252)
-    atm_pct = atm_info["percentile"] if atm_info else 50
+    atm_pct = atm_info.get("percentile", 50) if atm_info else 50
 
     # 25D RR percentile
     rr_info = vol_percentile(pair, tenor, "25D_RR", 252)
-    rr_pct = rr_info["percentile"] if rr_info else 50
-    rr_val = rr_info["current"] if rr_info else 0
+    rr_pct = rr_info.get("percentile", 50) if rr_info else 50
+    rr_val = rr_info.get("current", 0) if rr_info else 0
 
     # 25D BF percentile
     bf_info = vol_percentile(pair, tenor, "25D_BF", 252)
-    bf_pct = bf_info["percentile"] if bf_info else 50
+    bf_pct = bf_info.get("percentile", 50) if bf_info else 50
 
     # IV-RV spread
     ivrv = iv_rv_percentile(pair, tenor)
@@ -839,7 +839,7 @@ def _build_tenor_scan(legs_config, pair, notional, spots, rates, vol_surface):
             proc = _process_legs(legs_config, pair, t, notional, spot_data, rates, vol_surface)
             agg = _compute_aggregates(proc, S, T_val, r_d, r_f, notional, pip_size)
             vp = vol_percentile(pair, t, "ATM", 252)
-            pct = vp["percentile"] if vp else 50
+            pct = vp.get("percentile", 50) if vp else 50
             rows.append({
                 "tenor": t, "premium_pips": agg["net_premium_pips"],
                 "pop": agg["pop"], "theta_day": agg["net_theta"] * notional,
@@ -1225,7 +1225,7 @@ def _build_efficiency_table(processed_legs, agg, ev_data, preset_name, view_info
         "max_loss": agg.get("max_loss", 0),
         "be": agg["breakevens"][0] if agg.get("breakevens") and len(agg["breakevens"]) > 0 else None,
         "vega_per_pip": _safe_vega_per_pip(current_vega, current_prem),
-        "gamma_theta": abs(agg["net_gamma"] / max(abs(agg["net_theta"]), 1e-12)),
+        "gamma_theta": min(abs(agg["net_gamma"] / max(abs(agg["net_theta"]), 1e-12)), 999.9),
         "pop": agg.get("pop", 0),
         "ev": ev_data["ev"] if ev_data else 0,
         "is_current": True,
@@ -1382,7 +1382,7 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
         if not vp:
             vp = vol_percentile(pair, leg_tenor, "ATM", 252)
             metric_label = "ATM level"
-        pct = vp["percentile"] if vp else 50
+        pct = vp.get("percentile", 50) if vp else 50
         pct_color = (COLORS["accent_green"] if pct < 25
                      else COLORS["accent_red"] if pct > 75
                      else COLORS["text_secondary"])
@@ -1401,9 +1401,9 @@ def _build_trade_analysis(processed_legs, agg, ev_data, pair, tenor, notional,
         days = tenor_to_days(tenor)
         be = breakeven_vol(pair, tenor, days)
         if be:
-            gap = be["atm_iv"] - be["breakeven_rv"]
+            gap = be.get("atm_iv", 0) - be.get("breakeven_rv", 0)
             be_section = html.Div(
-                f"Breakeven RV: {be['breakeven_rv']:.1f}% | ATM IV: {be['atm_iv']:.1f}% "
+                f"Breakeven RV: {be.get('breakeven_rv', 0):.1f}% | ATM IV: {be.get('atm_iv', 0):.1f}% "
                 f"| Cushion: {gap:+.1f} vol pts",
                 style={"color": COLORS["accent_cyan"] if gap > 0 else COLORS["accent_orange"],
                        "fontSize": "10px", **tpl_font, "marginTop": "4px"},
@@ -2043,7 +2043,7 @@ def _build_premium_table(processed_legs, pair, pip_size, notional):
         html.Td("", style=total_style),
         html.Td(f"{net_total:,.0f}", style={
             **total_style,
-            "color": COLORS["pnl_profit"] if net_total < 0 else COLORS["pnl_loss"],
+            "color": COLORS["pnl_profit"] if net_total > 0 else (COLORS["pnl_loss"] if net_total < 0 else COLORS["pnl_neutral"]),
         }),
         html.Td(f"{net_delta:.4f}", style=total_style),
         html.Td(f"{net_vega * notional:.0f}", style=total_style),
@@ -2485,7 +2485,7 @@ def layout():
                             html.Label("LEG", style={**LABEL_STYLE, "fontSize": "8px"}),
                             dcc.Dropdown(id="stb-solver-leg",
                                          options=[{"label": f"L{i+1}", "value": i} for i in range(MAX_LEGS)],
-                                         value=1, clearable=False, style={"fontSize": "10px"}),
+                                         value=0, clearable=False, style={"fontSize": "10px"}),
                         ], style={"flex": "1"}),
                         html.Div([
                             html.Label("PARAM", style={**LABEL_STYLE, "fontSize": "8px"}),
@@ -3067,11 +3067,11 @@ def register_callbacks(app):
                        "fontStyle": "italic", "padding": "6px"},
             )
 
-        pct = vp["percentile"]
-        current = vp["current"]
-        vol_min = vp["min"]
-        vol_max = vp["max"]
-        vol_mean = vp["mean"]
+        pct = vp.get("percentile", 50)
+        current = vp.get("current", 0)
+        vol_min = vp.get("min", 0)
+        vol_max = vp.get("max", 0)
+        vol_mean = vp.get("mean", 0)
 
         # Determine colour based on percentile (cheap = green, expensive = red)
         if pct <= 25:

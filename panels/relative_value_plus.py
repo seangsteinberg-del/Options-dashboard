@@ -608,14 +608,16 @@ def _build_dxy_chart(lookback):
             # Compute weighted log returns
             n = min_len
             index = np.ones(n) * 100
+            # Accumulate weighted log returns from all pairs, then compound
+            total_log_returns = np.zeros(n - 1)
             for pair, w in weights.items():
                 if pair not in all_series:
                     continue
                 arr = all_series[pair][-n:]
-                returns = np.diff(np.log(arr)) * w
-                # Compound into index
-                for i in range(len(returns)):
-                    index[i + 1] = index[i] * np.exp(returns[i])
+                total_log_returns += np.diff(np.log(arr)) * w
+            # Compound into index
+            for i in range(len(total_log_returns)):
+                index[i + 1] = index[i] * np.exp(total_log_returns[i])
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=list(range(len(index))), y=index, mode="lines",
@@ -688,11 +690,11 @@ def _build_cb_chart():
             "FED":  {"pair": "EURUSD", "key": "r_dom"},   # USD = domestic in EURUSD
             "ECB":  {"pair": "EURUSD", "key": "r_for"},   # EUR = foreign in EURUSD
             "BOE":  {"pair": "GBPUSD", "key": "r_for"},   # GBP = foreign in GBPUSD
-            "BOJ":  {"pair": "USDJPY", "key": "r_dom"},   # JPY = domestic in USDJPY
-            "SNB":  {"pair": "USDCHF", "key": "r_dom"},   # CHF = domestic in USDCHF
+            "BOJ":  {"pair": "USDJPY", "key": "r_for"},   # JPY = quote (foreign) in USDJPY
+            "SNB":  {"pair": "USDCHF", "key": "r_for"},   # CHF = quote (foreign) in USDCHF
             "RBA":  {"pair": "AUDUSD", "key": "r_for"},   # AUD = foreign in AUDUSD
             "RBNZ": {"pair": "NZDUSD", "key": "r_for"},   # NZD = foreign in NZDUSD
-            "BOC":  {"pair": "USDCAD", "key": "r_dom"},   # CAD = domestic in USDCAD
+            "BOC":  {"pair": "USDCAD", "key": "r_for"},   # CAD = quote (foreign) in USDCAD
         }
         for bank, info in bank_map.items():
             try:
@@ -702,7 +704,11 @@ def _build_cb_chart():
                     if actual > 0:
                         # Convert from decimal to percentage if needed
                         rate_pct = actual * 100 if actual < 1 else actual
-                        _CB_BANKS[bank]["rate"] = round(rate_pct, 2)
+                        # Use a local copy to avoid mutating module-level state
+                        from copy import copy as _cb_copy
+                        local_banks = {k: dict(v) for k, v in _CB_BANKS.items()}
+                        local_banks[bank]["rate"] = round(rate_pct, 2)
+                        _CB_BANKS[bank] = local_banks[bank]
             except Exception:
                 pass  # Bloomberg rate fetch failed for this bank
     except Exception:
@@ -1248,7 +1254,8 @@ def register_callbacks(app):
         except Exception as exc:
             logging.exception("update_macro failed")
             empty = no_data_fig("Error")
-            return html.Div("Macro data error", style={"color": "#ff3333"}), empty, empty, empty
+            err_div = html.Div("Macro data error", style={"color": "#ff3333"})
+            return err_div, [err_div], empty, empty
 
     # ══════════ CARRY CALLBACKS ══════════
 

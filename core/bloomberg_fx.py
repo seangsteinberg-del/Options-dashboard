@@ -127,10 +127,10 @@ def get_data_mode() -> str:
     """Return the current data mode: 'LIVE', 'SYNTHETIC', or 'DEGRADED'.
     LIVE = Bloomberg connected, fewer than 5 recent failures.
     DEGRADED = Bloomberg connected, but 5+ fetches failing (mixed data).
-    SYNTHETIC = No Bloomberg connection, all data is synthetic.
+    DISCONNECTED = No Bloomberg connection, no data available.
     """
     if not (_HAS_EQUITY_BBG and is_connected()):
-        return "SYNTHETIC"
+        return "DISCONNECTED"
     cutoff = time.time() - 300
     with _errors_lock:
         recent = [e for e in _fetch_errors if e["time"] > cutoff]
@@ -266,7 +266,7 @@ def format_data_age(pair: str = None) -> str:
 
 _TENOR_DAYS = {
     "ON": 1, "1W": 7, "2W": 14, "1M": 30, "2M": 60, "3M": 91,
-    "6M": 182, "9M": 274, "1Y": 365, "2Y": 730, "3Y": 1095, "5Y": 1825,
+    "6M": 182, "9M": 274, "1Y": 365, "2Y": 730, "3Y": 1095, "5Y": 1826,
 }
 
 _ALL_TENORS = list(_TENOR_DAYS.keys())
@@ -350,7 +350,7 @@ def get_fx_spots(pairs: List[str] = None) -> Dict[str, dict]:
         pairs = _ALL_PAIRS
 
     # If requesting a subset, check the all-pairs cache first (populated by bg_fetcher)
-    all_ck = "spots_" + ",".join(_ALL_PAIRS)
+    all_ck = "spots_" + ",".join(sorted(_ALL_PAIRS))
     if pairs != _ALL_PAIRS:
         all_cached = _cache_get(all_ck, "spot")
         if all_cached is not None and isinstance(all_cached, dict):

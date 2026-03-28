@@ -103,8 +103,8 @@ def _delta_to_strike(S, T, r_d, r_f, sigma, delta_target, cp):
 def _atm_dns_strike(S, T, r_d, r_f, sigma):
     """ATM Delta-Neutral Straddle strike: where call delta + put delta = 0."""
     F = S * np.exp((r_d - r_f) * T)
-    lo = F * 0.5
-    hi = F * 2.0
+    lo = F * 0.3
+    hi = F * 3.0
 
     def obj(K):
         d1, _ = _gk_d1_d2(S, K, T, r_d, r_f, sigma)

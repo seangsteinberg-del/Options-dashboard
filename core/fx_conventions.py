@@ -168,11 +168,15 @@ def _gk_d1(S, K, T, r_d, r_f, sigma):
 
 def _gk_d2(S, K, T, r_d, r_f, sigma):
     """Garman-Kohlhagen d2."""
+    sigma = max(sigma, 1e-10)
+    T = max(T, 1e-10)
     return _gk_d1(S, K, T, r_d, r_f, sigma) - sigma * np.sqrt(T)
 
 
 def _gk_price(S, K, T, r_d, r_f, sigma, cp):
     """Garman-Kohlhagen price. cp = +1 for call, -1 for put."""
+    if T <= 0:
+        return max(cp * (S - K), 0.0)
     d1 = _gk_d1(S, K, T, r_d, r_f, sigma)
     d2 = d1 - sigma * np.sqrt(T)
     return cp * (S * np.exp(-r_f * T) * norm.cdf(cp * d1)
@@ -210,8 +214,10 @@ def premium_adjusted_delta(S, K, T, r_d, r_f, sigma, cp):
     d1 = _gk_d1(S, K, T, r_d, r_f, sigma)
     d2 = d1 - sigma * np.sqrt(T)
     spot_d = cp * np.exp(-r_f * T) * norm.cdf(cp * d1)
-    prem_adj = cp * np.exp(-r_d * T) * (K / S) * norm.cdf(cp * d2)
-    return spot_d - prem_adj
+    # Premium in base currency terms: V/S
+    prem_over_S = (cp * S * np.exp(-r_f * T) * norm.cdf(cp * d1)
+                   - cp * K * np.exp(-r_d * T) * norm.cdf(cp * d2)) / S
+    return spot_d - prem_over_S
 
 
 def strike_to_delta(K, S, T, r_d, r_f, sigma, cp, convention="spot"):
@@ -526,7 +532,9 @@ def surface_to_strike_space(surface, S, r_d, r_f, n_strikes=50,
                 sigma_guess = sigma_new
             vol_matrix[i, j] = sigma_guess
 
-    strikes = S * moneyness
+    # Use forward-based strikes to match the vol_matrix computation
+    F0 = S * np.exp((r_d - r_f) * T_values[0]) if len(T_values) > 0 else S
+    strikes = F0 * moneyness
     return strikes, T_values, vol_matrix
 
 

@@ -71,7 +71,7 @@ def status_color():
 
 
 def status_text():
-    return "BLOOMBERG LIVE" if is_connected() else "SYNTHETIC DATA"
+    return "BLOOMBERG LIVE" if is_connected() else "DISCONNECTED"
 
 
 # ── Plotly Chart Template ──────────────────────────────────────────────────
@@ -172,7 +172,8 @@ def chart_layout(**overrides):
     Deep-merges axis/title dicts so callers can pass xaxis=dict(title='X')
     without losing default grid colors, tick fonts, etc.
     """
-    base = dict(CHART_TEMPLATE["layout"])
+    import copy as _copy
+    base = _copy.deepcopy(CHART_TEMPLATE["layout"])
 
     # Deep-merge: axis defaults + caller overrides (caller wins on conflict)
     base["xaxis"] = {**AXIS_DEFAULTS, **(overrides.pop("xaxis", {}))}

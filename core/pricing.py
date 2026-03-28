@@ -28,6 +28,13 @@ def bs_d1_d2(S, K, T, r, q, sigma):
 
 def bs_price(S, K, T, r, q, sigma, option_type="call"):
     if T <= 0 or S <= 0 or K <= 0 or sigma <= 1e-10:
+        if T > 0 and sigma <= 1e-10:
+            # Zero-vol with time remaining: use discounted intrinsic
+            df_q = np.exp(-q * T)
+            df_r = np.exp(-r * T)
+            if option_type == "call":
+                return max(S * df_q - K * df_r, 0.0)
+            return max(K * df_r - S * df_q, 0.0)
         return max(S - K, 0) if option_type == "call" else max(K - S, 0)
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     if option_type == "call":
@@ -101,6 +108,7 @@ def binomial_tree_price(S, K, T, r, q, sigma, option_type="call",
     u = np.exp(sigma * np.sqrt(dt))
     d = 1.0 / u
     p = (np.exp((r - q) * dt) - d) / (u - d)
+    p = np.clip(p, 0.0, 1.0)  # Guard against extreme rate/vol giving p outside [0,1]
     disc = np.exp(-r * dt)
 
     # Terminal payoffs
@@ -139,7 +147,7 @@ def delta(S, K, T, r, q, sigma, option_type="call"):
 
 
 def gamma(S, K, T, r, q, sigma):
-    if T <= 0:
+    if T <= 0 or sigma <= 1e-10:
         return 0.0
     d1, _ = bs_d1_d2(S, K, T, r, q, sigma)
     return np.exp(-q * T) * norm.pdf(d1) / (S * sigma * np.sqrt(T))
@@ -195,10 +203,10 @@ def charm(S, K, T, r, q, sigma, option_type="call"):
     charm_val = -np.exp(-q * T) * (
         norm.pdf(d1) * (2 * (r - q) * T - d2 * sigma * np.sqrt(T)) / (2 * T * sigma * np.sqrt(T))
     )
-    if option_type == "put":
-        charm_val += q * np.exp(-q * T)
+    if option_type == "call":
+        charm_val += q * np.exp(-q * T) * norm.cdf(d1)
     else:
-        charm_val -= q * np.exp(-q * T)
+        charm_val -= q * np.exp(-q * T) * norm.cdf(-d1)
     return charm_val / 365.0
 
 
@@ -216,7 +224,8 @@ def color_greek(S, K, T, r, q, sigma):
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     g = gamma(S, K, T, r, q, sigma)
-    return -g * (2 * (r - q) * T - d2 * sigma * np.sqrt(T)) / (2 * T * sigma * np.sqrt(T)) / 365.0
+    dd1dT = (2 * (r - q) * T - d2 * sigma * np.sqrt(T)) / (2 * T * sigma * np.sqrt(T))
+    return g * (q + d1 * dd1dT + 1.0 / (2.0 * T)) / 365.0
 
 
 def ultima(S, K, T, r, q, sigma):
@@ -371,7 +380,7 @@ def probability_of_profit(S, K, T, r, q, sigma, option_type="call", premium=None
     """Probability that the option trade is profitable at expiry."""
     if premium is None:
         premium = bs_price(S, K, T, r, q, sigma, option_type)
-    if T <= 0:
+    if T <= 0 or sigma <= 1e-10:
         return 0.0
 
     if option_type == "call":
@@ -396,15 +405,24 @@ def probability_touch(S, K, T, r, q, sigma):
     """Probability that spot touches K at any point before expiry."""
     if T <= 0 or sigma <= 1e-10 or S <= 0 or K <= 0:
         return 0.0
+    if abs(np.log(S / K)) < 1e-12:
+        return 1.0  # Already at barrier
     mu = r - q - 0.5 * sigma ** 2
     sigma_sqrt_T = sigma * np.sqrt(T)
-    log_SK = np.log(S / K)
+    log_KS = np.log(K / S)
 
-    p = norm.cdf((-log_SK + mu * T) / sigma_sqrt_T)
-    if abs(mu) > 1e-10:
-        exponent = 2 * mu * np.log(K / S) / sigma ** 2
-        if exponent < 100:
-            p += np.exp(exponent) * norm.cdf((-log_SK - mu * T) / sigma_sqrt_T)
+    if K > S:
+        # Upward barrier
+        p = norm.cdf((-log_KS + mu * T) / sigma_sqrt_T)
+        exponent = 2 * mu * log_KS / sigma ** 2
+        if abs(exponent) < 100:
+            p += np.exp(exponent) * norm.cdf((-log_KS - mu * T) / sigma_sqrt_T)
+    else:
+        # Downward barrier
+        p = norm.cdf((log_KS - mu * T) / sigma_sqrt_T)
+        exponent = 2 * mu * log_KS / sigma ** 2
+        if abs(exponent) < 100:
+            p += np.exp(exponent) * norm.cdf((log_KS + mu * T) / sigma_sqrt_T)
     return min(p, 1.0)
 
 
