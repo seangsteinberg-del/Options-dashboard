@@ -417,8 +417,7 @@ def register_callbacks(app):
          Output("fxb-exec-status", "children"),
          Output("fxb-exec-status", "style"),
          Output("global-portfolio-version", "data")],
-        [Input("fxb-execute-btn", "n_clicks"),
-         Input("fxb-market-cache", "data")],
+        [Input("fxb-execute-btn", "n_clicks")],
         [State("fxb-trade-store", "data"),
          State("global-portfolio-version", "data"),
          State("fxb-pair", "value"),
@@ -435,7 +434,7 @@ def register_callbacks(app):
          State("fxb-cpty", "value"),
          State("fxb-notes", "value")],
     )
-    def update_all(n_clicks, _cache, store_data, portfolio_version,
+    def update_all(n_clicks, store_data, portfolio_version,
                    pair, cp_str, side, entry_mode,
                    delta_in, strike_in, tenor, notional, cut, strategy,
                    book, cpty, notes):
