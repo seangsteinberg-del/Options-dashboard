@@ -58,7 +58,10 @@ from core.vanna_volga import vv_smile, sabr_vol, vv_vs_sabr
 
 TENORS_LIST = ["ON", "1W", "1M", "2M", "3M", "6M", "9M", "1Y", "2Y", "5Y"]
 DELTA_LABELS = ["10P", "25P", "ATM", "25C", "10C"]
-DELTA_NUMERIC = [-0.10, -0.25, 0.0, 0.25, 0.10]
+# Monotonic smile-position values for the 3D surface X-axis.
+# Ordered by strike: 10P (deep OTM put) → ATM → 10C (deep OTM call).
+# NOT actual Black-Scholes delta (which is non-monotonic in smile order).
+DELTA_NUMERIC = [-0.50, -0.25, 0.0, 0.25, 0.50]
 
 CHART_OPTIONS = [
     {"label": "── SURFACE ──────", "value": "_sfc_header", "disabled": True},
@@ -392,9 +395,21 @@ def _fmt_pctile(p):
 def chart_surface_3d(pair, sd, spot, r_dom, r_for, **kw):
     """1. 3D Vol Surface -- go.Surface in delta-space."""
     fig = go.Figure()
-    delta_grid_sorted = sd["delta_numeric"]
+    delta_pos = sd["delta_numeric"]  # monotonic smile-position values
+    delta_labels = sd["delta_labels"]
+    # Build custom hover text with proper delta labels instead of numeric values
+    n_tenors = sd["vol_grid"].shape[0]
+    n_deltas = len(delta_labels)
+    hover_text = [[None] * n_deltas for _ in range(n_tenors)]
+    for ti in range(n_tenors):
+        for di in range(n_deltas):
+            hover_text[ti][di] = (
+                f"Delta: {delta_labels[di]}<br>"
+                f"Tenor: {sd['tenors'][ti]}<br>"
+                f"Vol: {sd['vol_grid'][ti, di]:.2f}%"
+            )
     fig.add_trace(go.Surface(
-        x=delta_grid_sorted * 100,
+        x=delta_pos * 100,
         y=sd["T_years"],
         z=sd["vol_grid"],
         colorscale=[[0, "#0e0e0e"], [0.25, "#1a1a2e"], [0.5, "#bf5b00"],
@@ -405,14 +420,18 @@ def chart_surface_3d(pair, sd, spot, r_dom, r_for, **kw):
             tickfont=dict(color=COLORS["text_muted"], size=9),
             len=0.6, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
         ),
-        hovertemplate="Delta: %{x:.0f}<br>Tenor: %{y:.3f}y<br>Vol: %{z:.2f}%<extra></extra>",
+        text=hover_text,
+        hovertemplate="%{text}<extra></extra>",
         contours=dict(z=dict(show=True, usecolormap=True, project_z=True, width=1)),
         lighting=dict(ambient=0.6, diffuse=0.7, specular=0.3, roughness=0.5),
     ))
+    # Map numeric tick positions to delta labels on the X-axis
+    tick_vals = (delta_pos * 100).tolist()
     fig.update_layout(
         scene=dict(
             xaxis=dict(title="Delta", backgroundcolor="rgba(0,0,0,0)",
-                       gridcolor=COLORS["border_subtle"], color=COLORS["text_muted"]),
+                       gridcolor=COLORS["border_subtle"], color=COLORS["text_muted"],
+                       tickvals=tick_vals, ticktext=delta_labels),
             yaxis=dict(title="Tenor (yrs)", backgroundcolor="rgba(0,0,0,0)",
                        gridcolor=COLORS["border_subtle"], color=COLORS["text_muted"]),
             zaxis=dict(title="Vol (%)", backgroundcolor="rgba(0,0,0,0)",
@@ -1962,17 +1981,29 @@ def _overlay_cross_pair_on_atm(fig, cross_pair, cross_sd):
 
 def _overlay_cross_surface_wireframe(fig, cross_pair, cross_sd):
     """Add a wireframe overlay of the cross-pair surface on a 3D surface chart."""
-    delta_grid_sorted = cross_sd["delta_numeric"]
+    delta_pos = cross_sd["delta_numeric"]
+    delta_labels = cross_sd["delta_labels"]
+    n_tenors = cross_sd["vol_grid"].shape[0]
+    n_deltas = len(delta_labels)
+    hover_text = [[None] * n_deltas for _ in range(n_tenors)]
+    for ti in range(n_tenors):
+        for di in range(n_deltas):
+            hover_text[ti][di] = (
+                f"{cross_pair}<br>"
+                f"Delta: {delta_labels[di]}<br>"
+                f"Tenor: {cross_sd['tenors'][ti]}<br>"
+                f"Vol: {cross_sd['vol_grid'][ti, di]:.2f}%"
+            )
     fig.add_trace(go.Surface(
-        x=delta_grid_sorted * 100,
+        x=delta_pos * 100,
         y=cross_sd["T_years"],
         z=cross_sd["vol_grid"],
         colorscale=[[0, "#0e0e0e"], [0.5, "#1565c0"], [1.0, "#42a5f5"]],
         opacity=0.35,
         showscale=False,
         name=f"{cross_pair}",
-        hovertemplate=(f"{cross_pair}<br>"
-                       "Delta: %{x:.0f}<br>Tenor: %{y:.3f}y<br>Vol: %{z:.2f}%<extra></extra>"),
+        text=hover_text,
+        hovertemplate="%{text}<extra></extra>",
     ))
 
 
