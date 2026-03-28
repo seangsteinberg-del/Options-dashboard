@@ -10,6 +10,7 @@ Open: http://localhost:8765
 """
 
 # ── Auto-install dependencies ─────────────────────────────────────────────
+import os
 import subprocess, sys
 
 def _ensure_packages():
@@ -1445,18 +1446,32 @@ if __name__ == "__main__":
             app.run(debug=False, host="127.0.0.1", port=8765,
                     use_reloader=False, dev_tools_ui=False, dev_tools_props_check=False)
 
+        dl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
+        os.makedirs(dl_path, exist_ok=True)
+
         print("\n  Launching as desktop application...")
+        print(f"  CSV downloads save to: {dl_path}")
         print("  Close the window to stop.\n")
 
         server_thread = threading.Thread(target=_start_server, daemon=True)
         server_thread.start()
 
-        webview.create_window(
-            "FX Options Workstation",
-            "http://127.0.0.1:8765",
-            width=1920, height=1080,
-            min_size=(1200, 700),
-        )
+        try:
+            webview.create_window(
+                "FX Options Workstation",
+                "http://127.0.0.1:8765",
+                width=1920, height=1080,
+                min_size=(1200, 700),
+                downloads_path=dl_path,
+            )
+        except TypeError:
+            # pywebview < 4.0 doesn't support downloads_path
+            webview.create_window(
+                "FX Options Workstation",
+                "http://127.0.0.1:8765",
+                width=1920, height=1080,
+                min_size=(1200, 700),
+            )
         webview.start()
 
     except ImportError:
