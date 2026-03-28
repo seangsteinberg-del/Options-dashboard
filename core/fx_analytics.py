@@ -568,8 +568,9 @@ def breakeven_vol(pair: str, tenor: str, days_to_expiry: int) -> dict:
 
     # Straddle premium as fraction of spot
     fwd = spot * np.exp((r_dom - r_for) * T)
-    d1 = (0.5 * atm_vol ** 2 * T) / (atm_vol * np.sqrt(T))
-    straddle_pct = 2 * norm.cdf(d1) - 1  # approximate straddle as % of fwd
+    d1 = ((r_dom - r_for + 0.5 * atm_vol ** 2) * T) / (atm_vol * np.sqrt(T))
+    d2 = d1 - atm_vol * np.sqrt(T)
+    straddle_pct = 2 * norm.cdf(d1) - 2 * norm.cdf(d2)  # straddle as % of fwd (call + put delta-neutral)
 
     # Breakeven daily move = straddle_premium / days
     # In vol terms: breakeven_vol = atm_vol * sqrt(premium_ratio)
@@ -619,10 +620,14 @@ def theta_gamma_ratio(pair: str, tenor: str) -> dict:
     r_dom = rates.get("r_dom", 0.03)
     r_for = rates.get("r_for", 0.02)
 
-    d1 = (0.5 * atm_vol ** 2 * T) / (atm_vol * np.sqrt(T))
+    d1 = ((r_dom - r_for + 0.5 * atm_vol ** 2) * T) / (atm_vol * np.sqrt(T))
+    d2 = d1 - atm_vol * np.sqrt(T)
 
-    gamma_val = norm.pdf(d1) / (spot * atm_vol * np.sqrt(T))
-    theta_val = -0.5 * spot * atm_vol * norm.pdf(d1) / np.sqrt(T) / 365.0
+    df_f = np.exp(-r_for * T)
+    df_d = np.exp(-r_dom * T)
+    gamma_val = df_f * norm.pdf(d1) / (spot * atm_vol * np.sqrt(T))
+    theta_val = (-(spot * df_f * norm.pdf(d1) * atm_vol) / (2 * np.sqrt(T))
+                 - r_dom * spot * df_d * norm.cdf(d2) + r_for * spot * df_f * norm.cdf(d1)) / 365.0
 
     ratio = gamma_val / max(abs(theta_val), 1e-12)
 
@@ -651,8 +656,15 @@ def vol_carry(pair: str, tenor: str) -> dict:
         return None
     atm_vol = atm_raw / 100.0
 
-    d1 = (0.5 * atm_vol ** 2 * T) / (atm_vol * np.sqrt(T))
-    daily_theta = -0.5 * spot * atm_vol * norm.pdf(d1) / np.sqrt(T) / 365.0
+    rates = get_fx_rates(pair)
+    r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
+    r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
+    d1 = ((r_dom - r_for + 0.5 * atm_vol ** 2) * T) / (atm_vol * np.sqrt(T))
+    d2 = d1 - atm_vol * np.sqrt(T)
+    df_f = np.exp(-r_for * T)
+    df_d = np.exp(-r_dom * T)
+    daily_theta = (-(spot * df_f * norm.pdf(d1) * atm_vol) / (2 * np.sqrt(T))
+                   - r_dom * spot * df_d * norm.cdf(d2) + r_for * spot * df_f * norm.cdf(d1)) / 365.0
     annualised_carry = daily_theta * 365.0
 
     return {
@@ -1398,7 +1410,15 @@ def implied_correlation(pair_a: str, pair_b: str, cross_pair: str,
     if denom < 1e-10:
         rho = 0.0
     else:
-        rho = (va ** 2 + vb ** 2 - vc ** 2) / denom
+        # Determine sign: if both pairs share the same base or same quote
+        # (e.g., EURUSD + GBPUSD → EURGBP), use minus sign (standard).
+        # If one is inverted (e.g., EURUSD + USDJPY → EURJPY), use plus sign.
+        _shares_base_or_quote = (pair_a[:3] == pair_b[:3] or pair_a[3:6] == pair_b[3:6])
+        if _shares_base_or_quote:
+            rho = (va ** 2 + vb ** 2 - vc ** 2) / denom
+        else:
+            # Mixed form: σ_cross² = σ_A² + σ_B² + 2ρσ_Aσ_B
+            rho = (vc ** 2 - va ** 2 - vb ** 2) / denom
 
     rho = float(np.clip(rho, -1.0, 1.0))
 
