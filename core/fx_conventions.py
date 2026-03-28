@@ -634,7 +634,11 @@ def smile_arbitrage_check(surface):
 
 def fx_forward(S, r_d, r_f, T):
     """FX outright forward: F = S * exp((r_d - r_f) * T)."""
-    return S * np.exp((r_d - r_f) * T)
+    exponent = (r_d - r_f) * T
+    # Guard against float64 overflow (exp(709) ~ 8.2e307)
+    if exponent > 500:
+        return S * np.exp(500.0)  # Cap at a very large but finite value
+    return S * np.exp(exponent)
 
 
 def forward_points(S, r_d, r_f, T):

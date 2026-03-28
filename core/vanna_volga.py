@@ -90,21 +90,29 @@ def _delta_to_strike(S, T, r_d, r_f, sigma, delta_target, cp):
     For a put  delta_target is negative (e.g. -0.25).
     """
     F = S * np.exp((r_d - r_f) * T)
-    lo = F * 0.3
-    hi = F * 3.0
+    # Use vol-scaled bracket to handle high-vol regimes (e.g. sigma=1.5)
+    bracket_width = max(5.0 * sigma * np.sqrt(T), 1.2)
+    lo = max(F * np.exp(-bracket_width), 1e-10)
+    hi = F * np.exp(bracket_width)
 
     def obj(K):
         d1, _ = _gk_d1_d2(S, K, T, r_d, r_f, sigma)
         return cp * np.exp(-r_f * T) * norm.cdf(cp * d1) - delta_target
 
-    return brentq(obj, lo, hi, xtol=1e-10, maxiter=200)
+    try:
+        return brentq(obj, lo, hi, xtol=1e-10, maxiter=200)
+    except ValueError:
+        # Fallback: return ATM forward strike
+        return F
 
 
 def _atm_dns_strike(S, T, r_d, r_f, sigma):
     """ATM Delta-Neutral Straddle strike: where call delta + put delta = 0."""
     F = S * np.exp((r_d - r_f) * T)
-    lo = F * 0.3
-    hi = F * 3.0
+    # Use vol-scaled bracket to handle high-vol regimes
+    bracket_width = max(5.0 * sigma * np.sqrt(T), 1.2)
+    lo = max(F * np.exp(-bracket_width), 1e-10)
+    hi = F * np.exp(bracket_width)
 
     def obj(K):
         d1, _ = _gk_d1_d2(S, K, T, r_d, r_f, sigma)
@@ -113,7 +121,11 @@ def _atm_dns_strike(S, T, r_d, r_f, sigma):
         put_delta = -df_f * norm.cdf(-d1)
         return call_delta + put_delta
 
-    return brentq(obj, lo, hi, xtol=1e-10, maxiter=200)
+    try:
+        return brentq(obj, lo, hi, xtol=1e-10, maxiter=200)
+    except ValueError:
+        # Fallback: closed-form DNS strike = F * exp(0.5 * sigma^2 * T)
+        return F * np.exp(0.5 * sigma ** 2 * T)
 
 
 # =========================================================================

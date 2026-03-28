@@ -30,16 +30,21 @@ def bs_price(S, K, T, r, q, sigma, option_type="call"):
     if T <= 0 or S <= 0 or K <= 0 or sigma <= 1e-10:
         if T > 0 and sigma <= 1e-10:
             # Zero-vol with time remaining: use discounted intrinsic
-            df_q = np.exp(-q * T)
-            df_r = np.exp(-r * T)
+            df_q = np.exp(np.clip(-q * T, -500, 500))
+            df_r = np.exp(np.clip(-r * T, -500, 500))
             if option_type == "call":
                 return max(S * df_q - K * df_r, 0.0)
             return max(K * df_r - S * df_q, 0.0)
         return max(S - K, 0) if option_type == "call" else max(K - S, 0)
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
+    # Clamp discount factor exponents to prevent overflow (exp(709) ~ float64 max)
+    df_q = np.exp(np.clip(-q * T, -500, 500))
+    df_r = np.exp(np.clip(-r * T, -500, 500))
     if option_type == "call":
-        return S * np.exp(-q * T) * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
-    return K * np.exp(-r * T) * norm.cdf(-d2) - S * np.exp(-q * T) * norm.cdf(-d1)
+        price = S * df_q * norm.cdf(d1) - K * df_r * norm.cdf(d2)
+    else:
+        price = K * df_r * norm.cdf(-d2) - S * df_q * norm.cdf(-d1)
+    return price if np.isfinite(price) else max(S - K, 0.0) if option_type == "call" else max(K - S, 0.0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

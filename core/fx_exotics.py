@@ -360,8 +360,19 @@ def one_touch_price(S, B, T, r_d, r_f, sigma, payout=1.0):
         d1 = (b - alpha * T) / sqrt_T
         d2 = (b + alpha * T) / sqrt_T
 
-    prob = norm.cdf(d1) + np.exp(2 * alpha * b / (sigma ** 2)) * norm.cdf(d2)
+    # Guard against exp overflow: 2*alpha*b/sigma^2 can be very large
+    # when sigma is small and rates are high (e.g. USDTRY with sigma=0.01)
+    reflection_exp = 2.0 * alpha * b / (sigma ** 2)
+    if reflection_exp > 500:
+        # Exponent overflow: the reflection term dominates, prob -> 1
+        prob = 1.0
+    elif reflection_exp < -500:
+        # Reflection term negligible
+        prob = norm.cdf(d1)
+    else:
+        prob = norm.cdf(d1) + np.exp(reflection_exp) * norm.cdf(d2)
 
+    prob = min(max(prob, 0.0), 1.0)
     return payout * np.exp(-r_d * T) * prob
 
 
