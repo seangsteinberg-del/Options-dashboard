@@ -314,11 +314,32 @@ def _build_kpi_data(rows):
 
     # Book Greeks (from portfolio)
     try:
-        from core.fx_portfolio import get_portfolio, compute_portfolio_risk
-        portfolio = get_portfolio()
-        risk = compute_portfolio_risk(portfolio)
-        book_vega = risk.get("total_vega", 0)
-        book_theta = risk.get("total_theta", 0)
+        from core.fx_portfolio import compute_portfolio_risk
+        from core.bloomberg_fx import get_fx_spots as _md_spots, get_fx_rates as _md_rates, get_fx_vol_surface as _md_volsurf
+        from core.fx_conventions import FX_PAIR_REGISTRY as _md_registry
+        # Build market data dicts matching compute_portfolio_risk(spots, rates, vol_surfaces) signature
+        _md_pairs = list(_md_registry.keys())
+        _md_spot_raw = _md_spots(_md_pairs) or {}
+        _md_s = {p: d.get("mid", 1.0) if isinstance(d, dict) else float(d)
+                 for p, d in _md_spot_raw.items()}
+        _md_r = {}
+        _md_v = {}
+        for _p in _md_pairs:
+            _rr = _md_rates(_p)
+            _md_r[_p] = {"r_d": _rr.get("r_dom", 0.04), "r_f": _rr.get("r_for", 0.02)} if isinstance(_rr, dict) else {"r_d": 0.04, "r_f": 0.02}
+            _sv = _md_volsurf(_p) or {}
+            # Extract flat decimal vol from surface for portfolio pricing
+            _flat = 0.10
+            for _t in ("3M", "1M", "6M", "1Y"):
+                if _t in _sv and isinstance(_sv[_t], dict):
+                    _raw = _sv[_t].get("atm", 8.0)
+                    _flat = _raw / 100.0 if _raw > 1.0 else _raw
+                    break
+            _md_v[_p] = max(_flat, 0.001)
+        risk = compute_portfolio_risk(_md_s, _md_r, _md_v)
+        totals = risk.get("totals", {})
+        book_vega = totals.get("vega", 0)
+        book_theta = totals.get("theta", 0)
     except Exception as _e:
         import logging as _lg
         _lg.getLogger(__name__).debug("Portfolio load fallback: %s", _e)

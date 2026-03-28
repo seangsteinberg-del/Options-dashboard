@@ -612,8 +612,8 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
         # --- Simulate holding period with MtM ---
         exit_idx = entry_idx + hold_days
         exit_reason = "expiry"
-        best_mtm = entry_cost
-        worst_mtm = entry_cost
+        best_mtm = 0.0   # track best MtM P&L (starts at 0, not entry_cost)
+        worst_mtm = 0.0   # track worst MtM P&L (starts at 0, not entry_cost)
 
         for d in range(1, hold_days + 1):
             day_idx = entry_idx + d
@@ -633,11 +633,11 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
             best_mtm = max(best_mtm, mtm_pnl)
             worst_mtm = min(worst_mtm, mtm_pnl)
 
-            # Check exit rules
-            if entry_premium != 0:
-                pnl_pct = mtm_pnl / (abs(entry_cost) if abs(entry_cost) > 0 else 1.0)
-            else:
-                pnl_pct = 0.0
+            # Check exit rules — use max of |entry_cost| and a notional-based
+            # floor so near-zero-premium structures (risk reversals) don't
+            # produce extreme pnl_pct values that trigger exits immediately
+            cost_denom = max(abs(entry_cost), notional * 0.001, 1.0)
+            pnl_pct = mtm_pnl / cost_denom
 
             if tp_pct is not None and pnl_pct >= tp_pct:
                 exit_idx = day_idx
@@ -698,7 +698,7 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
             "entry_premium": round(entry_premium * notional, 2),
             "exit_value": round(exit_value * notional, 2),
             "pnl": round(trade_pnl, 2),
-            "pnl_pct": round(trade_pnl / max(abs(entry_cost), 1.0) * 100, 2),
+            "pnl_pct": round(trade_pnl / max(abs(entry_cost), notional * 0.001, 1.0) * 100, 2),
             "spot_move_pct": round((S_exit - S_entry) / max(abs(S_entry), 1e-10) * 100, 2),
             "mae": round(worst_mtm, 0),
             "mfe": round(best_mtm, 0),

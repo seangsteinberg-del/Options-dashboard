@@ -600,18 +600,23 @@ def forward_start_price(S, T_start, T_end, r_d, r_f, sigma, cp, moneyness=1.0):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def best_of_price(S1, S2, K, T, r_d1, r_d2, r_f, sigma1, sigma2, rho, cp,
-                   option_type='best-of', n_paths=50000, seed=None):
+                   option_type='best-of', n_paths=50000, seed=None, r_f2=None):
     """Two-asset rainbow option via correlated MC.
 
     best-of call  : max(perf1, perf2, 0)  where perf_i = S_i(T)/S_i(0) - 1
     worst-of call : payoff only if BOTH assets perform above strike
     Generalised to use strike K as a performance threshold.
+
+    r_f  : foreign rate for asset 1
+    r_f2 : foreign rate for asset 2 (defaults to r_f if not provided)
     """
+    if r_f2 is None:
+        r_f2 = r_f
     n_steps = max(int(252 * T), 50)
     paths1, paths2 = _correlated_mc_paths(S1, S2, T, r_d1, r_d2,
                                            sigma1, sigma2, rho,
                                            n_paths, n_steps, seed,
-                                           r_f1=r_f, r_f2=r_f)
+                                           r_f1=r_f, r_f2=r_f2)
     perf1 = paths1[:, -1] / S1 - 1.0
     perf2 = paths2[:, -1] / S2 - 1.0
 

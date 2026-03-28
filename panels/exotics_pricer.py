@@ -404,8 +404,8 @@ def _get_mkt(pair, tenor):
     else:
         spot = float(spot_data) if spot_data else 1.0
     rates = get_fx_rates(pair) or {}
-    r_d = rates.get("r_dom", 0.05) if isinstance(rates, dict) else 0.05
-    r_f = rates.get("r_for", 0.03) if isinstance(rates, dict) else 0.03
+    r_d = rates.get("r_dom", 0.04) if isinstance(rates, dict) else 0.04
+    r_f = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
     vol_surf = get_fx_vol_surface(pair) or {}
     T = tenor_to_years(tenor)
     atm_vol_raw = 8.0
@@ -621,7 +621,7 @@ def register_callbacks(app):
                          cp=cp, barrier_type=bt, rebate=reb))
                 vanilla_px = _gk_price(S, K, T, rd, rf, sigma, cp)
                 # Probability of knock via MC
-                paths, _ = _mc_paths(S, T, rd, rf, sigma, n_mc_paths, n_mc_steps, seed=42)
+                paths, _dt, _rng = _mc_paths(S, T, rd, rf, sigma, n_mc_paths, n_mc_steps, seed=42)
                 if "down" in barrier_type:
                     p_hit = float(np.mean(paths.min(axis=1) <= B))
                 else:
@@ -646,7 +646,7 @@ def register_callbacks(app):
                          sigma=sigma, cp=cp, barrier_type="knock-out",
                          n_paths=5000, n_steps=100, seed=42))
                 vanilla_px = _gk_price(S, K, T, rd, rf, sigma, cp)
-                paths, _ = _mc_paths(S, T, rd, rf, sigma, n_mc_paths, n_mc_steps, seed=42)
+                paths, _dt, _rng = _mc_paths(S, T, rd, rf, sigma, n_mc_paths, n_mc_steps, seed=42)
                 p_survive = float(np.mean(
                     (paths.min(axis=1) > B_dn) & (paths.max(axis=1) < B_up)))
                 probs["P(Survive)"] = p_survive
@@ -671,7 +671,7 @@ def register_callbacks(app):
                     one_touch_price,
                     dict(S=S, B=B, T=T, r_d=rd, r_f=rf, sigma=sigma, payout=pay))
                 vanilla_px = pay * np.exp(-rd * T)
-                paths, _ = _mc_paths(S, T, rd, rf, sigma, n_mc_paths, n_mc_steps, seed=42)
+                paths, _dt, _rng = _mc_paths(S, T, rd, rf, sigma, n_mc_paths, n_mc_steps, seed=42)
                 if B > S:
                     p_touch = float(np.mean(paths.max(axis=1) >= B))
                 else:
@@ -763,8 +763,8 @@ def register_callbacks(app):
                 spot2_data = get_fx_spots([pair2]) or {}
                 S2 = spot2_data.get(pair2, {}).get("mid", 1.0)
                 rates2 = get_fx_rates(pair2) or {}
-                rd2 = rates2.get("r_dom", 0.05)
-                rf2 = rates2.get("r_for", 0.03)
+                rd2 = rates2.get("r_dom", 0.04)
+                rf2 = rates2.get("r_for", 0.02)
                 vol_surf2 = get_fx_vol_surface(pair2) or {}
                 sigma2_raw = 8.0
                 if isinstance(vol_surf2, dict):
@@ -787,7 +787,7 @@ def register_callbacks(app):
                     rho = 0.5
                 K_perf = _safe_float(strike, 0.0)
                 result = best_of_price(S, S2, K_perf, T, rd, rd2, rf, sigma, sigma2, rho, cp,
-                                       bestof_type, n_paths=20000, seed=42)
+                                       bestof_type, n_paths=20000, seed=42, r_f2=rf2)
                 price_val = result["price"]
                 price_result = result
                 greeks_dict = {"price": price_val}  # complex multi-asset greeks
@@ -1074,7 +1074,7 @@ def _build_mc_chart(product, S, T, rd, rf, sigma, levels):
     fig = go.Figure()
     n_show = 20
     n_steps = 252
-    paths, dt = _mc_paths(S, T, rd, rf, sigma, n_show * 2, n_steps, seed=123)
+    paths, dt, _rng = _mc_paths(S, T, rd, rf, sigma, n_show * 2, n_steps, seed=123)
     # Only take first n_show after antithetic
     paths = paths[:n_show]
     t_axis = np.linspace(0, T, n_steps + 1)
@@ -1193,7 +1193,8 @@ def _price_at_spot(product, s, T, rd, rf, sigma, cp, K, B,
             spot2_data = get_fx_spots([pair2]) or {}
             S2 = spot2_data.get(pair2, {}).get("mid", 1.0)
             rates2 = get_fx_rates(pair2) or {}
-            rd2 = rates2.get("r_dom", 0.05)
+            rd2 = rates2.get("r_dom", 0.04)
+            rf2 = rates2.get("r_for", 0.02)
             vol_surf2 = get_fx_vol_surface(pair2) or {}
             sigma2_raw = 8.0
             if vol_surf2 and tenor in vol_surf2:
@@ -1211,7 +1212,7 @@ def _price_at_spot(product, s, T, rd, rf, sigma, cp, K, B,
                 rho = 0.5
             bo_type = bestof_type or "best-of"
             r = best_of_price(s, S2, K, T, rd, rd2, rf, sigma, sigma2, rho, cp,
-                              bo_type, n_paths=5000, seed=42)
+                              bo_type, n_paths=5000, seed=42, r_f2=rf2)
             return r["price"]
         elif product == "tarf":
             r = tarf_price(s, K, t_barrier, T, rd, rf, sigma,
@@ -1270,7 +1271,8 @@ def _price_at_vol(product, S, T, rd, rf, v, cp, K, B,
             spot2_data = get_fx_spots([pair2]) or {}
             S2 = spot2_data.get(pair2, {}).get("mid", 1.0)
             rates2 = get_fx_rates(pair2) or {}
-            rd2 = rates2.get("r_dom", 0.05)
+            rd2 = rates2.get("r_dom", 0.04)
+            rf2 = rates2.get("r_for", 0.02)
             vol_surf2 = get_fx_vol_surface(pair2) or {}
             sigma2_raw = 8.0
             if vol_surf2 and tenor in vol_surf2:
@@ -1288,7 +1290,7 @@ def _price_at_vol(product, S, T, rd, rf, v, cp, K, B,
                 rho = 0.5
             bo_type = bestof_type or "best-of"
             r = best_of_price(S, S2, K, T, rd, rd2, rf, v, sigma2, rho, cp,
-                              bo_type, n_paths=5000, seed=42)
+                              bo_type, n_paths=5000, seed=42, r_f2=rf2)
             return r["price"]
         elif product == "tarf":
             r = tarf_price(S, K, t_barrier, T, rd, rf, v,

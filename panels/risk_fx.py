@@ -1728,6 +1728,9 @@ def register_callbacks(app):
             # Estimate strike from delta (approximate: use ATM spot +/- adjustment)
             spot = spots.get(pair, 1.0)
             vol = _safe_atm_vol(vol_surfaces.get(pair, 0.10))
+            pair_rates = rates.get(pair, {"r_d": 0.04, "r_f": 0.02})
+            r_d = pair_rates.get("r_d", 0.04) if isinstance(pair_rates, dict) else 0.04
+            r_f = pair_rates.get("r_f", 0.02) if isinstance(pair_rates, dict) else 0.02
             # Simple approximation: strike = spot * exp(-/+ delta_adjustment)
             from scipy.stats import norm as scipy_norm
             T = days / 365.0

@@ -721,7 +721,7 @@ def forward_vol_curve(pair: str, start_tenor: str = "1M") -> pd.DataFrame:
     Forward vol curve starting from start_tenor out to 2Y.
     Each point is the forward vol from start_tenor to the end tenor.
     """
-    end_tenors = ["2M", "3M", "6M", "9M", "1Y", "18M", "2Y"]
+    end_tenors = ["2M", "3M", "6M", "9M", "1Y", "2Y"]
     t_start = tenor_to_years(start_tenor)
 
     records = []

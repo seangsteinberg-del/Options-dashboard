@@ -440,7 +440,7 @@ def _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surf
     """
     S = spot_data.get("mid", spot_data.get("bid", 1.0))
     r_d = rates.get("r_dom", 0.03)
-    r_f = rates.get("r_for", 0.01)
+    r_f = rates.get("r_for", 0.02)
     T = tenor_to_years(tenor)
     pip_size = 0.0001
     if pair in FX_PAIR_REGISTRY:
@@ -829,7 +829,7 @@ def _build_tenor_scan(legs_config, pair, notional, spots, rates, vol_surface):
     spot_data = spots.get(pair, {"mid": 1.0})
     S = spot_data.get("mid", spot_data.get("bid", 1.0))
     r_d = rates.get("r_dom", 0.03)
-    r_f = rates.get("r_for", 0.01)
+    r_f = rates.get("r_for", 0.02)
     pip_size = FX_PAIR_REGISTRY[pair].pip if pair in FX_PAIR_REGISTRY else 0.0001
 
     rows = []
@@ -871,7 +871,7 @@ def _solve_for_parameter(target_metric, target_value, solve_leg, solve_param,
     S = spot_data.get("mid", spot_data.get("bid", 1.0))
     T = tenor_to_years(tenor)
     r_d = rates.get("r_dom", 0.03)
-    r_f = rates.get("r_for", 0.01)
+    r_f = rates.get("r_for", 0.02)
     pip_size = FX_PAIR_REGISTRY[pair].pip if pair in FX_PAIR_REGISTRY else 0.0001
 
     if solve_param == "delta":
@@ -2793,7 +2793,7 @@ def register_callbacks(app):
 
             S = spot_data.get("mid", spot_data.get("bid", 1.0))
             r_d = rates.get("r_dom", 0.03)
-            r_f = rates.get("r_for", 0.01)
+            r_f = rates.get("r_for", 0.02)
             T = tenor_to_years(tenor)
 
             pip_size = 0.0001
@@ -3383,7 +3383,7 @@ def register_callbacks(app):
         S = spot_data.get("mid", 1.0)
         T = tenor_to_years(tenor)
         r_d = rates.get("r_dom", 0.03)
-        r_f = rates.get("r_for", 0.01)
+        r_f = rates.get("r_for", 0.02)
         pip_size = FX_PAIR_REGISTRY[pair].pip if pair in FX_PAIR_REGISTRY else 0.0001
 
         proc = _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surface)
@@ -3427,7 +3427,7 @@ def register_callbacks(app):
         S = spot_data.get("mid", 1.0)
         T = tenor_to_years(tenor)
         r_d = rates.get("r_dom", 0.03)
-        r_f = rates.get("r_for", 0.01)
+        r_f = rates.get("r_for", 0.02)
         pip_size = FX_PAIR_REGISTRY[pair].pip if pair in FX_PAIR_REGISTRY else 0.0001
 
         proc = _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surface)
