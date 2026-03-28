@@ -649,7 +649,7 @@ def _study_vol_regime(pair, tenor, timeframe):
         fig.update_layout(**chart_layout(
             title=dict(text=f"{pair} Vol Regime: {regime.get('regime','?')} | Trend: {regime.get('trend','?')}",
                        font=dict(size=11, color=regime.get('color', '#ff8800'), family=_FONT)),
-            xaxis_title="Days", yaxis_title="ATM Vol (%)",
+            xaxis_title="Date", yaxis_title="ATM Vol (%)",
             margin=dict(l=45, r=15, t=40, b=30), hovermode="x unified"))
         return fig
     except Exception:
@@ -1030,17 +1030,18 @@ def _build_comparison_figure(pairs, comp_type, tenor="3M"):
                     df = iv_rv_spread(pair, tenor, lookback=120)
                     if df is not None and not df.empty:
                         c = _CW[idx % len(_CW)]
+                        x_vals = df["day"].tolist() if "day" in df.columns else list(range(len(df)))
                         if "iv" in df.columns:
-                            fig.add_trace(go.Scatter(x=list(range(len(df))), y=df["iv"].tolist(),
+                            fig.add_trace(go.Scatter(x=x_vals, y=df["iv"].tolist(),
                                                       mode="lines", name=f"{pair} IV", line=dict(color=c, width=2)))
                         if "rv" in df.columns:
-                            fig.add_trace(go.Scatter(x=list(range(len(df))), y=df["rv"].tolist(),
+                            fig.add_trace(go.Scatter(x=x_vals, y=df["rv"].tolist(),
                                                       mode="lines", name=f"{pair} RV", line=dict(color=c, width=1.5, dash="dash")))
                 except Exception as e:
                     logger.warning("Comparison overlay failed for %s: %s", pair, e)
             fig.update_layout(**chart_layout(title=dict(text=f"IV vs RV ({tenor})",
                               font=dict(size=11, color="#ff8800", family=_FONT)),
-                              xaxis_title="Days", yaxis_title="Vol (%)"))
+                              xaxis_title="Date", yaxis_title="Vol (%)"))
 
         elif comp_type == "correlation_matrix":
             corr = spot_correlation_matrix(pairs, window=60)

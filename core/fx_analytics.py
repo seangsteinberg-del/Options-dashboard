@@ -381,6 +381,9 @@ def vol_regime_history(pair: str, lookback: int = 252) -> pd.DataFrame:
     if hist is None or len(hist) < 10:
         return pd.DataFrame()
 
+    # Preserve date index if available
+    has_dates = hasattr(hist, 'index') and hasattr(hist.index, 'date')
+
     records = []
     for i, v in enumerate(hist):
         if not np.isfinite(v):
@@ -395,7 +398,8 @@ def vol_regime_history(pair: str, lookback: int = 252) -> pd.DataFrame:
             regime, color = "NORMAL", "#1565c0"
         else:
             regime, color = "LOW", "#00cc66"
-        records.append({"day": i, "vol": float(v), "regime": regime, "color": color})
+        day_val = hist.index[i] if has_dates else i
+        records.append({"day": day_val, "vol": float(v), "regime": regime, "color": color})
 
     return pd.DataFrame(records)
 
@@ -488,24 +492,33 @@ def iv_rv_spread(pair: str, tenor: str = "3M", rv_window: int = 20,
     if rv_hist is None or len(rv_hist) < 20:
         return pd.DataFrame()
 
-    # Convert to numpy to avoid DatetimeIndex issues
+    # Preserve date index if available
+    iv_idx = iv_hist.index if hasattr(iv_hist, 'index') else None
+    rv_idx = rv_hist.index if hasattr(rv_hist, 'index') else None
+
+    # Convert to numpy for alignment
     iv_vals = iv_hist.values if hasattr(iv_hist, 'values') else np.array(iv_hist, dtype=float)
     rv_vals = rv_hist.values if hasattr(rv_hist, 'values') else np.array(rv_hist, dtype=float)
 
     n = min(len(iv_vals), len(rv_vals))
     iv_arr = iv_vals[-n:].astype(float)
     rv_arr = rv_vals[-n:].astype(float)
+    # Use the iv date index (aligned to tail) if available
+    dates = iv_idx[-n:] if iv_idx is not None and len(iv_idx) >= n else None
+
     # Filter NaN/inf from both arrays
     mask = np.isfinite(iv_arr) & np.isfinite(rv_arr)
     iv_arr = iv_arr[mask]
     rv_arr = rv_arr[mask]
+    if dates is not None:
+        dates = dates[mask]
     n = len(iv_arr)
     if n < 10:
         return pd.DataFrame()
     spread = iv_arr - rv_arr
 
     df = pd.DataFrame({
-        "day": np.arange(n),
+        "day": dates if dates is not None else np.arange(n),
         "iv": iv_arr,
         "rv": rv_arr,
         "spread": spread,

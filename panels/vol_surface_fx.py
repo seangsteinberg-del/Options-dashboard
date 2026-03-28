@@ -823,7 +823,11 @@ def chart_vol_ts(pair, sd, spot, r_dom, r_for, **kw):
     except Exception:
         return no_data_fig(height=CHART_MD, msg="NO VOL HISTORY")
 
-    days = np.arange(len(hist))
+    # Use actual dates from Bloomberg index if available, else sequential days
+    if hasattr(hist, 'index') and hasattr(hist.index, 'date'):
+        days = hist.index
+    else:
+        days = np.arange(len(hist))
     series = pd.Series(hist)
     ma20 = series.rolling(20).mean()
     std20 = series.rolling(20).std()
@@ -867,7 +871,7 @@ def chart_vol_ts(pair, sd, spot, r_dom, r_for, **kw):
         hovertemplate=f"Current: {current_vol:.2f}%<extra></extra>"))
 
     _apply_chart_template(fig, f"ATM Vol Time Series -- {pair} {sel_tenor}")
-    fig.update_layout(xaxis=dict(title="Days"), yaxis=dict(title="Vol (%)"))
+    fig.update_layout(xaxis=dict(title="Date"), yaxis=dict(title="Vol (%)"))
     return fig
 
 
@@ -963,7 +967,7 @@ def chart_iv_rv(pair, sd, spot, r_dom, r_for, **kw):
         arrowcolor=spread_color, ax=40, ay=-25)
 
     _apply_chart_template(fig, f"IV vs Realized Vol -- {pair}")
-    fig.update_layout(xaxis=dict(title="Days"), yaxis=dict(title="Vol (%)"))
+    fig.update_layout(xaxis=dict(title="Date"), yaxis=dict(title="Vol (%)"))
     return fig
 
 
@@ -1469,7 +1473,7 @@ def _lab_study_vol_regime(pair, sd, spot, r_dom, r_for, **kw):
     _apply_chart_template(
         fig, f"{pair} Vol Regime: {regime.get('regime','?')} | "
              f"Trend: {regime.get('trend','?')}")
-    fig.update_layout(xaxis_title="Days", yaxis_title="ATM Vol (%)",
+    fig.update_layout(xaxis_title="Date", yaxis_title="ATM Vol (%)",
                       hovermode="x unified")
     return fig
 
@@ -2922,20 +2926,21 @@ def register_callbacks(app):
                     df = iv_rv_spread(pair, tenor, lookback=120)
                     if df is not None and not df.empty:
                         c = _CW[idx % len(_CW)]
+                        x_vals = df["day"].tolist() if "day" in df.columns else list(range(len(df)))
                         if "iv" in df.columns:
                             fig.add_trace(go.Scatter(
-                                x=list(range(len(df))), y=df["iv"].tolist(),
+                                x=x_vals, y=df["iv"].tolist(),
                                 mode="lines", name=f"{pair} IV",
                                 line=dict(color=c, width=2),
-                                hovertemplate="Day %{x}<br>IV: %{y:.2f}%<extra>" + pair + "</extra>"))
+                                hovertemplate="%{x}<br>IV: %{y:.2f}%<extra>" + pair + "</extra>"))
                         if "rv" in df.columns:
                             fig.add_trace(go.Scatter(
-                                x=list(range(len(df))), y=df["rv"].tolist(),
+                                x=x_vals, y=df["rv"].tolist(),
                                 mode="lines", name=f"{pair} RV",
                                 line=dict(color=c, width=1.5, dash="dash"),
-                                hovertemplate="Day %{x}<br>RV: %{y:.2f}%<extra>" + pair + "</extra>"))
+                                hovertemplate="%{x}<br>RV: %{y:.2f}%<extra>" + pair + "</extra>"))
                 _apply_chart_template(fig, f"IV vs RV ({tenor})")
-                fig.update_layout(xaxis_title="Days", yaxis_title="Vol (%)")
+                fig.update_layout(xaxis_title="Date", yaxis_title="Vol (%)")
 
             elif comp_type == "correlation_matrix":
                 corr = spot_correlation_matrix(pairs, window=60)
