@@ -1995,65 +1995,140 @@ def register_callbacks(app):
         if not n_clicks:
             raise PreventUpdate
         import numpy as np
+        from scipy.stats import norm as _norm
         rng = np.random.RandomState(42)
         notional = notional or 10_000_000
         n_days = 66  # ~3M
+        T_total = n_days / 365.0  # option tenor in years
+
+        # Fetch live market data
+        try:
+            from core.bloomberg_fx import get_fx_spots, get_fx_rates, get_fx_vol_surface
+            spots_data = get_fx_spots([pair]) or {}
+            s0 = float(spots_data.get(pair, {}).get("mid", 1.0))
+            rates_data = get_fx_rates(pair) or {}
+            r_d = float(rates_data.get("r_dom", 0.04)) if isinstance(rates_data, dict) else 0.04
+            r_f = float(rates_data.get("r_for", 0.02)) if isinstance(rates_data, dict) else 0.02
+            surf = get_fx_vol_surface(pair) or {}
+            vol = 0.10
+            for tn in ("3M", "1M", "6M"):
+                if tn in surf and isinstance(surf[tn], dict):
+                    raw = surf[tn].get("atm", 10.0)
+                    vol = raw / 100.0 if raw > 1.0 else raw
+                    break
+        except Exception:
+            s0 = 1.08 if pair == "EURUSD" else 150 if "JPY" in pair else 1.0
+            r_d, r_f, vol = 0.04, 0.02, 0.10
+
+        cp_sign = 1 if cp == "Call" else -1
+
+        # Compute the strike from the user's delta selection using GK delta inversion
+        # For a call: delta = exp(-r_f*T)*N(d1), solve for K
+        d1_target = _norm.ppf(delta * np.exp(r_f * T_total))
+        K = s0 * np.exp(-d1_target * vol * np.sqrt(T_total) + (r_d - r_f + 0.5 * vol ** 2) * T_total)
+        if cp_sign == -1:
+            # For puts, invert using put delta symmetry
+            d1_target = _norm.ppf((1 - delta) * np.exp(r_f * T_total))
+            K = s0 * np.exp(-d1_target * vol * np.sqrt(T_total) + (r_d - r_f + 0.5 * vol ** 2) * T_total)
+
+        # GK Greeks helper (inline for self-containment)
+        def _gk_greeks(S, K, T, rd, rf, sig):
+            if T <= 1e-10 or sig <= 1e-10:
+                return 0.0, 0.0, 0.0  # delta, gamma, theta
+            sqT = sig * np.sqrt(T)
+            d1 = (np.log(S / K) + (rd - rf + 0.5 * sig ** 2) * T) / sqT
+            d2 = d1 - sqT
+            df_f = np.exp(-rf * T)
+            df_d = np.exp(-rd * T)
+            npd1 = _norm.pdf(d1)
+            # Delta (spot delta for the position's cp)
+            opt_delta = cp_sign * df_f * _norm.cdf(cp_sign * d1)
+            # Gamma (same for calls and puts)
+            opt_gamma = df_f * npd1 / (S * sqT)
+            # Theta (per calendar day)
+            opt_theta = (-(S * df_f * npd1 * sig) / (2 * np.sqrt(T))
+                         + cp_sign * (rf * S * df_f * _norm.cdf(cp_sign * d1)
+                                      - rd * K * df_d * _norm.cdf(cp_sign * d2))) / 365.0
+            return opt_delta, opt_gamma, opt_theta
 
         # Simulate spot path
-        try:
-            from core.bloomberg_fx import get_fx_spots
-            spots = get_fx_spots() or {}
-            s0 = float(spots.get(pair, {}).get("mid", 1.0))
-        except Exception:
-            s0 = 1.08 if pair == "EURUSD" else 150 if pair == "USDJPY" else 1.0
-
-        vol = 0.08
-        dt = 1 / 252
+        dt = 1.0 / 252.0
         spots_path = [s0]
         for _ in range(n_days):
-            ds = spots_path[-1] * vol * np.sqrt(dt) * rng.normal()
-            spots_path.append(spots_path[-1] + ds)
+            dW = rng.normal()
+            S_prev = spots_path[-1]
+            S_next = S_prev * np.exp((r_d - r_f - 0.5 * vol ** 2) * dt + vol * np.sqrt(dt) * dW)
+            spots_path.append(S_next)
 
-        # Hedge PnL simulation
+        # Delta-hedge simulation
         hedge_freq = 1 if freq == "Daily" else 5 if freq == "Weekly" else n_days + 1
         cum_pnl = [0.0]
-        gamma_pnl = [0.0]
+        gamma_pnl_series = [0.0]
+        theta_pnl_series = [0.0]
+        prev_delta = 0.0  # hedge position in units of foreign currency
+
         for i in range(1, n_days + 1):
-            ds = spots_path[i] - spots_path[i - 1]
-            gamma_contrib = 0.5 * delta * notional * (ds / spots_path[i - 1]) ** 2
+            S_now = spots_path[i]
+            S_prev = spots_path[i - 1]
+            T_rem = max((n_days - i) / 365.0, 1e-10)
+
+            # Compute Greeks at previous spot (start of day)
+            opt_d, opt_g, opt_t = _gk_greeks(S_prev, K, T_rem + 1 / 365.0, r_d, r_f, vol)
+
+            # P&L decomposition for this day
+            dS = S_now - S_prev
+            delta_pnl = opt_d * notional * dS  # option delta P&L
+            gamma_pnl_day = 0.5 * opt_g * notional * dS ** 2  # gamma P&L
+            theta_pnl_day = opt_t * notional  # theta decay (1 day)
+            hedge_pnl = -prev_delta * dS  # hedge leg P&L (short delta hedge)
+
+            day_pnl = delta_pnl + gamma_pnl_day + theta_pnl_day + hedge_pnl
+
+            # Rebalance hedge at specified frequency
+            hedge_cost = 0.0
             if i % hedge_freq == 0:
-                hedge_cost = abs(ds) * notional * 0.00005
-            else:
-                hedge_cost = 0
-            pnl = gamma_contrib - hedge_cost
-            cum_pnl.append(cum_pnl[-1] + pnl)
-            gamma_pnl.append(gamma_pnl[-1] + gamma_contrib)
+                new_delta = opt_d * notional  # target hedge in notional terms
+                trade_size = abs(new_delta - prev_delta)
+                hedge_cost = trade_size * S_now * 0.00003  # ~0.3 pips bid-ask
+                prev_delta = new_delta
+
+            cum_pnl.append(cum_pnl[-1] + day_pnl - hedge_cost)
+            gamma_pnl_series.append(gamma_pnl_series[-1] + gamma_pnl_day)
+            theta_pnl_series.append(theta_pnl_series[-1] + theta_pnl_day)
 
         total_pnl = cum_pnl[-1]
+        total_gamma = gamma_pnl_series[-1]
+        total_theta = theta_pnl_series[-1]
         n_hedges = n_days // max(hedge_freq, 1)
 
         # Stats
         stats = [
             _make_stat_box("TOTAL P&L", f"${total_pnl:,.0f}",
                            COLORS["accent_green"] if total_pnl > 0 else COLORS["accent_red"]),
+            _make_stat_box("GAMMA P&L", f"${total_gamma:,.0f}", COLORS["accent_green"]),
+            _make_stat_box("THETA P&L", f"${total_theta:,.0f}", COLORS["accent_red"]),
             _make_stat_box("HEDGES", str(n_hedges), COLORS["accent_orange"]),
-            _make_stat_box("FREQUENCY", freq, "#d4d4d4"),
+            _make_stat_box("STRIKE", f"{K:.5f}" if K < 10 else f"{K:.2f}", "#d4d4d4"),
             _make_stat_box("PAIR", pair, COLORS["accent_orange"]),
         ]
 
         # PnL chart
         fig_pnl = go.Figure()
         fig_pnl.add_trace(go.Scatter(y=cum_pnl, mode="lines",
-                                      line=dict(color=COLORS["accent_orange"], width=1.5), name="Cumulative P&L",
-                                      hovertemplate="Day %{x}<br>Cum P&L: %{y:,.0f}<extra></extra>"))
+                                      line=dict(color=COLORS["accent_orange"], width=1.5), name="Total P&L",
+                                      hovertemplate="Day %{x}<br>Total P&L: %{y:,.0f}<extra></extra>"))
+        fig_pnl.add_trace(go.Scatter(y=theta_pnl_series, mode="lines",
+                                      line=dict(color=COLORS["accent_red"], width=1, dash="dot"), name="Theta (cum)",
+                                      hovertemplate="Day %{x}<br>Theta P&L: %{y:,.0f}<extra></extra>"))
         fig_pnl.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dash"))
         fig_pnl.update_layout(**chart_layout(height=CHART_SM,
                                margin=dict(l=60, r=20, t=30, b=20),
-                               title=dict(text="CUMULATIVE HEDGE P&L", font=dict(size=10, color="#808080"))))
+                               title=dict(text="CUMULATIVE HEDGE P&L", font=dict(size=10, color="#808080")),
+                               showlegend=True, legend=dict(x=0.02, y=0.98, font=dict(size=8))))
 
         # Gamma PnL chart
         fig_gamma = go.Figure()
-        fig_gamma.add_trace(go.Scatter(y=gamma_pnl, mode="lines",
+        fig_gamma.add_trace(go.Scatter(y=gamma_pnl_series, mode="lines",
                                         line=dict(color=COLORS["accent_green"], width=1.5), name="Gamma P&L",
                                         hovertemplate="Day %{x}<br>Gamma P&L: %{y:,.0f}<extra></extra>"))
         fig_gamma.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dash"))
