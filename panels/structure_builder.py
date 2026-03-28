@@ -2456,6 +2456,22 @@ def layout():
                     ], style={"display": "flex", "gap": "4px"}),
                 ]),
 
+                # ── Send to Blotter ───────────────────────────────────
+                html.Div([
+                    html.Div("EXECUTE", style={**LABEL_STYLE, "marginTop": "14px",
+                             "paddingTop": "10px",
+                             "borderTop": f"1px solid {COLORS['border_subtle']}"}),
+                    html.Button("SEND TO BLOTTER", id="stb-send-to-blotter", n_clicks=0,
+                                style={**BUTTON_SUCCESS_STYLE, "width": "100%",
+                                       "padding": "12px 16px", "fontSize": "12px",
+                                       "fontWeight": "800", "letterSpacing": "2px"}),
+                    html.Div(id="stb-send-status", style={
+                        "color": COLORS["accent_green"], "fontSize": "9px",
+                        "fontFamily": "'JetBrains Mono', monospace",
+                        "marginTop": "4px", "textAlign": "center", "minHeight": "14px",
+                    }),
+                ]),
+
                 # ── Solver ─────────────────────────────────────────────
                 html.Div([
                     html.Div("SOLVER", style={**LABEL_STYLE, "marginTop": "14px",
@@ -3509,6 +3525,108 @@ def register_callbacks(app):
         if preset_name not in PRESETS:
             raise PreventUpdate
         return preset_name
+
+    # ══════════════════════════════════════════════════════════════════════
+    # SEND TO BLOTTER
+    # ══════════════════════════════════════════════════════════════════════
+
+    @app.callback(
+        [Output("stb-to-blotter-store", "data"),
+         Output("stb-send-status", "children")],
+        [Input("stb-send-to-blotter", "n_clicks")],
+        [State("stb-pair", "value"),
+         State("stb-tenor", "value"),
+         State("stb-notional", "value"),
+         State("stb-num-legs", "value"),
+         State("stb-preset", "value")] +
+        [State({"type": "stb-cp", "index": i}, "value") for i in range(MAX_LEGS)] +
+        [State({"type": "stb-side", "index": i}, "value") for i in range(MAX_LEGS)] +
+        [State({"type": "stb-delta", "index": i}, "value") for i in range(MAX_LEGS)] +
+        [State({"type": "stb-ratio", "index": i}, "value") for i in range(MAX_LEGS)] +
+        [State({"type": "stb-tenor-mult", "index": i}, "value") for i in range(MAX_LEGS)],
+        prevent_initial_call=True,
+    )
+    def send_to_blotter(n_clicks, pair, tenor, notional, num_legs, preset_name,
+                        *leg_inputs):
+        if not n_clicks:
+            raise PreventUpdate
+
+        pair = pair or "EURUSD"
+        tenor = tenor or "1M"
+        notional = max(1_000, min(float(notional or 10_000_000), 1e12))
+        num_legs = max(1, min(num_legs or 1, MAX_LEGS))
+
+        # Parse leg inputs (same pattern as update_structure)
+        cp_vals = list(leg_inputs[0:MAX_LEGS])
+        side_vals = list(leg_inputs[MAX_LEGS:2*MAX_LEGS])
+        delta_vals = list(leg_inputs[2*MAX_LEGS:3*MAX_LEGS])
+        ratio_vals = list(leg_inputs[3*MAX_LEGS:4*MAX_LEGS])
+        tenor_mult_vals = list(leg_inputs[4*MAX_LEGS:5*MAX_LEGS])
+
+        legs_config = []
+        for i in range(num_legs):
+            legs_config.append({
+                "cp": cp_vals[i] or "call",
+                "side": side_vals[i] or "buy",
+                "delta": float(delta_vals[i]) if delta_vals[i] is not None else 0.25,
+                "ratio": int(ratio_vals[i]) if ratio_vals[i] is not None else 1,
+                "tenor_mult": float(tenor_mult_vals[i]) if tenor_mult_vals[i] is not None else 1.0,
+            })
+
+        # Fetch market data and price legs
+        spots = get_fx_spots([pair]) or {}
+        vol_surface = get_fx_vol_surface(pair) or {}
+        rates = get_fx_rates(pair) or {}
+        spot_data = spots.get(pair, {})
+
+        if not spot_data:
+            return no_update, "No market data — cannot send"
+
+        processed = _process_legs(legs_config, pair, tenor, notional,
+                                  spot_data, rates, vol_surface)
+        if not processed:
+            return no_update, "No valid legs to send"
+
+        # Build transfer payload
+        T_base = tenor_to_years(tenor)
+        transfer_legs = []
+        for lg in processed:
+            leg_tenor = years_to_nearest_tenor(lg["T"]) if lg.get("tenor_mult", 1.0) != 1.0 else tenor
+            transfer_legs.append({
+                "cp": lg["cp"],
+                "side": lg["side"],
+                "strike": round(lg["strike"], 6),
+                "delta": round(lg["delta"], 4),
+                "vol": lg["vol"],
+                "notional": int(notional * lg.get("ratio", 1)),
+                "ratio": lg.get("ratio", 1),
+                "tenor": leg_tenor,
+                "tenor_mult": lg.get("tenor_mult", 1.0),
+                "T": lg["T"],
+                "r_d": lg["r_d"],
+                "r_f": lg["r_f"],
+                "price_unit": lg["price_unit"],
+                "premium_total": round(lg["premium_total"], 2),
+                "S": lg["S"],
+                "greeks": {
+                    "delta": round(lg["delta"], 4),
+                    "gamma": round(lg["gamma"], 6),
+                    "vega": round(lg["vega"], 2),
+                    "theta": round(lg["theta"], 2),
+                },
+            })
+
+        payload = {
+            "structure_name": preset_name or "Custom",
+            "pair": pair,
+            "tenor": tenor,
+            "notional": int(notional),
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "legs": transfer_legs,
+        }
+
+        n_legs = len(transfer_legs)
+        return payload, f"Sent {n_legs} leg{'s' if n_legs != 1 else ''} to Blotter"
 
     # ══════════════════════════════════════════════════════════════════════
     # SAVE / RECALL STRUCTURES (local storage)

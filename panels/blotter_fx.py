@@ -13,6 +13,7 @@ Provides:
 
 import dash
 from dash import html, dcc, Input, Output, State, no_update, dash_table, callback_context
+from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
@@ -41,7 +42,9 @@ from core.fx_conventions import (
 TENORS = ["1W", "2W", "1M", "2M", "3M", "6M", "9M", "1Y", "2Y"]
 FX_PAIRS = sorted(FX_PAIR_REGISTRY.keys())
 
-STRATEGIES = ["RR", "Straddle", "Hedge", "Prop", "Client", "Custom"]
+STRATEGIES = ["RR", "Straddle", "Strangle", "Call Spread", "Put Spread",
+              "Butterfly", "Condor", "Seagull", "Collar", "Hedge", "Prop",
+              "Client", "Custom"]
 CUT_OPTIONS = list(CUT_TIMES.keys())
 
 BOOK_COLORS = {
@@ -168,6 +171,55 @@ def layout():
 
     return html.Div([
         dcc.Download(id="fxb-csv-download"),
+        dcc.Store(id="fxb-pending-legs-store", data=None),
+
+        # ── Structure Review Panel (hidden until SEND TO BLOTTER) ──
+        html.Div(id="fxb-review-container", children=[
+            html.Div([
+                html.Div([
+                    html.Span("STRUCTURE REVIEW", style={
+                        "color": COLORS["accent_green"], "fontWeight": "800",
+                        "fontSize": "12px", "letterSpacing": "2px",
+                        "fontFamily": "'JetBrains Mono', monospace",
+                    }),
+                    html.Span(id="fxb-review-struct-name", style={
+                        "color": COLORS["accent_orange"], "fontWeight": "700",
+                        "fontSize": "12px", "marginLeft": "12px",
+                        "fontFamily": "'JetBrains Mono', monospace",
+                    }),
+                    html.Button("CANCEL", id="fxb-review-cancel-btn", n_clicks=0,
+                                style={**BUTTON_STYLE, "fontSize": "9px",
+                                       "padding": "4px 12px", "marginLeft": "auto"}),
+                ], style={"display": "flex", "alignItems": "center", "gap": "8px"}),
+
+                html.Div(id="fxb-review-info", style={
+                    "color": COLORS["text_secondary"], "fontSize": "10px",
+                    "fontFamily": "'JetBrains Mono', monospace",
+                    "marginTop": "6px",
+                }),
+
+                html.Div(id="fxb-review-legs-table", style={"marginTop": "10px"}),
+
+                html.Div([
+                    html.Button("RE-PRICE ALL", id="fxb-review-reprice-btn", n_clicks=0,
+                                style={**BUTTON_STYLE, "fontSize": "10px",
+                                       "padding": "8px 16px", "letterSpacing": "1px"}),
+                    html.Button("EXECUTE ALL LEGS", id="fxb-review-confirm-btn", n_clicks=0,
+                                style={**BUTTON_SUCCESS_STYLE, "fontSize": "11px",
+                                       "padding": "10px 24px", "fontWeight": "800",
+                                       "letterSpacing": "2px"}),
+                ], style={"display": "flex", "gap": "12px", "marginTop": "12px",
+                          "justifyContent": "flex-end"}),
+
+                html.Div(id="fxb-review-status", style={
+                    "color": COLORS["text_muted"], "fontSize": "9px",
+                    "fontFamily": "'JetBrains Mono', monospace",
+                    "marginTop": "6px", "textAlign": "right", "minHeight": "14px",
+                }),
+            ], style={**CARD_STYLE, "borderLeft": f"3px solid {COLORS['accent_green']}",
+                      "padding": "12px 16px"}),
+        ], style={"display": "none", "marginBottom": "12px"}),
+
         # ── Row 1: Trade Entry + Execution Log ──────────────────
         html.Div([
             # LEFT: Trade Entry Form
@@ -857,3 +909,294 @@ def register_callbacks(app):
             return export_csv(fig, panel, chart_type)
         except Exception:
             return no_update
+
+    # ==================================================================
+    # STRUCTURE BUILDER → BLOTTER: Receive, Review, Execute
+    # ==================================================================
+
+    def _build_review_table(legs):
+        """Build an HTML table showing pending legs for review."""
+        header_style = {
+            "backgroundColor": COLORS["bg_secondary"], "color": COLORS["text_secondary"],
+            "fontWeight": "700", "fontSize": "9px", "textTransform": "uppercase",
+            "letterSpacing": "1px", "padding": "6px 8px",
+            "border": f"1px solid {COLORS['border_subtle']}",
+            "fontFamily": "'JetBrains Mono', monospace",
+        }
+        cell_style = {
+            "padding": "5px 8px", "fontSize": "11px", "color": COLORS["text_primary"],
+            "border": f"1px solid {COLORS['border_subtle']}",
+            "fontFamily": "'JetBrains Mono', monospace",
+            "backgroundColor": COLORS["bg_primary"],
+        }
+        cols = ["#", "C/P", "Side", "Strike", "Delta", "Vol%", "Notional", "Premium", "Vega", "Theta"]
+        header = html.Tr([html.Th(c, style=header_style) for c in cols])
+        rows = []
+        for i, lg in enumerate(legs):
+            side_color = COLORS["accent_green"] if lg["side"].lower() == "buy" else COLORS["accent_red"]
+            rows.append(html.Tr([
+                html.Td(str(i + 1), style=cell_style),
+                html.Td(lg["cp"].upper(), style=cell_style),
+                html.Td(lg["side"].upper(), style={**cell_style, "color": side_color, "fontWeight": "700"}),
+                html.Td(f"{lg['strike']:.5f}", style=cell_style),
+                html.Td(f"{lg['greeks']['delta']:.4f}", style=cell_style),
+                html.Td(f"{lg['vol'] * 100:.2f}" if lg["vol"] < 1 else f"{lg['vol']:.2f}", style=cell_style),
+                html.Td(f"{lg['notional']:,.0f}", style=cell_style),
+                html.Td(f"{lg['premium_total']:,.2f}", style=cell_style),
+                html.Td(f"{lg['greeks']['vega']:,.2f}", style=cell_style),
+                html.Td(f"{lg['greeks']['theta']:,.2f}", style=cell_style),
+            ]))
+        return html.Table([html.Thead(header), html.Tbody(rows)],
+                          style={"width": "100%", "borderCollapse": "collapse"})
+
+    # ── Callback 1: Receive structure from Structure Builder ──────────
+    @app.callback(
+        [Output("fxb-review-container", "style"),
+         Output("fxb-review-struct-name", "children"),
+         Output("fxb-review-info", "children"),
+         Output("fxb-review-legs-table", "children"),
+         Output("fxb-pending-legs-store", "data")],
+        [Input("stb-to-blotter-store", "data")],
+        prevent_initial_call=True,
+    )
+    def receive_structure(transfer_data):
+        if not transfer_data or not transfer_data.get("legs"):
+            raise PreventUpdate
+        legs = transfer_data["legs"]
+        name = transfer_data.get("structure_name", "Custom")
+        pair = transfer_data.get("pair", "?")
+        tenor = transfer_data.get("tenor", "?")
+        notional = transfer_data.get("notional", 0)
+        ts = transfer_data.get("timestamp", "")
+
+        info = f"{pair}  |  {tenor}  |  {notional:,.0f} notional  |  priced {ts}"
+        table = _build_review_table(legs)
+
+        return (
+            {"display": "block", "marginBottom": "12px"},
+            name.upper(),
+            info,
+            table,
+            transfer_data,
+        )
+
+    # ── Callback 2: Re-price legs with fresh market data ──────────────
+    @app.callback(
+        [Output("fxb-review-legs-table", "children", allow_duplicate=True),
+         Output("fxb-pending-legs-store", "data", allow_duplicate=True),
+         Output("fxb-review-status", "children", allow_duplicate=True)],
+        [Input("fxb-review-reprice-btn", "n_clicks")],
+        [State("fxb-pending-legs-store", "data")],
+        prevent_initial_call=True,
+    )
+    def reprice_legs(n_clicks, pending_data):
+        if not n_clicks or not pending_data:
+            raise PreventUpdate
+        legs = pending_data.get("legs", [])
+        pair = pending_data.get("pair", "EURUSD")
+        if not legs:
+            raise PreventUpdate
+
+        # Fetch fresh market data
+        S, T_base, r_d, r_f, atm_vol = _get_market_params(pair, pending_data.get("tenor", "3M"))
+
+        updated_legs = []
+        for lg in legs:
+            leg_tenor = lg.get("tenor", pending_data.get("tenor", "3M"))
+            S_fresh, T, r_d_l, r_f_l, _ = _get_market_params(pair, leg_tenor)
+
+            # Look up vol for this leg's strike from vol surface
+            vol_surf = get_fx_vol_surface(pair) or {}
+            tenor_data = vol_surf.get(leg_tenor, {})
+            sigma = tenor_data.get("atm", 8.0)
+            sigma = sigma / 100.0 if sigma > 1.0 else sigma
+            if sigma <= 0:
+                sigma = lg.get("vol", 0.08)
+
+            K = lg["strike"]
+            cp = 1 if lg["cp"].lower() == "call" else -1
+            side_sign = 1 if lg["side"].lower() == "buy" else -1
+            notional = lg["notional"]
+
+            price_unit = _gk_price(S_fresh, K, T, r_d_l, r_f_l, sigma, cp)
+            delta_val = _gk_delta(S_fresh, K, T, r_d_l, r_f_l, sigma, cp)
+            vega_val = _gk_vega(S_fresh, K, T, r_d_l, r_f_l, sigma) * notional
+            gamma_val = 0.0
+            theta_val = 0.0
+            if T > 1e-10 and sigma > 1e-10:
+                from scipy.stats import norm
+                d1 = (np.log(S_fresh / K) + (r_d_l - r_f_l + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
+                _df_f = np.exp(-r_f_l * T)
+                _npd1 = norm.pdf(d1)
+                gamma_val = _df_f * _npd1 / (S_fresh * sigma * np.sqrt(T)) * notional
+                theta_val = (-0.5 * S_fresh * _df_f * _npd1 * sigma / np.sqrt(T)) / 365.0 * notional
+
+            updated = {**lg,
+                       "S": S_fresh, "T": T, "r_d": r_d_l, "r_f": r_f_l,
+                       "vol": sigma,
+                       "price_unit": price_unit,
+                       "premium_total": round(price_unit * notional * side_sign, 2),
+                       "greeks": {
+                           "delta": round(delta_val * side_sign, 4),
+                           "gamma": round(gamma_val, 6),
+                           "vega": round(vega_val * side_sign, 2),
+                           "theta": round(theta_val * side_sign, 2),
+                       }}
+            updated_legs.append(updated)
+
+        updated_data = {**pending_data, "legs": updated_legs,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        table = _build_review_table(updated_legs)
+        status = f"Re-priced at {updated_data['timestamp']}  |  Spot: {S:.5f}"
+        return table, updated_data, status
+
+    # ── Callback 3: Execute all confirmed legs ────────────────────────
+    @app.callback(
+        [Output("fxb-review-container", "style", allow_duplicate=True),
+         Output("fxb-review-status", "children", allow_duplicate=True),
+         Output("fxb-trade-store", "data", allow_duplicate=True),
+         Output("fxb-exec-status", "children", allow_duplicate=True),
+         Output("fxb-exec-status", "style", allow_duplicate=True),
+         Output("global-portfolio-version", "data", allow_duplicate=True)],
+        [Input("fxb-review-confirm-btn", "n_clicks")],
+        [State("fxb-pending-legs-store", "data"),
+         State("fxb-trade-store", "data"),
+         State("global-portfolio-version", "data")],
+        prevent_initial_call=True,
+    )
+    def execute_structure(n_clicks, pending_data, trade_store_json, portfolio_version):
+        if not n_clicks or not pending_data:
+            raise PreventUpdate
+        legs = pending_data.get("legs", [])
+        if not legs:
+            raise PreventUpdate
+
+        pair = pending_data.get("pair", "EURUSD")
+        structure_name = pending_data.get("structure_name", "Custom")
+        base_tenor = pending_data.get("tenor", "3M")
+
+        trades = json.loads(trade_store_json) if trade_store_json else []
+        struct_id = len(trades) + 30000
+        new_trades = []
+        filled = 0
+
+        for i, lg in enumerate(legs):
+            try:
+                leg_tenor = lg.get("tenor", base_tenor)
+                S, T, r_d, r_f, atm_vol = _get_market_params(pair, leg_tenor)
+                K = lg["strike"]
+                cp = 1 if lg["cp"].lower() == "call" else -1
+                cp_str = "call" if cp == 1 else "put"
+                side = lg["side"].lower()
+                side_sign = 1 if side == "buy" else -1
+                notional = lg["notional"]
+                sigma = lg.get("vol", atm_vol)
+                if sigma > 1.0:
+                    sigma = sigma / 100.0
+
+                # Re-price at execution time
+                prem_unit = _gk_price(S, K, T, r_d, r_f, sigma, cp)
+                prem_total = prem_unit * notional * side_sign
+                actual_delta = _gk_delta(S, K, T, r_d, r_f, sigma, cp)
+                vega_val = _gk_vega(S, K, T, r_d, r_f, sigma) * notional * side_sign
+                gamma_val = 0.0
+                theta_val = 0.0
+                if T > 1e-10 and sigma > 1e-10:
+                    from scipy.stats import norm
+                    d1 = (np.log(S / K) + (r_d - r_f + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
+                    _df_f = np.exp(-r_f * T)
+                    _npd1 = norm.pdf(d1)
+                    gamma_val = _df_f * _npd1 / (S * sigma * np.sqrt(T)) * notional
+                    theta_val = (-0.5 * S * _df_f * _npd1 * sigma / np.sqrt(T)) / 365.0 * notional
+
+                expiry_date = datetime.now() + timedelta(days=tenor_to_days(leg_tenor))
+                trade_id = f"FX-S{struct_id:05d}-L{i + 1}"
+
+                new_trade = {
+                    "id": trade_id,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "pair": pair,
+                    "type": "CALL" if cp == 1 else "PUT",
+                    "side": side.upper(),
+                    "strike": round(K, 5),
+                    "delta": round(actual_delta, 4),
+                    "tenor": leg_tenor,
+                    "expiry": expiry_date.strftime("%Y-%m-%d"),
+                    "notional": notional,
+                    "premium": round(prem_total, 2),
+                    "premium_per_unit": round(prem_unit, 6),
+                    "vol": round(sigma * 100, 2),
+                    "vega": round(vega_val, 2),
+                    "gamma": round(gamma_val, 4),
+                    "theta": round(theta_val, 2),
+                    "entry_spot": round(S, 5),
+                    "book": "G10_FLOW",
+                    "strategy": structure_name,
+                    "counterparty": "INTERBANK",
+                    "cut": "NY",
+                    "notes": f"Leg {i + 1}/{len(legs)} of {structure_name}",
+                    "status": "FILLED",
+                }
+                # Sync with portfolio engine
+                add_position("G10_FLOW", {
+                    "pair": pair,
+                    "option_type": cp_str,
+                    "direction": side,
+                    "strike": round(K, 5),
+                    "expiry": expiry_date.strftime("%Y-%m-%d"),
+                    "notional": notional,
+                    "entry_vol": sigma,
+                    "entry_premium": round(prem_total, 2),
+                    "delta_at_entry": round(actual_delta, 4),
+                    "cut": "NY",
+                    "counterparty": "INTERBANK",
+                    "strategy": structure_name,
+                    "notes": f"Leg {i + 1}/{len(legs)} of {structure_name}",
+                })
+                new_trades.append(new_trade)
+                filled += 1
+            except Exception as exc:
+                new_trades.append({
+                    "id": f"FX-S{struct_id:05d}-L{i + 1}",
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "pair": pair, "type": lg["cp"].upper(),
+                    "side": lg["side"].upper(), "strike": lg["strike"],
+                    "delta": 0, "tenor": lg.get("tenor", base_tenor),
+                    "expiry": "", "notional": lg["notional"],
+                    "premium": 0, "premium_per_unit": 0, "vol": 0,
+                    "vega": 0, "gamma": 0, "theta": 0, "entry_spot": 0,
+                    "book": "G10_FLOW", "strategy": structure_name,
+                    "counterparty": "INTERBANK", "cut": "NY",
+                    "notes": f"REJECTED: {str(exc)[:80]}",
+                    "status": "REJECTED",
+                })
+
+        all_trades = new_trades + trades
+        new_version = (portfolio_version or 0) + 1
+        exec_msg = f"FILLED  {structure_name} ({filled}/{len(legs)} legs)  {pair}"
+        exec_style_out = {
+            "color": COLORS["accent_green"] if filled == len(legs) else COLORS["accent_orange"],
+            "fontSize": "11px", "fontFamily": "'JetBrains Mono', monospace",
+            "padding": "4px 0",
+        }
+
+        return (
+            {"display": "none"},
+            f"Executed {filled}/{len(legs)} legs",
+            json.dumps(all_trades),
+            exec_msg,
+            exec_style_out,
+            new_version,
+        )
+
+    # ── Callback 4: Cancel review ─────────────────────────────────────
+    @app.callback(
+        [Output("fxb-review-container", "style", allow_duplicate=True),
+         Output("fxb-pending-legs-store", "data", allow_duplicate=True)],
+        [Input("fxb-review-cancel-btn", "n_clicks")],
+        prevent_initial_call=True,
+    )
+    def cancel_review(n_clicks):
+        if not n_clicks:
+            raise PreventUpdate
+        return {"display": "none"}, None

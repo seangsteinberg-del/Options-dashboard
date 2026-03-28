@@ -759,6 +759,7 @@ def serve_layout():
         dcc.Store(id="watchlist-store", data=DEFAULT_WATCHLIST),
         dcc.Store(id="metric-popup-data", data=None),
         dcc.Store(id="global-portfolio-version", data=0),  # Incremented on trade execution
+        dcc.Store(id="stb-to-blotter-store", data=None),  # Structure Builder → Blotter transfer
 
         # ── Data source status refresh (every 2min) ──
         dcc.Interval(id="data-source-interval", interval=120_000, n_intervals=0),
@@ -927,6 +928,18 @@ app.clientside_callback(
      Output("sub-tabs", "value", allow_duplicate=True),
      Output("global-pair", "data", allow_duplicate=True)],
     Input("cmd-nav-result", "data"),
+    prevent_initial_call=True,
+)
+
+# Structure Builder → Blotter navigation (auto-switch to blotter tab on send)
+app.clientside_callback(
+    """function(data) {
+        if (!data) return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+        return ['trade', 'blotter-fx'];
+    }""",
+    [Output("workspace-tabs", "value", allow_duplicate=True),
+     Output("sub-tabs", "value", allow_duplicate=True)],
+    Input("stb-to-blotter-store", "data"),
     prevent_initial_call=True,
 )
 
