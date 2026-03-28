@@ -821,9 +821,10 @@ app.layout = serve_layout
     Output("subtab-container", "children"),
     [Input("workspace-tabs", "value")],
     [State("preset-result", "data"),
-     State("cmd-nav-result", "data")],
+     State("cmd-nav-result", "data"),
+     State("stb-to-blotter-store", "data")],
 )
-def render_subtabs(workspace_id, preset_data, cmd_data):
+def render_subtabs(workspace_id, preset_data, cmd_data, blotter_data):
     ws = next((w for w in WORKSPACES if w["id"] == workspace_id), None)
     if ws is None:
         raise PreventUpdate
@@ -840,13 +841,15 @@ def render_subtabs(workspace_id, preset_data, cmd_data):
             )
         )
 
-    # If a preset or command palette navigation is pending, use its target tab
+    # If a preset, command palette, or structure→blotter navigation is pending, use its target tab
     valid_tab_ids = {t["id"] for t in ws["tabs"]}
     target_tab = ws["tabs"][0]["id"]
     if preset_data and isinstance(preset_data, dict) and preset_data.get("tab") in valid_tab_ids:
         target_tab = preset_data["tab"]
     elif cmd_data and isinstance(cmd_data, dict) and cmd_data.get("tab") in valid_tab_ids:
         target_tab = cmd_data["tab"]
+    elif blotter_data and isinstance(blotter_data, dict) and "blotter-fx" in valid_tab_ids:
+        target_tab = "blotter-fx"
 
     return dcc.Tabs(
         id="sub-tabs",
@@ -932,9 +935,13 @@ app.clientside_callback(
 )
 
 # Structure Builder → Blotter navigation (auto-switch to blotter tab on send)
+# Uses set_props on sub-tabs as a fallback for same-workspace navigation
+# (when workspace-tabs is already "trade", changing it is a no-op so
+# render_subtabs won't fire — but set_props on sub-tabs still works).
 app.clientside_callback(
     """function(data) {
         if (!data) return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+        window.dash_clientside.set_props('sub-tabs', {value: 'blotter-fx'});
         return ['trade', 'blotter-fx'];
     }""",
     [Output("workspace-tabs", "value", allow_duplicate=True),
