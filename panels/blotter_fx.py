@@ -97,6 +97,72 @@ def _gk_vega(S, K, T, r_d, r_f, sigma):
     return S * np.exp(-r_f * T) * norm.pdf(d1) * np.sqrt(T) / 100.0
 
 
+def _build_exec_log_table(trades):
+    """Build the execution log DataTable from a list of trade dicts."""
+    table_data = []
+    for t in trades[:100]:
+        table_data.append({
+            "Time": t.get("timestamp", ""),
+            "Pair": t.get("pair", ""),
+            "Type": t.get("type", ""),
+            "Side": (t.get("side", "BUY") or "BUY").upper(),
+            "Strike": f"{t.get('strike', 0):.5g}",
+            "Delta": f"{t.get('delta', 0):.3f}",
+            "Expiry": t.get("expiry", ""),
+            "Notional": f"{t.get('notional', 0):,.0f}",
+            "Premium": f"{t.get('premium', 0):,.0f}",
+            "Book": t.get("book", ""),
+            "Strategy": t.get("strategy", ""),
+            "Cpty": t.get("counterparty", ""),
+            "Status": t.get("status", ""),
+        })
+    table_cols = [{"name": c, "id": c} for c in
+                  ["Time", "Pair", "Type", "Side", "Strike", "Delta",
+                   "Expiry", "Notional", "Premium", "Book", "Strategy",
+                   "Cpty", "Status"]]
+    return dash_table.DataTable(
+        data=table_data,
+        columns=table_cols,
+        style_header={
+            "backgroundColor": COLORS["bg_secondary"],
+            "color": COLORS["text_secondary"],
+            "fontWeight": "700", "fontSize": "10px",
+            "textTransform": "uppercase", "letterSpacing": "0.5px",
+            "border": f"1px solid {COLORS['border_subtle']}",
+            "padding": "8px 6px",
+        },
+        style_cell={
+            "backgroundColor": COLORS["bg_card"],
+            "color": COLORS["text_primary"],
+            "fontSize": "11px",
+            "fontFamily": "'JetBrains Mono', monospace",
+            "border": f"1px solid {COLORS['border_subtle']}",
+            "padding": "5px 7px", "textAlign": "center",
+            "minWidth": "65px", "maxWidth": "110px",
+            "overflow": "hidden", "textOverflow": "ellipsis",
+        },
+        style_data_conditional=[
+            {"if": {"row_index": "odd"},
+             "backgroundColor": COLORS["bg_secondary"]},
+            {"if": {"filter_query": "{Side} = BUY", "column_id": "Side"},
+             "color": COLORS["accent_green"], "fontWeight": "700"},
+            {"if": {"filter_query": "{Side} = SELL", "column_id": "Side"},
+             "color": COLORS["accent_red"], "fontWeight": "700"},
+            {"if": {"filter_query": "{Type} = CALL", "column_id": "Type"},
+             "color": COLORS["accent_cyan"]},
+            {"if": {"filter_query": "{Type} = PUT", "column_id": "Type"},
+             "color": COLORS["accent_purple"]},
+            {"if": {"filter_query": "{Status} = FILLED", "column_id": "Status"},
+             "color": COLORS["accent_green"]},
+            {"if": {"filter_query": "{Status} = REJECTED", "column_id": "Status"},
+             "color": COLORS["accent_red"]},
+        ],
+        sort_action="native", filter_action="native",
+        page_size=12, page_action="native",
+        style_table={"overflowX": "auto"},
+    )
+
+
 def _get_market_params(pair, tenor):
     """Fetch spot, rates, and ATM vol for a pair/tenor combination."""
     try:
@@ -460,15 +526,15 @@ def register_callbacks(app):
     # ── 3. Execute trade ─────────────────────────────────────────────────
     # ── 4. Update execution log + flow analytics + summary stats ─────────
     @app.callback(
-        [Output("fxb-exec-table", "children"),
+        [Output("fxb-exec-table", "children", allow_duplicate=True),
          Output("fxb-notional-chart", "figure"),
          Output("fxb-premium-flow-chart", "figure"),
          Output("fxb-activity-chart", "figure"),
          Output("fxb-day-stats", "children"),
-         Output("fxb-trade-store", "data"),
-         Output("fxb-exec-status", "children"),
-         Output("fxb-exec-status", "style"),
-         Output("global-portfolio-version", "data")],
+         Output("fxb-trade-store", "data", allow_duplicate=True),
+         Output("fxb-exec-status", "children", allow_duplicate=True),
+         Output("fxb-exec-status", "style", allow_duplicate=True),
+         Output("global-portfolio-version", "data", allow_duplicate=True)],
         [Input("fxb-execute-btn", "n_clicks")],
         [State("fxb-trade-store", "data"),
          State("global-portfolio-version", "data"),
@@ -485,6 +551,7 @@ def register_callbacks(app):
          State("fxb-book", "value"),
          State("fxb-cpty", "value"),
          State("fxb-notes", "value")],
+        prevent_initial_call="initial_duplicate",
     )
     def update_all(n_clicks, store_data, portfolio_version,
                    pair, cp_str, side, entry_mode,
@@ -597,77 +664,7 @@ def register_callbacks(app):
                 exec_style = {**exec_style, "color": COLORS["accent_red"]}
 
         # ── Build Execution Log Table ───────────────────────────
-        table_data = []
-        for t in trades[:100]:
-            table_data.append({
-                "Time": t.get("timestamp", ""),
-                "Pair": t.get("pair", ""),
-                "Type": t.get("type", ""),
-                "Side": (t.get("side", "BUY") or "BUY").upper(),
-                "Strike": f"{t.get('strike', 0):.5g}",
-                "Delta": f"{t.get('delta', 0):.3f}",
-                "Expiry": t.get("expiry", ""),
-                "Notional": f"{t.get('notional', 0):,.0f}",
-                "Premium": f"{t.get('premium', 0):,.0f}",
-                "Book": t.get("book", ""),
-                "Strategy": t.get("strategy", ""),
-                "Cpty": t.get("counterparty", ""),
-                "Status": t.get("status", ""),
-            })
-
-        table_cols = [{"name": c, "id": c} for c in
-                      ["Time", "Pair", "Type", "Side", "Strike", "Delta",
-                       "Expiry", "Notional", "Premium", "Book", "Strategy",
-                       "Cpty", "Status"]]
-
-        exec_table = dash_table.DataTable(
-            data=table_data,
-            columns=table_cols,
-            style_header={
-                "backgroundColor": COLORS["bg_secondary"],
-                "color": COLORS["text_secondary"],
-                "fontWeight": "700",
-                "fontSize": "10px",
-                "textTransform": "uppercase",
-                "letterSpacing": "0.5px",
-                "border": f"1px solid {COLORS['border_subtle']}",
-                "padding": "8px 6px",
-            },
-            style_cell={
-                "backgroundColor": COLORS["bg_card"],
-                "color": COLORS["text_primary"],
-                "fontSize": "11px",
-                "fontFamily": "'JetBrains Mono', monospace",
-                "border": f"1px solid {COLORS['border_subtle']}",
-                "padding": "5px 7px",
-                "textAlign": "center",
-                "minWidth": "65px",
-                "maxWidth": "110px",
-                "overflow": "hidden",
-                "textOverflow": "ellipsis",
-            },
-            style_data_conditional=[
-                {"if": {"row_index": "odd"},
-                 "backgroundColor": COLORS["bg_secondary"]},
-                {"if": {"filter_query": "{Side} = BUY", "column_id": "Side"},
-                 "color": COLORS["accent_green"], "fontWeight": "700"},
-                {"if": {"filter_query": "{Side} = SELL", "column_id": "Side"},
-                 "color": COLORS["accent_red"], "fontWeight": "700"},
-                {"if": {"filter_query": "{Type} = CALL", "column_id": "Type"},
-                 "color": COLORS["accent_cyan"]},
-                {"if": {"filter_query": "{Type} = PUT", "column_id": "Type"},
-                 "color": COLORS["accent_purple"]},
-                {"if": {"filter_query": "{Status} = FILLED", "column_id": "Status"},
-                 "color": COLORS["accent_green"]},
-                {"if": {"filter_query": "{Status} = REJECTED", "column_id": "Status"},
-                 "color": COLORS["accent_red"]},
-            ],
-            sort_action="native",
-            filter_action="native",
-            page_size=12,
-            page_action="native",
-            style_table={"overflowX": "auto"},
-        )
+        exec_table = _build_exec_log_table(trades)
 
         # ── Flow Analytics & Day Summary ────────────────────────
         # Wrapped in try/except so a malformed trade does not crash the panel.
@@ -1057,7 +1054,8 @@ def register_callbacks(app):
          Output("fxb-trade-store", "data", allow_duplicate=True),
          Output("fxb-exec-status", "children", allow_duplicate=True),
          Output("fxb-exec-status", "style", allow_duplicate=True),
-         Output("global-portfolio-version", "data", allow_duplicate=True)],
+         Output("global-portfolio-version", "data", allow_duplicate=True),
+         Output("fxb-exec-table", "children", allow_duplicate=True)],
         [Input("fxb-review-confirm-btn", "n_clicks")],
         [State("fxb-pending-legs-store", "data"),
          State("fxb-trade-store", "data"),
@@ -1187,6 +1185,7 @@ def register_callbacks(app):
             exec_msg,
             exec_style_out,
             new_version,
+            _build_exec_log_table(all_trades),
         )
 
     # ── Callback 4: Cancel review ─────────────────────────────────────

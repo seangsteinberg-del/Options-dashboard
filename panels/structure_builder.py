@@ -3582,8 +3582,11 @@ def register_callbacks(app):
         if not spot_data:
             return no_update, "No market data — cannot send"
 
-        processed = _process_legs(legs_config, pair, tenor, notional,
-                                  spot_data, rates, vol_surface)
+        try:
+            processed = _process_legs(legs_config, pair, tenor, notional,
+                                      spot_data, rates, vol_surface)
+        except Exception as e:
+            return no_update, f"Pricing failed: {str(e)[:60]}"
         if not processed:
             return no_update, "No valid legs to send"
 
