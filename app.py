@@ -65,8 +65,14 @@ import plotly.graph_objects as go
 
 from core.theme import COLORS, TAB_STYLE, TAB_SELECTED_STYLE, status_color, status_text, CHART_TEMPLATE
 from core.bloomberg import is_connected
+from core.csv_export import set_downloads_dir
 
 logger = logging.getLogger(__name__)
+
+# Set up CSV downloads directory (inside project root)
+_downloads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
+os.makedirs(_downloads_dir, exist_ok=True)
+set_downloads_dir(_downloads_dir)
 
 # ── 8 Consolidated Panels ────────────────────────────────────────────────
 from panels import market_dashboard          # DESK

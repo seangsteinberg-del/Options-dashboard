@@ -1,6 +1,7 @@
 """CSV export utility for Plotly figures."""
 
 import logging
+import os
 import traceback
 from datetime import datetime
 import numpy as np
@@ -8,6 +9,15 @@ import pandas as pd
 from dash import dcc, no_update
 
 logger = logging.getLogger(__name__)
+
+# Directory for saving CSV files to disk (set by app.py on startup)
+_DOWNLOADS_DIR = None
+
+
+def set_downloads_dir(path):
+    """Set the directory where CSV files are written to disk."""
+    global _DOWNLOADS_DIR
+    _DOWNLOADS_DIR = path
 
 
 def _trace_get(trace, key, default=None):
@@ -137,6 +147,15 @@ def export_csv(fig_dict, panel_name, chart_type):
         ts = datetime.now().strftime("%Y%m%d_%H%M")
         filename = f"{panel_name}_{chart_type}_{ts}.csv"
         csv_string = df.to_csv()
+
+        # Always write to disk (reliable in pywebview + browser)
+        if _DOWNLOADS_DIR:
+            filepath = os.path.join(_DOWNLOADS_DIR, filename)
+            with open(filepath, "w", newline="") as f:
+                f.write(csv_string)
+            logger.info("CSV saved: %s", filepath)
+
+        # Also return for dcc.Download (works in browser mode)
         return dcc.send_string(csv_string, filename)
     except Exception:
         traceback.print_exc()
