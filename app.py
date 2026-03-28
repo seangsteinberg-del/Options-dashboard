@@ -1446,7 +1446,8 @@ if __name__ == "__main__":
             app.run(debug=False, host="127.0.0.1", port=8765,
                     use_reloader=False, dev_tools_ui=False, dev_tools_props_check=False)
 
-        dl_path = os.path.dirname(os.path.abspath(__file__))
+        dl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
+        os.makedirs(dl_path, exist_ok=True)
 
         print("\n  Launching as desktop application...")
         print(f"  CSV downloads save to: {dl_path}")
