@@ -863,6 +863,8 @@ def chart_vol_ts(pair, sd, spot, r_dom, r_for, **kw):
         hovertemplate="Day %{x}: %{y:.2f}%<extra>ATM</extra>"))
 
     # Current level marker
+    if len(days) == 0:
+        return no_data_fig(height=CHART_MD, msg="NO VOL HISTORY")
     current_vol = float(hist.iloc[-1]) if hasattr(hist, 'iloc') else float(hist[-1])
     fig.add_trace(go.Scatter(
         x=[days[-1]], y=[current_vol], mode="markers",
@@ -957,6 +959,8 @@ def chart_iv_rv(pair, sd, spot, r_dom, r_for, **kw):
     fig.add_hline(y=0, line=dict(color=COLORS["border"], width=0.5))
 
     # Current spread annotation
+    if len(spread_arr) == 0 or len(days) == 0:
+        return _empty_fig("IV vs RV: insufficient data points")
     current_spread = float(spread_arr[-1])
     spread_label = f"IV-RV: {current_spread:+.1f}v"
     spread_color = COLORS["accent_green"] if current_spread > 0 else COLORS["accent_red"]
