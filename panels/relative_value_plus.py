@@ -1203,7 +1203,7 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def corr_heatmap_click(click_data):
-        if not click_data or not click_data.get("points"):
+        if not click_data or not click_data.get("points") or len(click_data["points"]) == 0:
             raise PreventUpdate
         pt = click_data["points"][0]
         x_label = pt.get("x", "")

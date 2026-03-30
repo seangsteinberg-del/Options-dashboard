@@ -46,8 +46,9 @@ def _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed=None):
         Time increment per step.
     """
     rng = np.random.RandomState(seed)
+    n_steps = max(n_steps, 1)
     dt = T / n_steps
-    half = n_paths // 2
+    half = max(n_paths // 2, 1)
 
     Z = rng.standard_normal((half, n_steps))
     Z = np.vstack([Z, -Z])                           # antithetic
@@ -70,8 +71,9 @@ def _correlated_mc_paths(S1, S2, T, r_d1, r_d2, sigma1, sigma2, rho,
     Returns paths1, paths2 each of shape (n_paths, n_steps + 1).
     """
     rng = np.random.RandomState(seed)
+    n_steps = max(n_steps, 1)
     dt = T / n_steps
-    half = n_paths // 2
+    half = max(n_paths // 2, 1)
 
     Z1 = rng.standard_normal((half, n_steps))
     Z2_indep = rng.standard_normal((half, n_steps))

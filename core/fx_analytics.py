@@ -567,8 +567,8 @@ def breakeven_vol(pair: str, tenor: str, days_to_expiry: int) -> dict:
     spot = spots.get(pair, {}).get("mid", 1.0)
 
     rates = get_fx_rates(pair)
-    r_dom = rates.get("r_dom", 0.03)
-    r_for = rates.get("r_for", 0.02)
+    r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
+    r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
 
     surface = get_fx_vol_surface(pair)
     atm_raw = _extract_atm(surface, tenor)
@@ -628,10 +628,12 @@ def theta_gamma_ratio(pair: str, tenor: str) -> dict:
     if atm_raw is None:
         return None
     atm_vol = atm_raw / 100.0
+    if atm_vol < 1e-6 or T < 1e-6:
+        return None
 
     rates = get_fx_rates(pair)
-    r_dom = rates.get("r_dom", 0.03)
-    r_for = rates.get("r_for", 0.02)
+    r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
+    r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
 
     d1 = ((r_dom - r_for + 0.5 * atm_vol ** 2) * T) / (atm_vol * np.sqrt(T))
     d2 = d1 - atm_vol * np.sqrt(T)
@@ -668,6 +670,8 @@ def vol_carry(pair: str, tenor: str) -> dict:
     if atm_raw is None:
         return None
     atm_vol = atm_raw / 100.0
+    if atm_vol < 1e-6 or T < 1e-6:
+        return None
 
     rates = get_fx_rates(pair)
     r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
@@ -907,8 +911,8 @@ def smile_implied_pdf(pair: str, tenor: str,
     spot = spots.get(pair, {}).get("mid", 1.0)
 
     rates = get_fx_rates(pair)
-    r_dom = rates.get("r_dom", 0.03)
-    r_for = rates.get("r_for", 0.02)
+    r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
+    r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
 
     surface = get_fx_vol_surface(pair)
     atm_raw = _extract_atm(surface, tenor)
@@ -1706,8 +1710,8 @@ def carry_table(pairs: List[str] = None) -> pd.DataFrame:
         spot = spots.get(p, {}).get("mid", 1.0)
 
         rates = get_fx_rates(p)
-        r_dom = rates.get("r_dom", 0.03)
-        r_for = rates.get("r_for", 0.02)
+        r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
+        r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
 
         diff = r_dom - r_for
 
@@ -1744,8 +1748,8 @@ def carry_per_vol(pairs: List[str] = None) -> pd.DataFrame:
     records = []
     for p in pairs:
         rates = get_fx_rates(p)
-        r_dom = rates.get("r_dom", 0.03)
-        r_for = rates.get("r_for", 0.02)
+        r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
+        r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
         diff = abs(r_dom - r_for)
 
         surface = get_fx_vol_surface(p)
@@ -1783,8 +1787,8 @@ def carry_momentum(pair: str, lookback: int = 60) -> dict:
     is positive.
     """
     rates = get_fx_rates(pair)
-    r_dom = rates.get("r_dom", 0.03)
-    r_for = rates.get("r_for", 0.02)
+    r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
+    r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
     current_diff = r_dom - r_for
     current_diff_bps = float(current_diff * 10000)
 
@@ -1838,6 +1842,8 @@ def rate_differential_history(pair: str, lookback: int = 252) -> pd.DataFrame:
     time-series aligned to the spot date index.
     """
     rates = get_fx_rates(pair)
+    if not isinstance(rates, dict):
+        rates = {}
     r_dom = rates.get("r_dom")
     r_for = rates.get("r_for")
     if r_dom is None or r_for is None:

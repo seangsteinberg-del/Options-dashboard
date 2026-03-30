@@ -572,8 +572,10 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
             elif entry_signal == "vol_momentum":
                 # Enter when short-term vol accelerates vs long-term
                 if idx >= 60:
-                    rv_short = np.std(np.diff(np.log(data["spot"].values[idx-10:idx]))) * np.sqrt(252) * 100
-                    rv_long = np.std(np.diff(np.log(data["spot"].values[idx-60:idx]))) * np.sqrt(252) * 100
+                    _spot_short = np.maximum(data["spot"].values[idx-10:idx], 1e-10)
+                    _spot_long = np.maximum(data["spot"].values[idx-60:idx], 1e-10)
+                    rv_short = np.std(np.diff(np.log(_spot_short))) * np.sqrt(252) * 100
+                    rv_long = np.std(np.diff(np.log(_spot_long))) * np.sqrt(252) * 100
                     if rv_long > 1e-6 and rv_short / rv_long > 1.20:
                         if not entry_indices or (idx - entry_indices[-1]) >= monthly_gap:
                             entry_indices.append(idx)
@@ -606,6 +608,8 @@ def run_backtest(strategy, pair, tenor, delta, lookback_years,
             strategy, S_entry, T, rd_entry, rf_entry,
             vol_entry, rr_entry, bf_entry, delta,
         )
+        if not legs:
+            continue
         entry_premium = sum(leg["qty"] * leg["premium"] for leg in legs)
         entry_cost = entry_premium * notional
 

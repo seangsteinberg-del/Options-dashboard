@@ -1310,7 +1310,7 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def heatmap_click(click_data):
-        if not click_data or not click_data.get("points"):
+        if not click_data or not click_data.get("points") or len(click_data["points"]) == 0:
             raise PreventUpdate
         pt = click_data["points"][0]
         pair = pt.get("y", "EURUSD")
@@ -1377,7 +1377,7 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def skew_surface_click(click_data):
-        if not click_data or not click_data.get("points"):
+        if not click_data or not click_data.get("points") or len(click_data["points"]) == 0:
             raise PreventUpdate
         pair = click_data["points"][0].get("y", "")
         if pair in ALL_PAIRS:

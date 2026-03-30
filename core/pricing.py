@@ -159,7 +159,7 @@ def gamma(S, K, T, r, q, sigma):
 
 
 def theta(S, K, T, r, q, sigma, option_type="call"):
-    if T <= 0:
+    if T <= 0 or sigma <= 1e-10:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     common = -(S * sigma * np.exp(-q * T) * norm.pdf(d1)) / (2 * np.sqrt(T))
@@ -187,14 +187,14 @@ def rho(S, K, T, r, q, sigma, option_type="call"):
 
 
 def vanna(S, K, T, r, q, sigma):
-    if T <= 0 or sigma <= 0:
+    if T <= 0 or sigma <= 1e-10:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     return -np.exp(-q * T) * norm.pdf(d1) * d2 / sigma
 
 
 def volga(S, K, T, r, q, sigma):
-    if T <= 0 or sigma <= 0:
+    if T <= 0 or sigma <= 1e-10:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     v = vega(S, K, T, r, q, sigma) * 100.0
