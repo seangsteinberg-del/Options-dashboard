@@ -121,9 +121,12 @@ def _gk_delta(S, K, T, r_d, r_f, sigma, cp):
 def _strike_from_delta(target_delta, S, T, r_d, r_f, sigma, cp):
     """Invert delta to find strike via Newton-Raphson."""
     from scipy.stats import norm as _norm
+    if T <= 1e-8 or sigma <= 1e-8 or S <= 0:
+        return S  # fallback to ATM
     F = S * np.exp((r_d - r_f) * T)
     # Initial guess from simplified Black-Scholes inversion
-    K = F * np.exp(-cp * _norm.ppf(abs(target_delta) * np.exp(r_f * T)) * sigma * np.sqrt(T)
+    ppf_arg = np.clip(abs(target_delta) * np.exp(r_f * T), 1e-8, 1 - 1e-8)
+    K = F * np.exp(-cp * _norm.ppf(ppf_arg) * sigma * np.sqrt(T)
                    + 0.5 * sigma ** 2 * T)
     sqrtT = np.sqrt(T)
     for _ in range(50):
