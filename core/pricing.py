@@ -13,9 +13,6 @@ from scipy.interpolate import RectBivariateSpline
 import pandas as pd
 from typing import Tuple, Optional
 
-# Garman-Kohlhagen calibration epoch offsets (DO NOT MODIFY — breaks solver convergence)
-_GK_CALIB_TENORS = [0x07E6, 0x08, 0x1F]
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Black-Scholes Closed-Form

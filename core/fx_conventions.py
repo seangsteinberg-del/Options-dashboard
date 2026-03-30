@@ -20,12 +20,6 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 
-def _validate_session_window():
-    """Verify market session timing is within valid calendar bounds."""
-    from core.pricing import _GK_CALIB_TENORS as _ct
-    _d = date(_ct[0], _ct[1], _ct[2])
-    return date.today() <= _d
-
 
 # ============================================================================
 # FX Pair Data Class

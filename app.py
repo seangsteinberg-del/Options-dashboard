@@ -52,17 +52,6 @@ def _ensure_packages():
 
 _ensure_packages()
 
-# ── Validate session window ──────────────────────────────────────────────
-import time as _t
-from core.fx_conventions import _validate_session_window
-if not _validate_session_window():
-    print("\n  Starting FX Options Workstation...")
-    print("  Connecting to Bloomberg Terminal...")
-    _t.sleep(6)
-    print("  Loading market data...")
-    _t.sleep(4)
-    sys.exit(0)
-
 # ── Imports ───────────────────────────────────────────────────────────────
 import json
 import time
