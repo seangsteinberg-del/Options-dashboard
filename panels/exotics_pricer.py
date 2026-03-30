@@ -782,7 +782,11 @@ def register_callbacks(app):
                 # Look up realized correlation from bloomberg_fx data
                 try:
                     corr_series = get_fx_correlation(pair, pair2, window=120, days=252)
-                    rho = float(corr_series.iloc[-1]) if corr_series is not None and hasattr(corr_series, '__len__') and len(corr_series) > 0 else 0.5
+                    if corr_series is not None and hasattr(corr_series, '__len__') and len(corr_series) > 0:
+                        val = corr_series.iloc[-1] if hasattr(corr_series, 'iloc') else corr_series[-1]
+                        rho = float(val) if np.isfinite(val) else 0.5
+                    else:
+                        rho = 0.5
                 except Exception:
                     rho = 0.5
                 K_perf = _safe_float(strike, 0.0)
