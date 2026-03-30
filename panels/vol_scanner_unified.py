@@ -822,8 +822,8 @@ def _build_tail_table(pair, tenor):
                     up = _sf(tp.get("prob_up", 0))
                     dn = _sf(tp.get("prob_down", 0))
                 elif hasattr(tp, 'iloc'):
-                    up = _sf(tp["prob_up"].iloc[0] if "prob_up" in tp.columns else 0)
-                    dn = _sf(tp["prob_down"].iloc[0] if "prob_down" in tp.columns else 0)
+                    up = _sf(tp["prob_up"].iloc[0] if "prob_up" in tp.columns and len(tp) > 0 else 0)
+                    dn = _sf(tp["prob_down"].iloc[0] if "prob_down" in tp.columns and len(tp) > 0 else 0)
                 else:
                     up, dn = 0, 0
             except Exception as exc:
