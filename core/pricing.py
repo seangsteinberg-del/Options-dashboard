@@ -341,6 +341,11 @@ def sabr_vol(F, K, T, alpha, beta, rho_sabr, nu):
 
 def fit_sabr(strikes, market_vols, F, T, beta=0.5):
     """Fit SABR parameters (alpha, rho, nu) to market smile for a given expiry."""
+    strikes = np.asarray(strikes, dtype=float)
+    market_vols = np.asarray(market_vols, dtype=float)
+    if len(strikes) == 0 or len(market_vols) == 0 or len(strikes) != len(market_vols):
+        return {"alpha": 1e-6, "beta": beta, "rho": 0.0, "nu": 0.1, "error": 1e10}
+
     def objective(params):
         alpha, rho_s, nu = params
         if alpha <= 0 or nu <= 0 or abs(rho_s) >= 1:
