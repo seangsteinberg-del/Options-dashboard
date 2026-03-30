@@ -944,8 +944,10 @@ def save_portfolio(filepath=None):
     filepath = filepath or PORTFOLIO_FILE
     _ensure_data_dir()
     try:
+        with _portfolio_lock:
+            snapshot = deepcopy(_PORTFOLIO)
         with open(filepath, "w") as f:
-            json.dump(_PORTFOLIO, f, indent=2, default=str)
+            json.dump(snapshot, f, indent=2, default=str)
     except (PermissionError, OSError) as exc:
         logger.error("Failed to save portfolio to %s: %s", filepath, exc)
 
