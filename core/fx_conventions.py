@@ -252,10 +252,10 @@ def delta_to_strike(target_delta, S, T, r_d, r_f, sigma, cp, convention="spot"):
     except ValueError:
         logger.warning(
             "delta_to_strike: root-finding failed for target_delta=%.4f, "
-            "S=%.4f, T=%.4f, sigma=%.4f, cp=%d, convention=%s; returning NaN",
+            "S=%.4f, T=%.4f, sigma=%.4f, cp=%d, convention=%s; returning forward",
             target_delta, S, T, sigma, cp, convention,
         )
-        return np.nan
+        return F
 
 
 def delta_to_strike_vectorized(deltas, S, T, r_d, r_f, sigma, convention="spot"):
