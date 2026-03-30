@@ -1408,7 +1408,8 @@ def register_callbacks(app):
         Output("lab-study-stats", "children"),
         Input("lab-study-chart", "figure"),
         [State("lab-study-type", "value"), State("lab-study-pairs", "value"),
-         State("lab-study-tenor", "value")])
+         State("lab-study-tenor", "value")],
+        prevent_initial_call=True)
     def _deep_study_stats(fig, study_type, pairs, tenor):
         try:
             if not pairs: return []
