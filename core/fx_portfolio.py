@@ -260,11 +260,12 @@ def create_sample_portfolio():
     Positions are added via the blotter panel or add_position() API.
     """
     global _PORTFOLIO
-    _PORTFOLIO = {
-        "books": {b: [] for b in BOOKS},
-        "trade_history": [],
-        "risk_limits": deepcopy(DEFAULT_RISK_LIMITS),
-    }
+    with _portfolio_lock:
+        _PORTFOLIO = {
+            "books": {b: [] for b in BOOKS},
+            "trade_history": [],
+            "risk_limits": deepcopy(DEFAULT_RISK_LIMITS),
+        }
     return _PORTFOLIO
 
 
