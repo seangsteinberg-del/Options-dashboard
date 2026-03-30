@@ -2126,7 +2126,7 @@ def max_drawdown(returns: np.ndarray) -> dict:
     # Cumulative wealth
     cum = np.cumprod(1 + returns)
     running_max = np.maximum.accumulate(cum)
-    drawdowns = cum / running_max - 1
+    drawdowns = np.where(running_max > 0, cum / running_max - 1, 0.0)
 
     trough_idx = int(np.argmin(drawdowns))
     peak_idx = int(np.argmax(cum[:trough_idx + 1]))
