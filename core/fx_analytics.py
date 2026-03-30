@@ -1993,6 +1993,8 @@ def historical_var(returns: np.ndarray, confidence: float = 0.95,
 
     sorted_ret = np.sort(returns)
     idx = int((1 - confidence) * len(sorted_ret))
+    idx = max(idx, 0)
+    idx = min(idx, len(sorted_ret) - 1)
     var_1d = -sorted_ret[idx]
     var_horizon = var_1d * np.sqrt(horizon)
 
