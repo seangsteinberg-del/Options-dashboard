@@ -220,8 +220,9 @@ def _build_movers(pairs):
             try:
                 from core.fx_analytics import iv_rv_spread
                 df = iv_rv_spread(pair, "3M", 20, 60)
-                if df is not None and not df.empty and "spread" in df.columns:
-                    iv_rv = _sf(float(df["spread"].iloc[-1]))
+                if df is not None and not df.empty and len(df) > 0 and "spread" in df.columns:
+                    val = df["spread"].iloc[-1]
+                    iv_rv = _sf(float(val)) if np.isfinite(val) else 0.0
                 else:
                     iv_rv = 0.0
             except Exception:
