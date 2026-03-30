@@ -727,7 +727,10 @@ def _to_bbg_ticker(ticker: str) -> str:
 
 def _safe_float(val, default=0.0):
     try:
-        return float(val) if val is not None else default
+        if val is None:
+            return default
+        result = float(val)
+        return result if np.isfinite(result) else default
     except (ValueError, TypeError):
         return default
 
