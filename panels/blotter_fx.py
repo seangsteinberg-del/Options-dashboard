@@ -1073,7 +1073,10 @@ def register_callbacks(app):
         structure_name = pending_data.get("structure_name", "Custom")
         base_tenor = pending_data.get("tenor", "3M")
 
-        trades = json.loads(trade_store_json) if trade_store_json else []
+        try:
+            trades = json.loads(trade_store_json) if trade_store_json else []
+        except (json.JSONDecodeError, TypeError):
+            trades = []
         struct_id = len(trades) + 30000
         new_trades = []
         filled = 0
