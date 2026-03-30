@@ -568,9 +568,13 @@ def get_fx_vol_point(pair: str, tenor: str = "1M",
         req_days = _TENOR_DAYS.get(tenor.upper(), 30)
         best_tenor = min(surface.keys(),
                          key=lambda t: abs(_TENOR_DAYS.get(t, 9999) - req_days))
-        val = surface[best_tenor].get("atm")
-        if val is not None:
-            return val
+        best_data = surface[best_tenor]
+        if isinstance(best_data, dict):
+            val = best_data.get("atm")
+            if val is not None:
+                return val
+        elif isinstance(best_data, (int, float)):
+            return float(best_data)
     return None
 
 
