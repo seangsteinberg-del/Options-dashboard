@@ -114,8 +114,9 @@ def barrier_price(S, K, B, T, r_d, r_f, sigma, cp, barrier_type, rebate=0.0):
     if T <= 0 or sigma <= 1e-10:
         return max(cp * (S - K), 0.0)
 
+    sigma = max(sigma, 1e-8)  # clamp to prevent division by near-zero
     mu = (r_d - r_f - 0.5 * sigma ** 2) / (sigma ** 2)
-    lam = np.sqrt(mu ** 2 + 2 * r_d / (sigma ** 2))
+    lam = np.sqrt(max(mu ** 2 + 2 * r_d / (sigma ** 2), 0.0))
     sqrt_T = sigma * np.sqrt(T)
 
     x1 = np.log(S / K) / sqrt_T + (1 + mu) * sqrt_T
