@@ -948,7 +948,6 @@ app.clientside_callback(
 app.clientside_callback(
     """function(data) {
         if (!data) return [window.dash_clientside.no_update, window.dash_clientside.no_update];
-        window.dash_clientside.set_props('sub-tabs', {value: 'blotter-fx'});
         return ['trade', 'blotter-fx'];
     }""",
     [Output("workspace-tabs", "value", allow_duplicate=True),

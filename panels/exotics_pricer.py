@@ -564,7 +564,7 @@ def register_callbacks(app):
         S = _safe_float(spot, 1.0)
         rd = _safe_float(r_d, 0.05)
         rf = _safe_float(r_f, 0.03)
-        sigma = _safe_float(vol, 0.10)
+        sigma = max(_safe_float(vol, 0.10), 1e-6)
         T = tenor_to_years(tenor)
         K = _safe_float(strike, S)
         B = _safe_float(barrier_level, S * (0.95 if "down" in str(barrier_type) else 1.05))
@@ -1201,13 +1201,14 @@ def _price_at_spot(product, s, T, rd, rf, sigma, cp, K, B,
             rf2 = rates2.get("r_for", 0.02)
             vol_surf2 = get_fx_vol_surface(pair2) or {}
             sigma2_raw = 8.0
-            if vol_surf2 and tenor in vol_surf2:
+            if vol_surf2 and tenor in vol_surf2 and isinstance(vol_surf2[tenor], dict):
                 sigma2_raw = vol_surf2[tenor].get("atm", 8.0)
             elif vol_surf2:
                 avail2 = list(vol_surf2.keys())
                 if avail2:
                     near2 = min(avail2, key=lambda t: abs(tenor_to_years(t) - T))
-                    sigma2_raw = vol_surf2[near2].get("atm", 8.0)
+                    td2 = vol_surf2[near2]
+                    sigma2_raw = td2.get("atm", 8.0) if isinstance(td2, dict) else 8.0
             sigma2 = sigma2_raw / 100.0 if sigma2_raw > 1.0 else sigma2_raw
             try:
                 corr_series = get_fx_correlation(pair, pair2, window=120, days=252)
@@ -1279,13 +1280,14 @@ def _price_at_vol(product, S, T, rd, rf, v, cp, K, B,
             rf2 = rates2.get("r_for", 0.02)
             vol_surf2 = get_fx_vol_surface(pair2) or {}
             sigma2_raw = 8.0
-            if vol_surf2 and tenor in vol_surf2:
+            if vol_surf2 and tenor in vol_surf2 and isinstance(vol_surf2[tenor], dict):
                 sigma2_raw = vol_surf2[tenor].get("atm", 8.0)
             elif vol_surf2:
                 avail2 = list(vol_surf2.keys())
                 if avail2:
                     near2 = min(avail2, key=lambda t: abs(tenor_to_years(t) - T))
-                    sigma2_raw = vol_surf2[near2].get("atm", 8.0)
+                    td2 = vol_surf2[near2]
+                    sigma2_raw = td2.get("atm", 8.0) if isinstance(td2, dict) else 8.0
             sigma2 = sigma2_raw / 100.0 if sigma2_raw > 1.0 else sigma2_raw
             try:
                 corr_series = get_fx_correlation(pair, pair2, window=120, days=252)
