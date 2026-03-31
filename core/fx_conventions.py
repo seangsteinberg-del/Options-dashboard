@@ -571,8 +571,10 @@ def implied_cdf(surface, tenor, S, r_d, r_f, n_points=200, convention="spot"):
     Implied CDF from Breeden-Litzenberger. Integrates the PDF via trapezoidal rule.
     """
     K_arr, pdf = implied_pdf(surface, tenor, S, r_d, r_f, n_points, convention)
+    if len(K_arr) < 2:
+        return K_arr, np.zeros_like(K_arr)
     dK = K_arr[1] - K_arr[0]
-    cdf = np.cumsum(pdf) * dK
+    cdf = np.cumsum(pdf * dK)
     # Normalize to [0, 1]
     if cdf[-1] > 0:
         cdf = cdf / cdf[-1]
@@ -693,8 +695,8 @@ def carry_roll_down(S, r_d, r_f, T, days):
         "carry": carry,
         "roll_down": roll_down,
         "total_pnl": total,
-        "carry_bps": carry / S * 10000 if S > 0 else 0.0,
-        "roll_bps": roll_down / S * 10000 if S > 0 else 0.0,
+        "carry_bps": float(carry / S * 10000) if S > 0 and np.isfinite(carry) else 0.0,
+        "roll_bps": float(roll_down / S * 10000) if S > 0 and np.isfinite(roll_down) else 0.0,
     }
 
 
@@ -805,14 +807,17 @@ def tenor_to_days(tenor: str) -> int:
     if tenor in _TENOR_MAP:
         return _TENOR_MAP[tenor]
     # Parse numeric tenors like '10D', '6W', '15M'
-    if tenor.endswith("D"):
-        return int(tenor[:-1])
-    if tenor.endswith("W"):
-        return int(tenor[:-1]) * 7
-    if tenor.endswith("M"):
-        return int(tenor[:-1]) * 30
-    if tenor.endswith("Y"):
-        return int(tenor[:-1]) * 365
+    try:
+        if tenor.endswith("D"):
+            return max(int(tenor[:-1]), 1)
+        if tenor.endswith("W"):
+            return max(int(tenor[:-1]) * 7, 1)
+        if tenor.endswith("M"):
+            return max(int(tenor[:-1]) * 30, 1)
+        if tenor.endswith("Y"):
+            return max(int(tenor[:-1]) * 365, 1)
+    except (ValueError, TypeError):
+        raise ValueError(f"Cannot parse tenor: {tenor}")
     raise ValueError(f"Cannot parse tenor: {tenor}")
 
 

@@ -929,6 +929,7 @@ def smile_implied_pdf(pair: str, tenor: str,
     fwd = spot * np.exp((r_dom - r_for) * T)
     k_min = fwd * np.exp(-4 * atm * np.sqrt(T))
     k_max = fwd * np.exp(4 * atm * np.sqrt(T))
+    n_points = max(n_points, 2)  # need at least 2 points for dk
     strikes = np.linspace(k_min, k_max, n_points)
     dk = strikes[1] - strikes[0]
 
@@ -938,6 +939,8 @@ def smile_implied_pdf(pair: str, tenor: str,
 
     # Parametric smile: quadratic in log-moneyness
     log_m_25 = np.log(fwd / (fwd * 0.96))  # approximate 25D strike shift
+    if not np.isfinite(log_m_25) or abs(log_m_25) < 1e-12:
+        return pd.DataFrame()  # degenerate forward — cannot build smile
     a = bf25 / max(log_m_25 ** 2, 1e-8)
     b = -rr25 / max(2 * log_m_25, 1e-8)
 
@@ -982,9 +985,11 @@ def smile_implied_cdf(pair: str, tenor: str,
     strikes = pdf_df["strike"].values
     pdf = pdf_df["pdf"].values
 
-    cdf = np.cumsum(pdf)
     dk = strikes[1] - strikes[0] if len(strikes) > 1 else 1.0
-    cdf = cdf * dk
+    cdf = np.cumsum(pdf * dk)
+    # Normalize so CDF ends at 1.0 (numerical integration may not sum exactly)
+    if cdf[-1] > 0:
+        cdf = cdf / cdf[-1]
     cdf = np.clip(cdf, 0, 1)
 
     return pd.DataFrame({
@@ -1992,8 +1997,8 @@ def historical_var(returns: np.ndarray, confidence: float = 0.95,
                 "worst_return": 0.0, "best_return": 0.0}
 
     sorted_ret = np.sort(returns)
-    idx = int((1 - confidence) * len(sorted_ret))
-    idx = max(idx, 0)
+    # Use floor to get the correct quantile index (5th percentile = index 4 for 100 obs)
+    idx = max(int(np.floor((1 - confidence) * len(sorted_ret))) - 1, 0)
     idx = min(idx, len(sorted_ret) - 1)
     var_1d = -sorted_ret[idx]
     var_horizon = var_1d * np.sqrt(horizon)

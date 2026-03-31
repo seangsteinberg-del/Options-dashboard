@@ -466,6 +466,7 @@ def asian_geometric_price(S, K, T, r_d, r_f, sigma, cp, n_fixings):
 
     cp : 1 call, -1 put.
     """
+    n_fixings = max(int(n_fixings), 1)
     sigma_a = sigma * np.sqrt((2 * n_fixings + 1) / (6 * (n_fixings + 1)))
     r_a = 0.5 * (r_d - r_f - 0.5 * sigma ** 2
                  + sigma_a ** 2)
@@ -663,6 +664,8 @@ def tarf_price(S, K, B, T, r_d, r_f, sigma, n_fixings=12, target_profit=0.05,
     Returns dict with price (MTM from client perspective), probability of
     early termination, expected number of fixings, and expected P&L.
     """
+    K = max(float(K), 1e-10)
+    n_fixings = max(int(n_fixings), 1)
     n_steps = max(n_fixings * 21, 252)
     paths, _, _rng = _mc_paths(S, T, r_d, r_f, sigma, n_paths, n_steps, seed)
 

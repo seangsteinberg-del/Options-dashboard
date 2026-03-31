@@ -227,7 +227,12 @@ def _get_rate(pair, rates, which="domestic"):
     if r is None:
         return 0.04
     if isinstance(r, (list, tuple)):
-        return float(r[0]) if which == "domestic" else float(r[1])
+        if len(r) >= 2:
+            return float(r[0]) if which == "domestic" else float(r[1])
+        elif len(r) == 1:
+            return float(r[0])
+        else:
+            return 0.04
     if isinstance(r, dict):
         return float(r.get("r_d" if which == "domestic" else "r_f", 0.04))
     return float(r)
