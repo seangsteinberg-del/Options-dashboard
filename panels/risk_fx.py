@@ -1748,6 +1748,7 @@ def register_callbacks(app):
             # Invert delta to strike via normal approximation
             # For calls, delta = N(d1)*exp(-rf*T) ≈ N(d1); for puts, |delta| = N(-d1)*exp(-rf*T)
             d_val = delta_val if opt_type == "call" else (1 - delta_val)
+            d_val = np.clip(d_val, 1e-6, 1 - 1e-6)
             z = scipy_norm.ppf(d_val)
             K = spot * np.exp(-z * vol * np.sqrt(T) + (r_d - r_f + 0.5 * vol ** 2) * T)
 
@@ -2034,11 +2035,13 @@ def register_callbacks(app):
 
         # Compute the strike from the user's delta selection using GK delta inversion
         # For a call: delta = exp(-r_f*T)*N(d1), solve for K
-        d1_target = _norm.ppf(delta * np.exp(r_f * T_total))
+        ppf_arg = np.clip(delta * np.exp(r_f * T_total), 1e-6, 1 - 1e-6)
+        d1_target = _norm.ppf(ppf_arg)
         K = s0 * np.exp(-d1_target * vol * np.sqrt(T_total) + (r_d - r_f + 0.5 * vol ** 2) * T_total)
         if cp_sign == -1:
             # For puts, invert using put delta symmetry
-            d1_target = _norm.ppf((1 - delta) * np.exp(r_f * T_total))
+            ppf_arg = np.clip((1 - delta) * np.exp(r_f * T_total), 1e-6, 1 - 1e-6)
+            d1_target = _norm.ppf(ppf_arg)
             K = s0 * np.exp(-d1_target * vol * np.sqrt(T_total) + (r_d - r_f + 0.5 * vol ** 2) * T_total)
 
         # GK Greeks helper (inline for self-containment)
@@ -2204,8 +2207,10 @@ def register_callbacks(app):
         n = min(len(ret_t), len(ret_1), len(ret_2))
         ret_t, ret_1, ret_2 = ret_t[-n:], ret_1[-n:], ret_2[-n:]
 
-        corr_1 = round(float(np.corrcoef(ret_t, ret_1)[0, 1]), 2)
-        corr_2 = round(float(np.corrcoef(ret_t, ret_2)[0, 1]), 2)
+        c1 = np.corrcoef(ret_t, ret_1)[0, 1]
+        c2 = np.corrcoef(ret_t, ret_2)[0, 1]
+        corr_1 = round(float(c1), 2) if np.isfinite(c1) else 0.0
+        corr_2 = round(float(c2), 2) if np.isfinite(c2) else 0.0
 
         # OLS for betas
         X = np.column_stack([ret_1, ret_2])

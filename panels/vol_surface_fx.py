@@ -403,10 +403,12 @@ def chart_surface_3d(pair, sd, spot, r_dom, r_for, **kw):
     hover_text = [[None] * n_deltas for _ in range(n_tenors)]
     for ti in range(n_tenors):
         for di in range(n_deltas):
+            v = sd['vol_grid'][ti, di]
+            vol_str = f"{v:.2f}%" if np.isfinite(v) else "N/A"
             hover_text[ti][di] = (
                 f"Delta: {delta_labels[di]}<br>"
                 f"Tenor: {sd['tenors'][ti]}<br>"
-                f"Vol: {sd['vol_grid'][ti, di]:.2f}%"
+                f"Vol: {vol_str}"
             )
     fig.add_trace(go.Surface(
         x=delta_pos * 100,
@@ -2631,7 +2633,7 @@ def register_callbacks(app):
         if btn not in mapping:
             return no_update
         fig, panel, chart_type = mapping[btn]
-        if not fig:
+        if not fig or not fig.get("data"):
             return no_update
         try:
             return export_csv(fig, panel, chart_type)
@@ -2692,10 +2694,14 @@ def register_callbacks(app):
                                       line=dict(color="#d4d4d4", dash="dash")), row=2, col=1)
                 r = vol_regime_detect(pair) or {}
                 z = vol_zscore(pair, tenor, "ATM") or {}
+                _atm_iv = r.get('atm_iv', 0)
+                _zsc = z.get('zscore', 0)
+                _iv_str = f"{_atm_iv:.2f}" if np.isfinite(_atm_iv) else "N/A"
+                _zsc_str = f"{_zsc:+.2f}" if np.isfinite(_zsc) else "N/A"
                 stats_text = (f"Regime: {r.get('regime', 'N/A')}<br>"
                              f"Trend: {r.get('trend', 'N/A')}<br>"
-                             f"ATM IV: {r.get('atm_iv', 0):.2f}<br>"
-                             f"Z-Score: {z.get('zscore', 0):+.2f}<br>"
+                             f"ATM IV: {_iv_str}<br>"
+                             f"Z-Score: {_zsc_str}<br>"
                              f"Percentile: {_ordinal(z.get('percentile', 50))}")
                 fig.add_annotation(text=stats_text, xref="x4", yref="y4",
                                    x=0.5, y=0.5, showarrow=False,

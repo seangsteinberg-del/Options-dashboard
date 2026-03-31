@@ -1074,7 +1074,7 @@ def register_callbacks(app):
         if btn not in mapping:
             return no_update
         fig, panel, chart_type = mapping[btn]
-        if not fig:
+        if not fig or not fig.get("data"):
             return no_update
         try:
             return export_csv(fig, panel, chart_type)
