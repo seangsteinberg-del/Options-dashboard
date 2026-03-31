@@ -1510,7 +1510,7 @@ def spot_correlation_matrix(pairs: List[str] = None,
     returns = {}
     for p in pairs:
         hist = _to_close_array(get_fx_historical_spot(p, window + 10))
-        if hist is None or len(hist) < window:
+        if hist is None or len(hist) < window + 1:
             continue
         ret = np.diff(np.log(hist[-(window + 1):]))
         returns[p] = ret[:window]
@@ -1532,7 +1532,7 @@ def vol_correlation_matrix(pairs: List[str] = None, tenor: str = "3M",
     changes = {}
     for p in pairs:
         hist = get_fx_historical_vol(p, tenor, "ATM", window + 10)
-        if hist is None or len(hist) < window:
+        if hist is None or len(hist) < window + 1:
             continue
         ch = np.diff(hist[-(window + 1):])
         changes[p] = ch[:window]

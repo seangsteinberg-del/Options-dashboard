@@ -480,9 +480,9 @@ def _value_strategy(legs, S, T_remaining, r_d, r_f, atm_vol_new):
     ref_vol = max(legs[0]["vol"], 0.005)
 
     for leg in legs:
-        # Scale remaining time proportionally for each leg (T_remaining is in years)
-        T_r = T_remaining * leg["T"] / ref_T if ref_T > 0 else 0.0
-        # T_remaining is already in years; T_r preserves proportional scaling for multi-leg
+        # Compute remaining time for each leg: subtract elapsed time from original tenor
+        elapsed = ref_T - T_remaining if ref_T > 0 else 0.0
+        T_r = max(leg["T"] - elapsed, 0.0)
 
         # At or past expiry for this leg: use intrinsic value
         if T_r <= 1e-6:

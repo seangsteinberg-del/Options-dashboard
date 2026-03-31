@@ -159,7 +159,7 @@ def delta(S, K, T, r, q, sigma, option_type="call"):
 
 
 def gamma(S, K, T, r, q, sigma):
-    if T <= 0 or sigma <= 1e-10:
+    if T <= 1e-10 or sigma <= 1e-10:
         return 0.0
     d1, _ = bs_d1_d2(S, K, T, r, q, sigma)
     return np.exp(-q * T) * norm.pdf(d1) / (S * sigma * np.sqrt(T))
@@ -194,14 +194,14 @@ def rho(S, K, T, r, q, sigma, option_type="call"):
 
 
 def vanna(S, K, T, r, q, sigma):
-    if T <= 0 or sigma <= 1e-10:
+    if T <= 1e-10 or sigma <= 1e-10:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     return -np.exp(-q * T) * norm.pdf(d1) * d2 / sigma
 
 
 def volga(S, K, T, r, q, sigma):
-    if T <= 0 or sigma <= 1e-10:
+    if T <= 1e-10 or sigma <= 1e-10:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     v = vega(S, K, T, r, q, sigma) * 100.0
@@ -310,6 +310,8 @@ def sabr_vol(F, K, T, alpha, beta, rho_sabr, nu):
     F = forward, K = strike, T = expiry, alpha = vol-of-vol base,
     beta = CEV exponent, rho = correlation, nu = vol-of-vol.
     """
+    if F <= 0 or K <= 0 or T <= 0 or alpha <= 0:
+        return 1e-6
     # Use wider ATM band to avoid discontinuity between ATM and off-ATM formulas
     if abs(F - K) / max(F, 1e-10) < 1e-6:
         # ATM formula (Hagan et al. limiting case)
@@ -400,12 +402,14 @@ def probability_of_profit(S, K, T, r, q, sigma, option_type="call", premium=None
     if T <= 0 or sigma <= 1e-10:
         return 0.0
 
+    # Breakeven at expiry accounts for financing cost of premium
+    fv_premium = premium * np.exp(r * T)
     if option_type == "call":
-        breakeven = K + premium
+        breakeven = K + fv_premium
         d2_be = (np.log(S / breakeven) + (r - q - 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
         return norm.cdf(d2_be)
     else:
-        breakeven = K - premium
+        breakeven = K - fv_premium
         if breakeven <= 0:
             return 0.0
         d2_be = (np.log(S / breakeven) + (r - q - 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
