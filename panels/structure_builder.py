@@ -1560,7 +1560,7 @@ def _build_compare_overlay(snapshot_a, snapshot_b, notional):
     fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dot"))
     fig.update_layout(
         title=dict(text="COMPARE: PAYOFF OVERLAY", font=dict(color=COLORS["text_primary"], size=12)),
-        xaxis_title="Spot", yaxis_title="P&L",
+        xaxis_title="Spot", yaxis_title="P&L ($)",
         paper_bgcolor=tpl["paper_bgcolor"], plot_bgcolor=tpl["plot_bgcolor"],
         font=tpl["font"], margin=dict(l=55, r=15, t=35, b=35),
         legend=dict(font=dict(color=COLORS["text_secondary"], size=10), bgcolor="rgba(0,0,0,0)"),
@@ -1708,8 +1708,6 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
     # Clip density data to the payoff chart's spot range so it doesn't stretch the x-axis
     spot_lo, spot_hi = spot_range[0], spot_range[-1]
     if ev_data and "pdf_strikes" in ev_data:
-        pnl_range = max(abs(np.max(pnl_expiry)), abs(np.min(pnl_expiry)), 1)
-
         # Clip both PDFs to the payoff chart's x-range
         def _clip_pdf(x, y):
             mask = (x >= spot_lo) & (x <= spot_hi)
@@ -1723,42 +1721,42 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
             pdf_x_hist, pdf_y_hist = _clip_pdf(
                 np.asarray(pdf_x_hist), np.asarray(pdf_y_hist))
 
-        # Compute shared scale factor from both (clipped) PDFs
-        all_peaks = [np.max(pdf_y_impl) if len(pdf_y_impl) > 0 else 1]
-        if pdf_y_hist is not None and len(pdf_y_hist) > 0:
-            all_peaks.append(np.max(pdf_y_hist))
-        peak_max = max(all_peaks)
-        scale = pnl_range * 0.30 / max(peak_max, 1e-12)
-
-        # Implied density (orange)
+        # Implied density (orange) — plotted on secondary y-axis (density units)
+        # Note: fill="tozeroy" doesn't work correctly with yaxis="y2" in Plotly
+        # (it fills to y1's zero, not y2's), so we omit the fill.
         if len(pdf_x_impl) > 0:
             fig.add_trace(go.Scatter(
-                x=pdf_x_impl, y=pdf_y_impl * scale, mode="lines", fill="tozeroy",
-                fillcolor="rgba(255,136,0,0.06)",
-                line=dict(color="rgba(255,136,0,0.35)", width=1.5),
-                name="Implied Density", showlegend=True,
-                hovertemplate="Spot: %{x:.4f}<br>Density: %{y:.2f}<extra>Implied</extra>",
+                x=pdf_x_impl, y=pdf_y_impl, mode="lines",
+                line=dict(color="rgba(255,136,0,0.45)", width=1.5),
+                name="Implied Density", showlegend=True, yaxis="y2",
+                hovertemplate="Spot: %{x:.4f}<br>Density: %{y:.4f}<extra>Implied</extra>",
             ))
 
         # Historical density (purple) — gap between curves shows edge
         if pdf_y_hist is not None and pdf_x_hist is not None and len(pdf_x_hist) > 0:
             fig.add_trace(go.Scatter(
-                x=pdf_x_hist, y=pdf_y_hist * scale, mode="lines",
+                x=pdf_x_hist, y=pdf_y_hist, mode="lines",
                 line=dict(color="rgba(128,128,128,0.50)", width=1.5, dash="dash"),
-                name="Historical Density", showlegend=True,
-                hovertemplate="Spot: %{x:.4f}<br>Density: %{y:.2f}<extra>Historical</extra>",
+                name="Historical Density", showlegend=True, yaxis="y2",
+                hovertemplate="Spot: %{x:.4f}<br>Density: %{y:.4f}<extra>Historical</extra>",
             ))
 
     fig.update_layout(
         title=dict(text="PAYOFF DIAGRAM", font=dict(color=COLORS["text_primary"], size=13)),
-        xaxis_title="Spot", yaxis_title="P&L",
+        xaxis_title="Spot", yaxis_title="P&L ($)",
         paper_bgcolor=tpl["paper_bgcolor"], plot_bgcolor=tpl["plot_bgcolor"],
-        font=tpl["font"], margin=dict(l=55, r=15, t=40, b=35),
+        font=tpl["font"], margin=dict(l=55, r=50, t=40, b=35),
         legend=dict(font=dict(color=COLORS["text_secondary"], size=10),
                     bgcolor="rgba(0,0,0,0)", x=0.01, y=0.99),
         hoverlabel=tpl["hoverlabel"],
         xaxis=dict(gridcolor="#1a1a30"),
         yaxis=dict(gridcolor="#1a1a30"),
+        yaxis2=dict(
+            title=dict(text="Density", font=dict(size=9, color="#808080")),
+            overlaying="y", side="right",
+            showgrid=False, zeroline=False,
+            tickfont=dict(size=8, color="#808080"),
+        ),
         height=380,
     )
     return fig
@@ -2130,17 +2128,15 @@ def _build_smile_chart(processed_legs, vol_surface, tenor):
     # Mark each leg's vol on the smile
     for lg in processed_legs:
         vol_pct = lg["vol"] * 100.0
-        delta_abs = lg["delta_input"]
+        delta_abs = abs(lg["delta_input"])  # handle negative put deltas
         cp_str = lg["cp"]
         # Map leg delta to nearest smile label
-        if abs(delta_abs - 0.50) < 0.05:
-            x_label = "ATM"
+        if delta_abs > 0.45:
+            x_label = "ATM"  # deep ITM or ATM — closest to ATM
         elif abs(delta_abs - 0.25) < 0.08:
             x_label = "25C" if cp_str == "call" else "25P"
         elif delta_abs <= 0.17:
             x_label = "10C" if cp_str == "call" else "10P"
-        elif delta_abs > 0.50:
-            x_label = "ATM"  # deep ITM — closest to ATM
         else:
             x_label = "25C" if cp_str == "call" else "25P"
 
@@ -2194,10 +2190,10 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
         pnl_vol[vi] = (pnl - net_prem_per_unit) * notional
 
     fig.add_trace(go.Scatter(
-        x=[f"{v:+.0%}" for v in vol_shifts], y=pnl_vol, mode="lines",
+        x=vol_shifts * 100, y=pnl_vol, mode="lines",
         line=dict(color=COLORS["accent_purple"], width=2),
         name="Vol Sensitivity", showlegend=False,
-        hovertemplate="Vol shift: %{x}<br>P&L: %{y:,.0f}<extra></extra>",
+        hovertemplate="Vol shift: %{x:+.0f}%<br>P&L: $%{y:,.0f}<extra></extra>",
     ), row=1, col=1)
     fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dot"), row=1, col=1)
 
@@ -2232,10 +2228,10 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
         pnl_spot[si] = (pnl - net_prem_per_unit) * notional
 
     fig.add_trace(go.Scatter(
-        x=[f"{m:+.1%}" for m in spot_moves], y=pnl_spot, mode="lines",
+        x=spot_moves * 100, y=pnl_spot, mode="lines",
         line=dict(color=COLORS["accent_cyan"], width=2),
         name="Spot Sensitivity", showlegend=False,
-        hovertemplate="Spot move: %{x}<br>P&L: %{y:,.0f}<extra></extra>",
+        hovertemplate="Spot move: %{x:+.1f}%<br>P&L: $%{y:,.0f}<extra></extra>",
     ), row=3, col=1)
     fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dot"), row=3, col=1)
 
@@ -2245,7 +2241,10 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
         hoverlabel=tpl["hoverlabel"], height=380,
     )
     fig.update_xaxes(gridcolor="#1a1a30")
-    fig.update_yaxes(gridcolor="#1a1a30")
+    fig.update_xaxes(title_text="Vol Shift (%)", ticksuffix="%", row=1, col=1)
+    fig.update_xaxes(title_text="DTE (days)", row=2, col=1)
+    fig.update_xaxes(title_text="Spot Move (%)", ticksuffix="%", row=3, col=1)
+    fig.update_yaxes(gridcolor="#1a1a30", title_text="P&L ($)")
     for ann in fig.layout.annotations:
         ann.font.color = COLORS["text_primary"]
         ann.font.size = 11

@@ -698,7 +698,7 @@ def register_callbacks(app):
                 margin=dict(l=60, r=20, t=45, b=50),
                 xaxis=dict(gridcolor="rgba(34,34,64,0.5)",
                            tickfont=dict(size=9)),
-                yaxis=dict(title="Notional", gridcolor="rgba(34,34,64,0.5)"),
+                yaxis=dict(title="Notional (USD)", gridcolor="rgba(34,34,64,0.5)"),
                 legend=dict(font=dict(size=9), orientation="h",
                             yanchor="bottom", y=1.02, xanchor="center", x=0.5),
                 hoverlabel=tpl["hoverlabel"],
@@ -728,7 +728,7 @@ def register_callbacks(app):
                            fill="tozeroy",
                            fillcolor="rgba(255,136,0,0.06)",
                            name="Cumulative",
-                           hovertemplate="%{x}<br>Cumulative: %{y:,.0f}<extra></extra>"),
+                           hovertemplate="%{x}<br>Cumulative: $%{y:,.0f}<extra></extra>"),
                 row=1, col=1,
             )
             prem_fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=1,
@@ -741,7 +741,7 @@ def register_callbacks(app):
             prem_fig.add_trace(
                 go.Bar(x=day_keys, y=day_vals, marker_color=day_colors,
                        name="Daily",
-                       hovertemplate="%{x}: %{y:,.0f}<extra></extra>"),
+                       hovertemplate="%{x}: $%{y:,.0f}<extra></extra>"),
                 row=2, col=1,
             )
             prem_fig.update_layout(
@@ -756,6 +756,9 @@ def register_callbacks(app):
             )
             prem_fig.update_xaxes(gridcolor="rgba(34,34,64,0.5)")
             prem_fig.update_yaxes(gridcolor="rgba(34,34,64,0.5)")
+            prem_fig.update_yaxes(title_text="Cumulative ($)", row=1, col=1)
+            prem_fig.update_yaxes(title_text="Daily ($)", row=2, col=1)
+            prem_fig.update_xaxes(title_text="Date", row=2, col=1)
 
             # ── Flow Analytics: Activity Timeline ───────────────────
             activity_fig = go.Figure()
@@ -787,7 +790,7 @@ def register_callbacks(app):
                 font=tpl["font"],
                 margin=dict(l=60, r=20, t=45, b=40),
                 xaxis=dict(gridcolor="rgba(34,34,64,0.5)", title="Time"),
-                yaxis=dict(gridcolor="rgba(34,34,64,0.5)", title="Notional"),
+                yaxis=dict(gridcolor="rgba(34,34,64,0.5)", title="Notional (USD)"),
                 legend=dict(font=dict(size=9), orientation="h",
                             yanchor="bottom", y=1.02, xanchor="center", x=0.5),
                 hoverlabel=tpl["hoverlabel"],

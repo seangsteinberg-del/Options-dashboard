@@ -939,7 +939,7 @@ def _build_equity_curve(results):
             fillcolor="rgba(255,51,51,0.10)",
             line=dict(color="rgba(255,51,51,0.35)", width=1),
             name="Drawdown",
-            hovertemplate="DD: %{y:,.0f}<extra></extra>",
+            hovertemplate="DD: $%{y:,.0f}<extra></extra>",
         ),
         secondary_y=True,
     )
@@ -950,7 +950,7 @@ def _build_equity_curve(results):
             x=x, y=cum,
             line=dict(color=COLORS["accent_cyan"], width=2.5),
             name="Cumulative P&L",
-            hovertemplate="P&L: %{y:,.0f}<extra></extra>",
+            hovertemplate="P&L: $%{y:,.0f}<extra></extra>",
         ),
         secondary_y=False,
     )
@@ -959,7 +959,7 @@ def _build_equity_curve(results):
     dd_idx = results["max_dd_idx"]
     fig.add_annotation(
         x=dd_idx, y=dd[dd_idx],
-        text=f"Max DD: {results['max_dd']:,.0f}",
+        text=f"Max DD: ${results['max_dd']:,.0f}",
         showarrow=True, arrowhead=2,
         font=dict(color=COLORS["accent_red"], size=10),
         arrowcolor=COLORS["accent_red"],
@@ -974,9 +974,9 @@ def _build_equity_curve(results):
                     font=dict(size=9, color=COLORS["text_secondary"])),
         margin=dict(l=50, r=20, t=45, b=30),
     ))
-    fig.update_yaxes(title_text="Cumulative P&L", secondary_y=False,
+    fig.update_yaxes(title_text="Cumulative P&L ($)", secondary_y=False,
                      gridcolor="#1a1a30", tickfont=dict(size=9))
-    fig.update_yaxes(title_text="Drawdown", secondary_y=True,
+    fig.update_yaxes(title_text="Drawdown ($)", secondary_y=True,
                      gridcolor="#1a1a30", tickfont=dict(size=9))
     fig.update_xaxes(title_text="Trade #", tickfont=dict(size=9))
 
@@ -996,14 +996,14 @@ def _build_pnl_distribution(results):
             x=losses, name="Losses",
             marker_color=COLORS["accent_red"],
             opacity=0.75,
-            hovertemplate="P&L: %{x:,.0f}<br>Count: %{y}<extra></extra>",
+            hovertemplate="P&L: $%{x:,.0f}<br>Count: %{y}<extra></extra>",
         ))
     if len(wins) > 0:
         fig.add_trace(go.Histogram(
             x=wins, name="Wins",
             marker_color=COLORS["accent_green"],
             opacity=0.75,
-            hovertemplate="P&L: %{x:,.0f}<br>Count: %{y}<extra></extra>",
+            hovertemplate="P&L: $%{x:,.0f}<br>Count: %{y}<extra></extra>",
         ))
 
     # Mean and median lines
@@ -1012,11 +1012,11 @@ def _build_pnl_distribution(results):
 
     fig.add_vline(x=mean_pnl, line_dash="dash",
                   line_color=COLORS["accent_cyan"], line_width=1.5,
-                  annotation_text=f"Mean: {mean_pnl:,.0f}",
+                  annotation_text=f"Mean: ${mean_pnl:,.0f}",
                   annotation_font=dict(size=9, color=COLORS["accent_cyan"]))
     fig.add_vline(x=median_pnl, line_dash="dot",
                   line_color=COLORS["accent_orange"], line_width=1.5,
-                  annotation_text=f"Median: {median_pnl:,.0f}",
+                  annotation_text=f"Median: ${median_pnl:,.0f}",
                   annotation_font=dict(size=9, color=COLORS["accent_orange"]))
 
     fig.update_layout(
@@ -1027,7 +1027,7 @@ def _build_pnl_distribution(results):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
                     font=dict(size=9, color=COLORS["text_secondary"])),
         margin=dict(l=50, r=20, t=45, b=30),
-        xaxis_title="P&L per Trade",
+        xaxis_title="P&L per Trade ($)",
         yaxis_title="Count",
     ))
 
@@ -1047,7 +1047,7 @@ def _build_monthly_returns(results):
         marker_color=colors,
         marker_line_color=colors,
         marker_line_width=0.5,
-        hovertemplate="%{x}<br>P&L: %{y:,.0f}<extra></extra>",
+        hovertemplate="%{x}<br>P&L: $%{y:,.0f}<extra></extra>",
     ))
 
     fig.update_layout(
@@ -1056,7 +1056,7 @@ def _build_monthly_returns(results):
         showlegend=False,
         margin=dict(l=50, r=20, t=45, b=60),
         xaxis_title="Month",
-        yaxis_title="P&L",
+        yaxis_title="P&L ($)",
         xaxis=dict(tickangle=-45, tickfont=dict(size=8)),
     ))
 
@@ -1096,6 +1096,7 @@ def _build_regime_winrate(results):
         showlegend=False,
         margin=dict(l=50, r=20, t=45, b=30),
         yaxis_title="Win Rate (%)",
+        xaxis_title="Vol Regime",
         yaxis=dict(range=[0, 110]),
     ))
 

@@ -400,7 +400,8 @@ def _build_heatmap(metric, lookback):
                           yaxis=dict(autorange="reversed", tickfont=dict(size=8, color="#808080"),
                                      showgrid=False),
                           xaxis=dict(tickfont=dict(size=9, color="#808080"), side="bottom",
-                                     showgrid=False)))
+                                     showgrid=False,
+                                     title=dict(text="Tenor", font=dict(size=9, color="#808080")))))
         return fig
     except Exception as exc:
         logger.warning("Vol richness heatmap failed: %s", exc)
@@ -434,7 +435,8 @@ def _build_cross_bar(metric, lookback):
                           margin=dict(l=55, r=20, t=25, b=10), showlegend=False,
                           title=dict(text=f"3M {metric} PERCENTILE RANK",
                                      font=dict(size=10, color="#808080")),
-                          xaxis=dict(range=[0, 105], tickfont=dict(size=8)),
+                          xaxis=dict(range=[0, 105], tickfont=dict(size=8),
+                                     title=dict(text="Percentile (%)", font=dict(size=9, color="#808080"))),
                           yaxis=dict(tickfont=dict(size=7))))
         return fig
     except Exception as exc:
@@ -479,7 +481,8 @@ def _build_atm_history(pair, tenor, lookback):
         fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=False,
                           title=dict(text=f"{pair} ATM {tenor} HISTORY",
-                                     font=dict(size=9, color="#808080"))))
+                                     font=dict(size=9, color="#808080")),
+                          xaxis_title="Trading Days", yaxis_title="Vol (%)"))
         return fig
     except Exception as exc:
         logger.warning("ATM history chart failed for %s %s: %s", pair, tenor, exc)
@@ -508,7 +511,8 @@ def _build_ivrv_chart(pair, tenor, lookback):
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} IV vs RV ({tenor})",
-                                     font=dict(size=9, color="#808080"))))
+                                     font=dict(size=9, color="#808080")),
+                          xaxis_title="Trading Days", yaxis_title="Vol (%)"))
         return fig
     except Exception as exc:
         logger.warning("IV-RV chart failed for %s: %s", pair, exc)
@@ -562,7 +566,8 @@ def _build_volcone_chart(pair, lookback):
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} VOL CONE",
-                                     font=dict(size=9, color="#808080"))))
+                                     font=dict(size=9, color="#808080")),
+                          xaxis_title="Window (days)", yaxis_title="Vol (%)"))
         return fig
     except Exception as exc:
         logger.warning("Vol cone chart failed for %s: %s", pair, exc)
@@ -667,7 +672,8 @@ def _build_skew_surface():
                           yaxis=dict(autorange="reversed", tickfont=dict(size=8, color="#808080"),
                                      showgrid=False),
                           xaxis=dict(tickfont=dict(size=9, color="#808080"), side="bottom",
-                                     showgrid=False)))
+                                     showgrid=False,
+                                     title=dict(text="Tenor", font=dict(size=9, color="#808080")))))
         return fig
     except Exception as exc:
         logger.warning("Skew surface failed: %s", exc)
@@ -718,6 +724,9 @@ def _build_rr_spot_chart(pair, tenor):
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} RR vs SPOT ({tenor})",
                                      font=dict(size=9, color="#808080"))))
+        fig.update_yaxes(title_text="25D RR (vol pts)", secondary_y=False)
+        fig.update_yaxes(title_text="Spot", secondary_y=True)
+        fig.update_xaxes(title_text="Trading Days")
         return fig
     except Exception as exc:
         logger.warning("RR vs spot chart failed for %s: %s", pair, exc)
@@ -762,7 +771,8 @@ def _build_smile_comparison(pair):
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} SMILE COMPARISON",
-                                     font=dict(size=9, color="#808080"))))
+                                     font=dict(size=9, color="#808080")),
+                          xaxis_title="Delta", yaxis_title="Vol (%)"))
         return fig
     except Exception as exc:
         logger.warning("Smile comparison failed for %s: %s", pair, exc)
@@ -800,7 +810,8 @@ def _build_bf_map():
                           margin=dict(l=55, r=20, t=25, b=10), showlegend=False,
                           title=dict(text="25D BUTTERFLY (3M)",
                                      font=dict(size=10, color="#808080")),
-                          xaxis=dict(tickfont=dict(size=8)),
+                          xaxis=dict(tickfont=dict(size=8),
+                                     title=dict(text="25D BF (vol pts)", font=dict(size=9, color="#808080"))),
                           yaxis=dict(tickfont=dict(size=7))))
         return fig
     except Exception as exc:

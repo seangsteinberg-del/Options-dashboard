@@ -156,6 +156,9 @@ def _build_vol_spread_ts(pair_a, pair_b, tenor, lookback):
                           title=dict(text=f"VOL SPREAD: {pair_a} vs {pair_b} ({tenor})",
                                      font=dict(size=10, color="#808080")),
                           legend=dict(x=0.02, y=0.98, font=dict(size=8))))
+        fig.update_yaxes(title_text="Vol (%)", secondary_y=False)
+        fig.update_yaxes(title_text="Z-Score (\u03c3)", secondary_y=True)
+        fig.update_xaxes(title_text="Trading Days")
         return fig
     except Exception:
         return _empty_fig("VOL SPREAD")
@@ -203,7 +206,8 @@ def _build_zscore_matrix(lookback):
                           yaxis=dict(autorange="reversed", tickfont=dict(size=8, color="#808080"),
                                      showgrid=False),
                           xaxis=dict(tickfont=dict(size=9, color="#808080"),
-                                     showgrid=False)))
+                                     showgrid=False,
+                                     title=dict(text="Tenor", font=dict(size=9, color="#808080")))))
         return fig
     except Exception:
         return _empty_fig("Z-SCORE MATRIX")
@@ -540,7 +544,8 @@ def _build_rolling_chart(pair_a, pair_b):
                           title=dict(text=f"ROLLING CORRELATION: {pair_a} vs {pair_b}",
                                      font=dict(size=10, color="#808080")),
                           yaxis=dict(range=[-1.05, 1.05]),
-                          legend=dict(x=0.02, y=0.98, font=dict(size=8), orientation="h")))
+                          legend=dict(x=0.02, y=0.98, font=dict(size=8), orientation="h"),
+                          xaxis_title="Trading Days", yaxis_title="Correlation (\u03c1)"))
         return fig
     except Exception:
         return _empty_fig(f"ROLLING CORR: {pair_a} vs {pair_b}")
@@ -627,7 +632,8 @@ def _build_dxy_chart(lookback):
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"DXY PROXY ({lookback}D)",
                                      font=dict(size=10, color="#808080")),
-                          legend=dict(x=0.02, y=0.98, font=dict(size=8))))
+                          legend=dict(x=0.02, y=0.98, font=dict(size=8)),
+                          xaxis_title="Trading Days", yaxis_title="Index Level"))
         return fig
     except Exception:
         return _empty_fig("DXY PROXY")
@@ -727,7 +733,8 @@ def _build_cb_chart():
                       margin=dict(l=40, r=80, t=30, b=10), showlegend=False,
                       title=dict(text="CENTRAL BANK POLICY RATES",
                                  font=dict(size=10, color="#808080")),
-                      xaxis=dict(tickfont=dict(size=8)),
+                      xaxis=dict(tickfont=dict(size=8),
+                                 title=dict(text="Policy Rate (%)", font=dict(size=9, color="#808080"))),
                       yaxis=dict(tickfont=dict(size=9))))
     return fig
 
@@ -807,7 +814,8 @@ def _build_term_chart(pair, comp_pair=None):
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"TERM STRUCTURE: {pair}",
                                      font=dict(size=10, color="#808080")),
-                          legend=dict(x=0.02, y=0.98, font=dict(size=8))))
+                          legend=dict(x=0.02, y=0.98, font=dict(size=8)),
+                          xaxis_title="Tenor", yaxis_title="ATM Vol (%)"))
         return fig
     except Exception:
         return _empty_fig(f"{pair} TERM")
@@ -852,7 +860,8 @@ def _build_fwd_vol(pair):
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"FORWARD VOL: {pair}",
                                      font=dict(size=10, color="#808080")),
-                          legend=dict(x=0.02, y=0.98, font=dict(size=8))))
+                          legend=dict(x=0.02, y=0.98, font=dict(size=8)),
+                          xaxis_title="Tenor", yaxis_title="Vol (%)"))
         return fig
     except Exception:
         return _empty_fig(f"{pair} FWD VOL")
@@ -894,7 +903,8 @@ def _build_calendar_spread(pair):
                           barmode="overlay",
                           title=dict(text=f"CALENDAR SPREAD (1M-3M): {pair}",
                                      font=dict(size=10, color="#808080")),
-                          legend=dict(x=0.02, y=0.98, font=dict(size=8))))
+                          legend=dict(x=0.02, y=0.98, font=dict(size=8)),
+                          xaxis_title="Trading Days", yaxis_title="Spread (vol pts)"))
         return fig
     except Exception:
         return _empty_fig(f"{pair} CALENDAR SPREAD")

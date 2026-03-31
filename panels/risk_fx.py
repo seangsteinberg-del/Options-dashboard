@@ -966,22 +966,28 @@ def register_callbacks(app):
                               family="'JetBrains Mono', monospace"),
                 ))
 
-            # Use absolute values for color scale
-            z_abs = [[abs(v) for v in row] for row in z_vals]
+            # Use signed values for color scale with diverging colorscale
+            # so color matches the sign shown in the text annotations
+            z_flat = [v for row in z_vals for v in row if v != 0]
+            z_max = max(abs(v) for v in z_flat) if z_flat else 1
 
             heatmap_fig = go.Figure(data=go.Heatmap(
-                z=z_abs,
+                z=z_vals,
                 x=extended_buckets,
                 y=extended_pairs,
+                zmid=0,
+                zmin=-z_max,
+                zmax=z_max,
                 colorscale=[
-                    [0.0, COLORS["bg_secondary"]],
-                    [0.3, COLORS["accent_blue"]],
-                    [0.6, COLORS["accent_purple"]],
+                    [0.0, COLORS["accent_blue"]],
+                    [0.3, "#0a1628"],
+                    [0.5, COLORS["bg_secondary"]],
+                    [0.7, "#2a1200"],
                     [1.0, COLORS["accent_red"]],
                 ],
                 showscale=True,
                 colorbar=dict(
-                    title=dict(text="|Vega|", font=dict(color=COLORS["text_secondary"], size=10)),
+                    title=dict(text="Vega ($)", font=dict(color=COLORS["text_secondary"], size=10)),
                     tickfont=dict(color=COLORS["text_muted"], size=9),
                     thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
                 ),

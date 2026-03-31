@@ -694,6 +694,7 @@ def _study_surface_heatmap(pair, func, title_prefix):
             xgap=2, ygap=2))
         fig.update_layout(**chart_layout(
             title=dict(text=f"{pair} {title_prefix}", font=dict(size=11, color="#ff8800", family=_FONT)),
+            xaxis_title="Tenor", yaxis_title="Delta",
             margin=dict(l=60, r=20, t=40, b=40)))
         return fig
     except Exception:
@@ -740,7 +741,7 @@ def _study_breakeven(pair, tenor, timeframe):
                               hovertemplate="%{x}: %{y:.2f}%<extra></extra>"))
         fig.update_layout(**chart_layout(
             title=dict(text=f"{pair} {tenor} Breakeven Analysis", font=dict(size=11, color="#ff8800", family=_FONT)),
-            yaxis_title="Vol (%)", margin=dict(l=45, r=15, t=40, b=30)))
+            xaxis_title="Metric", yaxis_title="Vol (%)", margin=dict(l=45, r=15, t=40, b=30)))
         return fig
     except Exception:
         return _empty("Error building breakeven")
@@ -760,7 +761,7 @@ def _study_carry_landscape(pairs, tenor, timeframe):
                               hovertemplate="<b>%{x}</b><br>Sharpe: %{y:.2f}<extra></extra>"))
         fig.update_layout(**chart_layout(
             title=dict(text="Carry / Vol Ranking (Sharpe Proxy)", font=dict(size=11, color="#ff8800", family=_FONT)),
-            yaxis_title="Sharpe Proxy", margin=dict(l=45, r=15, t=40, b=30)))
+            xaxis_title="Pair", yaxis_title="Sharpe Proxy", margin=dict(l=45, r=15, t=40, b=30)))
         return fig
     except Exception:
         return _empty("Error building carry landscape")

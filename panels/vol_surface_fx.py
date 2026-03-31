@@ -955,8 +955,12 @@ def chart_iv_rv(pair, sd, spot, r_dom, r_for, **kw):
         ),
     )
 
-    # Zero line for spread
-    fig.add_hline(y=0, line=dict(color=COLORS["border"], width=0.5))
+    # Zero line for spread (on secondary y2 axis where bars are plotted)
+    fig.add_shape(
+        type="line", x0=0, x1=1, y0=0, y1=0,
+        xref="paper", yref="y2",
+        line=dict(color=COLORS["border"], width=0.5),
+    )
 
     # Current spread annotation
     if len(spread_arr) == 0 or len(days) == 0:

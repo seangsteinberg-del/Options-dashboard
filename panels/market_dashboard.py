@@ -537,7 +537,8 @@ def _build_vol_index_chart(pairs):
                                  showlegend=False))
         fig.update_layout(**_chart_layout( height=_CHART_H,
                           margin=dict(l=50, r=15, t=35, b=28), showlegend=False,
-                          title=dict(text="G10 VOL INDEX (60D)", font=dict(size=10, color="#808080"))))
+                          title=dict(text="G10 VOL INDEX (60D)", font=dict(size=10, color="#808080")),
+                          xaxis_title="Trading Days", yaxis_title="Vol (%)"))
         return fig
     except Exception:
         return _empty_fig("G10 VOL INDEX", msg="Insufficient vol history")
@@ -574,7 +575,8 @@ def _build_skew_chart(pairs):
                           margin=dict(l=55, r=10, t=25, b=10), showlegend=False,
                           title=dict(text="25D RR (SKEW)", font=dict(size=10, color="#808080")),
                           xaxis=dict(zeroline=True, zerolinecolor="#808080", zerolinewidth=1,
-                                     gridcolor="#111111", tickfont=dict(size=8)),
+                                     gridcolor="#111111", tickfont=dict(size=8),
+                                     title=dict(text="Risk Reversal (vol pts)", font=dict(size=9, color="#808080"))),
                           yaxis=dict(tickfont=dict(size=8, color="#d4d4d4"))))
         return fig
     except Exception:
@@ -616,7 +618,8 @@ def _build_term_chart(pairs):
                           margin=dict(l=55, r=10, t=25, b=10), showlegend=False,
                           title=dict(text="1M-1Y SPREAD", font=dict(size=10, color="#808080")),
                           xaxis=dict(zeroline=True, zerolinecolor="#808080", zerolinewidth=1,
-                                     gridcolor="#111111", tickfont=dict(size=8)),
+                                     gridcolor="#111111", tickfont=dict(size=8),
+                                     title=dict(text="Spread (vol pts)", font=dict(size=9, color="#808080"))),
                           yaxis=dict(tickfont=dict(size=8, color="#d4d4d4"))))
         return fig
     except Exception:
@@ -668,7 +671,8 @@ def _build_vol_richness_heatmap(pairs):
             height=CHART_SM,
             margin=dict(l=65, r=10, t=30, b=25), showlegend=False,
             title=dict(text="VOL RICHNESS (% ILE)", font=dict(size=10, color="#808080")),
-            xaxis=dict(tickfont=dict(size=9, color="#808080")),
+            xaxis=dict(tickfont=dict(size=9, color="#808080"),
+                       title=dict(text="Tenor", font=dict(size=9, color="#808080"))),
             yaxis=dict(tickfont=dict(size=9, color="#d4d4d4"), autorange="reversed"),
         ))
         return fig
