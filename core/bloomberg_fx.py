@@ -1067,7 +1067,7 @@ def get_fx_snapshot(pair: str) -> dict:
     Complete snapshot for a single pair: spot, vol surface, rates, forwards.
     Useful for populating a full pricer panel.
     """
-    spot_data = get_fx_spots([pair]).get(pair, {})
+    spot_data = (get_fx_spots([pair]) or {}).get(pair, {})
     vol_surface = get_fx_vol_surface(pair)
     rates = get_fx_rates(pair)
     fwd_curve = get_fx_forward_curve(pair)
@@ -1089,7 +1089,7 @@ def get_fx_board(pairs: List[str] = None) -> pd.DataFrame:
     """
     if pairs is None:
         pairs = _ALL_PAIRS
-    spots = get_fx_spots(pairs)
+    spots = get_fx_spots(pairs) or {}
     rows = []
     for pair in pairs:
         sd = spots.get(pair, {})
@@ -1123,7 +1123,7 @@ def get_fx_vol_matrix(pairs: List[str] = None,
 
     data = {}
     for pair in pairs:
-        surface = get_fx_vol_surface(pair)
+        surface = get_fx_vol_surface(pair) or {}
         row = {}
         for tenor in tenors:
             row[tenor] = surface.get(tenor, {}).get("atm", 0)
@@ -1168,7 +1168,7 @@ def get_fx_risk_reversal_monitor(pairs: List[str] = None,
         pairs = _ALL_PAIRS
     rows = []
     for pair in pairs:
-        surface = get_fx_vol_surface(pair)
+        surface = get_fx_vol_surface(pair) or {}
         td = surface.get(tenor, {})
         rows.append({
             "pair": pair,
@@ -1207,7 +1207,7 @@ def get_fx_term_structure(pair: str) -> pd.DataFrame:
     """
     Full vol term structure for a single pair: all tenors with all metrics.
     """
-    surface = get_fx_vol_surface(pair)
+    surface = get_fx_vol_surface(pair) or {}
     rows = []
     for tenor in _ALL_TENORS:
         td = surface.get(tenor, {})

@@ -563,7 +563,7 @@ def breakeven_vol(pair: str, tenor: str, days_to_expiry: int) -> dict:
     Accounts for time decay (theta) vs gamma P&L.
     """
     T = days_to_expiry / 365.0
-    spots = get_fx_spots([pair])
+    spots = get_fx_spots([pair]) or {}
     spot = spots.get(pair, {}).get("mid", 1.0)
 
     rates = get_fx_rates(pair)
@@ -620,7 +620,7 @@ def theta_gamma_ratio(pair: str, tenor: str) -> dict:
     Useful for comparing vega-neutral structures.
     """
     T = tenor_to_years(tenor)
-    spots = get_fx_spots([pair])
+    spots = get_fx_spots([pair]) or {}
     spot = spots.get(pair, {}).get("mid", 1.0)
 
     surface = get_fx_vol_surface(pair)
@@ -662,7 +662,7 @@ def vol_carry(pair: str, tenor: str) -> dict:
     Negative carry = cost of holding a long vol position.
     """
     T = tenor_to_years(tenor)
-    spots = get_fx_spots([pair])
+    spots = get_fx_spots([pair]) or {}
     spot = spots.get(pair, {}).get("mid", 1.0)
 
     surface = get_fx_vol_surface(pair)
@@ -907,7 +907,7 @@ def smile_implied_pdf(pair: str, tenor: str,
     the implied PDF: f(K) = e^{rT} * d^2C/dK^2
     """
     T = tenor_to_years(tenor)
-    spots = get_fx_spots([pair])
+    spots = get_fx_spots([pair]) or {}
     spot = spots.get(pair, {}).get("mid", 1.0)
 
     rates = get_fx_rates(pair)
@@ -1010,7 +1010,7 @@ def tail_probabilities(pair: str, tenor: str,
     cdf_df = smile_implied_cdf(pair, tenor)
     if cdf_df.empty:
         return pd.DataFrame()
-    spots = get_fx_spots([pair])
+    spots = get_fx_spots([pair]) or {}
     spot = spots.get(pair, {}).get("mid", 1.0)
 
     strikes = cdf_df["strike"].values
@@ -1711,7 +1711,7 @@ def carry_table(pairs: List[str] = None) -> pd.DataFrame:
 
     records = []
     for p in pairs:
-        spots = get_fx_spots([p])
+        spots = get_fx_spots([p]) or {}
         spot = spots.get(p, {}).get("mid", 1.0)
 
         rates = get_fx_rates(p)
