@@ -450,7 +450,9 @@ def _fetch_series(pair, metric, tenor, timeframe):
             label = f"{pair} Spot"
             df = get_fx_historical_spot(pair, int(timeframe))
             if df is not None and not df.empty:
-                col = "close" if "close" in df.columns else ("Close" if "Close" in df.columns else df.columns[-1])
+                col = "close" if "close" in df.columns else ("Close" if "Close" in df.columns else (df.columns[-1] if len(df.columns) > 0 else None))
+                if col is None:
+                    return None, label
                 s = df[col]; s.name = label
                 return s, label
             return None, label

@@ -2059,8 +2059,8 @@ def expected_shortfall(returns: np.ndarray, confidence: float = 0.95,
     cutoff = max(cutoff, 1)
     cutoff = min(cutoff, len(sorted_ret) - 1)
 
-    var_val = -sorted_ret[cutoff]
-    cvar = -np.mean(sorted_ret[:max(cutoff, 1)])
+    var_val = -sorted_ret[cutoff - 1]
+    cvar = -np.mean(sorted_ret[:cutoff])
     cvar_horizon = cvar * np.sqrt(horizon)
 
     return {

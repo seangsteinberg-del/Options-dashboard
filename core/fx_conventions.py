@@ -273,7 +273,8 @@ def delta_to_strike_vectorized(deltas, S, T, r_d, r_f, sigma, convention="spot")
     abs_delta = np.abs(deltas)
 
     # Initial guess from simple spot delta inversion
-    K = F * np.exp(-cp * norm.ppf(abs_delta * np.exp(r_f * T)) * sigma * sqrtT
+    ppf_arg = np.clip(abs_delta * np.exp(r_f * T), 1e-8, 1.0 - 1e-8)
+    K = F * np.exp(-cp * norm.ppf(ppf_arg) * sigma * sqrtT
                    + 0.5 * sigma ** 2 * T)
 
     for _ in range(50):

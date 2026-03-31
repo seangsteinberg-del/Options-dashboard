@@ -82,15 +82,15 @@ def _gk_greeks(S, K, T, r_d, r_f, sigma, cp):
         delta_val = df_f * nd1
         theta_val = (-(S * df_f * npd1 * sigma) / (2 * sqrtT)
                      - r_d * K * df_d * nd2 + r_f * S * df_f * nd1) / 365.0
-        rho_d_val = K * T * df_d * nd2 / 100.0
-        rho_f_val = -S * T * df_f * nd1 / 100.0
+        rho_d_val = K * T * df_d * nd2 / 10000.0
+        rho_f_val = -S * T * df_f * nd1 / 10000.0
     else:
         price = K * df_d * norm.cdf(-d2) - S * df_f * norm.cdf(-d1)
         delta_val = df_f * (nd1 - 1)
         theta_val = (-(S * df_f * npd1 * sigma) / (2 * sqrtT)
                      + r_d * K * df_d * norm.cdf(-d2) - r_f * S * df_f * norm.cdf(-d1)) / 365.0
-        rho_d_val = -K * T * df_d * norm.cdf(-d2) / 100.0
-        rho_f_val = S * T * df_f * norm.cdf(-d1) / 100.0
+        rho_d_val = -K * T * df_d * norm.cdf(-d2) / 10000.0
+        rho_f_val = S * T * df_f * norm.cdf(-d1) / 10000.0
 
     gamma_val = df_f * npd1 / (S * sigma * sqrtT)
     vega_val = S * df_f * npd1 * sqrtT / 100.0

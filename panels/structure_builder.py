@@ -324,8 +324,8 @@ def _gk_greeks(S, K, T, r_d, r_f, sigma, cp):
         + cp_f * r_f_f * S_f * exp_rf * nd1
         - cp_f * r_d_f * K_f * exp_rd * nd2
     ) / 365.0
-    rho_d = cp_f * K_f * T_safe * exp_rd * nd2 / 100.0
-    rho_f = -cp_f * S_f * T_safe * exp_rf * nd1 / 100.0
+    rho_d = cp_f * K_f * T_safe * exp_rd * nd2 / 10000.0
+    rho_f = -cp_f * S_f * T_safe * exp_rf * nd1 / 10000.0
     vanna = -exp_rf * npd1 * d2 / sigma_safe
     volga = S_f * exp_rf * npd1 * sqrt_T * d1 * d2 / sigma_safe
 

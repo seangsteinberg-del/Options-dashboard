@@ -805,11 +805,11 @@ def exotic_greeks(price_func: Callable, base_params: dict,
         elif param == 'r_d':
             up_params['r_d'] = base_params['r_d'] + h
             dn_params['r_d'] = base_params['r_d'] - h
-            greeks['rho_d'] = (_price(up_params) - _price(dn_params)) / (2 * h) / 100.0
+            greeks['rho_d'] = (_price(up_params) - _price(dn_params)) / (2 * h) / 10000.0
         elif param == 'r_f':
             up_params['r_f'] = base_params['r_f'] + h
             dn_params['r_f'] = base_params['r_f'] - h
-            greeks['rho_f'] = (_price(up_params) - _price(dn_params)) / (2 * h) / 100.0
+            greeks['rho_f'] = (_price(up_params) - _price(dn_params)) / (2 * h) / 10000.0
 
     return greeks
 

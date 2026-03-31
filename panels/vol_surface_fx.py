@@ -1228,7 +1228,10 @@ def _lab_fetch_series(pair, metric_key, tenor, window):
             df = get_fx_historical_spot(pair, int(window))
             if df is not None and not df.empty:
                 col = ("close" if "close" in df.columns
-                       else ("Close" if "Close" in df.columns else df.columns[-1]))
+                       else ("Close" if "Close" in df.columns
+                             else (df.columns[-1] if len(df.columns) > 0 else None)))
+                if col is None:
+                    return None, label
                 s = df[col]; s.name = label
                 return s, label
         elif bbg_metric == "IV_RV":
@@ -1839,7 +1842,7 @@ def _build_overnight_summary(pair, spot):
                     if col in hist_raw.columns:
                         hist = hist_raw[col].values
                         break
-                if hist is None:
+                if hist is None and len(hist_raw.columns) > 0:
                     hist = hist_raw.iloc[:, -1].values
             elif isinstance(hist_raw, pd.Series):
                 hist = hist_raw.values
