@@ -58,6 +58,9 @@ def monte_carlo_price(S, K, T, r, q, sigma, option_type="call",
     GBM Monte Carlo pricer with antithetic variance reduction.
     Optionally returns sample paths for visualization.
     """
+    if S <= 0 or K <= 0 or T <= 0 or sigma <= 1e-10:
+        return {"price": 0.0, "std_error": 0.0, "n_paths": n_paths}
+
     if seed is not None:
         rng = np.random.RandomState(seed)
     else:
@@ -109,6 +112,10 @@ def monte_carlo_price(S, K, T, r, q, sigma, option_type="call",
 def binomial_tree_price(S, K, T, r, q, sigma, option_type="call",
                         n_steps=200, american=False):
     """Cox-Ross-Rubinstein binomial tree. Supports American exercise."""
+    if T <= 0 or sigma <= 1e-10 or S <= 0 or K <= 0:
+        if option_type == "call":
+            return max(S - K, 0.0)
+        return max(K - S, 0.0)
     dt = T / n_steps
     u = np.exp(sigma * np.sqrt(dt))
     d = 1.0 / u
