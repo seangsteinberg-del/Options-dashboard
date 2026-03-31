@@ -930,6 +930,8 @@ def smile_implied_pdf(pair: str, tenor: str,
     k_min = fwd * np.exp(-4 * atm * np.sqrt(T))
     k_max = fwd * np.exp(4 * atm * np.sqrt(T))
     n_points = max(n_points, 2)  # need at least 2 points for dk
+    if k_max - k_min < 1e-10:
+        return pd.DataFrame()  # degenerate strike range (zero vol or zero time)
     strikes = np.linspace(k_min, k_max, n_points)
     dk = strikes[1] - strikes[0]
 
