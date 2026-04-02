@@ -703,7 +703,7 @@ def _build_risk_treemap(positions):
                 notional = abs(pos.get("notional", 1_000_000))
                 pnl = pos.get("pnl", pos.get("unrealized_pnl", 0))
                 pos_id = pos.get("id", "?")
-                cp = pos.get("type", pos.get("cp", pos.get("option_type", "?"))).upper()
+                cp = str(pos.get("option_type", pos.get("type", pos.get("cp", "?")))).upper()
                 strike = pos.get("strike", 0)
                 tenor = pos.get("tenor", "?")
                 side = "LONG" if pos.get("side", pos.get("direction", 1)) in ("buy", 1) else "SHORT"
@@ -854,9 +854,11 @@ def _build_greeks_landscape(positions, pair, spots, rates, vol_surfaces):
     for pos in pair_positions:
         K = pos.get("strike", spot)
         vol = _safe_atm_vol(vol_surfaces.get(pair, 0.10))
-        cp = 1 if pos.get("option_type", pos.get("type", "call")).lower() == "call" else -1
+        opt_type = str(pos.get("option_type", pos.get("type", "call"))).lower()
+        cp = 1 if opt_type == "call" else -1
         notional = pos.get("notional", 1_000_000)
-        direction = 1 if pos.get("direction", pos.get("side", "buy")).lower() == "buy" else -1
+        dir_val = pos.get("direction", pos.get("side", "buy"))
+        direction = 1 if (dir_val in (1, "buy", "long") or str(dir_val).lower() in ("buy", "long")) else -1
 
         for ti, t in enumerate(time_range):
             t_use = max(t, 1e-6)
@@ -1425,8 +1427,9 @@ def register_callbacks(app):
 
             return treemap_fig, gex_fig, landscape_fig
 
-        except Exception:
-            _err = no_data_fig(height=400, msg="CHART ERROR")
+        except Exception as e:
+            logger.error("Greeks extra charts failed: %s", e, exc_info=True)
+            _err = no_data_fig(height=400, msg=f"NO DATA: {type(e).__name__}")
             return _err, _err, _err
 
     # -----------------------------------------------------------------------
