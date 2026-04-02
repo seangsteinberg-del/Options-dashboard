@@ -61,6 +61,9 @@ def monte_carlo_price(S, K, T, r, q, sigma, option_type="call",
     if S <= 0 or K <= 0 or T <= 0 or sigma <= 1e-10:
         return {"price": 0.0, "std_error": 0.0, "n_paths": n_paths}
 
+    n_paths = max(n_paths, 2)
+    n_steps = max(n_steps, 1)
+
     if seed is not None:
         rng = np.random.RandomState(seed)
     else:

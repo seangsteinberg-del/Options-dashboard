@@ -33,8 +33,11 @@
     fixInputs();
 
     // Watch for DOM changes (dropdowns opening, React re-renders)
+    // Debounced to avoid hammering the DOM on rapid mutations
+    var _debounceTimer;
     var observer = new MutationObserver(function() {
-        fixInputs();
+        clearTimeout(_debounceTimer);
+        _debounceTimer = setTimeout(fixInputs, 80);
     });
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
 })();

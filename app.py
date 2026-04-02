@@ -1435,6 +1435,18 @@ backtest.register_callbacks(app)
 # ═══════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    # Load saved portfolio from disk (trades persist across restarts)
+    from core.fx_portfolio import load_portfolio
+    _portfolio = load_portfolio()
+    _n_positions = sum(
+        len([p for p in bk if p.get("status") == "open"])
+        for bk in _portfolio.get("books", {}).values()
+    )
+    if _n_positions:
+        print(f"  Loaded portfolio: {_n_positions} open position(s)")
+    else:
+        print("  Portfolio: empty (no saved positions)")
+
     # Connect to Bloomberg Terminal — required for all market data.
     print("  Connecting to Bloomberg Terminal...")
     bbg_connected = is_connected()

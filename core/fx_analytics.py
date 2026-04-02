@@ -438,6 +438,9 @@ def vol_cone(pair: str,
         c2c = pd.Series(log_ret).rolling(w).std() * np.sqrt(252) * 100
         c2c_clean = c2c.dropna().values
 
+        if len(c2c_clean) < 5:
+            continue
+
         # Parkinson estimator (simulate high/low from returns)
         high_proxy = spot_hist[1:] * np.exp(np.abs(log_ret) * 0.6)
         low_proxy = spot_hist[1:] * np.exp(-np.abs(log_ret) * 0.6)
@@ -451,9 +454,6 @@ def vol_cone(pair: str,
         gk_rv = pd.Series(gk_var).rolling(w).mean() * 252
         gk_vals = gk_rv.dropna().values
         gk = np.sqrt(np.maximum(gk_vals, 0.0)) * 100  # Floor at zero instead of abs()
-
-        if len(c2c_clean) < 5:
-            continue
 
         current_c2c = c2c_clean[-1]
         current_park = parkinson[-1] if len(parkinson) > 0 else current_c2c

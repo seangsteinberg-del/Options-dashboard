@@ -516,7 +516,7 @@ def asian_price(S, K, T, r_d, r_f, sigma, cp, fixing_freq='monthly',
     # beta coefficient for control variate
     cov_ag = np.cov(payoff_arith, payoff_geom)[0, 1]
     var_g = np.var(payoff_geom)
-    beta_cv = cov_ag / var_g if var_g > 1e-12 else 0.0
+    beta_cv = np.clip(cov_ag / var_g, -10, 10) if var_g > 1e-12 else 0.0
 
     adjusted = payoff_arith - beta_cv * (payoff_geom - np.exp(r_d * T) * geom_analytic)
     price = np.exp(-r_d * T) * np.mean(adjusted)

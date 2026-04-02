@@ -310,6 +310,7 @@ def add_position(book, position_dict):
             "position_id": pos["id"],
             "details": deepcopy(pos),
         })
+    save_portfolio()
     return pos["id"]
 
 
@@ -333,6 +334,7 @@ def close_position(book, position_id, close_price=None, close_date=None):
                     "close_date": pos["close_date"],
                     "details": deepcopy(pos),
                 })
+                save_portfolio()
                 return True
     return False
 
@@ -395,6 +397,7 @@ def partial_close(book, position_id, close_notional):
                     "remaining_notional": remaining,
                 })
                 pos["notional"] = remaining
+                save_portfolio()
                 return True
     return False
 
@@ -450,7 +453,8 @@ def compute_position_greeks(pos, spot, r_d, r_f, vol_surface):
     # pairs (approximation for crosses).
     scaled = {}
     for key in ("delta", "gamma", "vega", "theta", "rho_d", "rho_f", "vanna", "volga"):
-        scaled[key] = greeks[key] * notional * sign
+        val = greeks[key] * notional * sign
+        scaled[key] = val if np.isfinite(val) else 0.0
     scaled["price"] = greeks["price"] * notional * sign
     scaled["pair"] = pair
     scaled["position_id"] = pos.get("id", "")
@@ -827,6 +831,8 @@ def hedge_suggestion(portfolio_risk, target="delta_neutral"):
 
     # Scale thresholds by total portfolio vega (notional proxy)
     total_vega = sum(abs(risk.get("vega", 0)) for risk in by_pair.values())
+    if not np.isfinite(total_vega):
+        total_vega = 0.0
     scale = max(total_vega / 50_000, 1.0)  # baseline = 50K vega
     delta_threshold = 10_000 * scale
     vega_threshold = 5_000 * scale
@@ -976,7 +982,7 @@ def load_portfolio(filepath=None):
                 "risk_limits": deepcopy(DEFAULT_RISK_LIMITS),
             }
     else:
-        create_sample_portfolio()
+        logger.info("No portfolio file found at %s — starting empty", filepath)
     return _PORTFOLIO
 
 
