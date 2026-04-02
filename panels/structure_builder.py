@@ -2271,7 +2271,7 @@ def _make_leg_row(idx, cp="call", side="buy", delta=0.25, ratio=1, tenor_mult=1.
                                      "fontWeight": "600"}),
                     html.Span(" \u00b7 ", style={"color": "#3a3a5c"}),
                     html.Span(id={"type": "stb-vol-disp", "index": idx},
-                              style={"color": "#e0e0e0", "fontSize": "10px"}),
+                              style={"color": COLORS["text_primary"], "fontSize": "10px"}),
                     html.Span(" \u00b7 ", style={"color": "#3a3a5c"}),
                     html.Span(id={"type": "stb-prem-disp", "index": idx},
                               style={"color": COLORS["accent_orange"], "fontSize": "11px",
@@ -2370,7 +2370,7 @@ def layout():
 
                 # Leg header
                 html.Div("OPTION LEGS", style={
-                    "color": "#ffffff", "fontSize": "11px", "fontWeight": "700",
+                    "color": COLORS["text_bright"], "fontSize": "11px", "fontWeight": "700",
                     "fontFamily": "'JetBrains Mono', monospace", "letterSpacing": "1.5px",
                     "textTransform": "uppercase", "marginBottom": "6px",
                     "paddingBottom": "4px", "borderBottom": f"1px solid {COLORS['border']}",
@@ -2978,7 +2978,7 @@ def register_callbacks(app):
                                  "bf_pct": "WINGS", "ivrv_pct": "IV-RV"}
                     for key, label in pct_names.items():
                         val = signal_pcts.get(key, 50)
-                        bar_color = ("#1565c0" if val < 25 else "#ff8800"
+                        bar_color = ("#1565c0" if val < 25 else COLORS["accent_orange"]
                                      if val > 75 else "#3a3a5c")
                         regime_items.append(html.Div([
                             html.Span(f"{label} ", style={"color": "#555555",
@@ -3008,7 +3008,7 @@ def register_callbacks(app):
                         html.Button(
                             [html.Span(f"{sg['signal']} ", style={"fontWeight": "700"}),
                              html.Span(f"\u2192 {best_struct or '?'}",
-                                       style={"color": "#e0e0e0"})],
+                                       style={"color": COLORS["text_primary"]})],
                             id={"type": "stb-suggestion-btn", "index": si},
                             n_clicks=0,
                             style={"color": sg["color"], "fontSize": "9px", "background": "none",

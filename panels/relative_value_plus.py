@@ -502,21 +502,21 @@ def _build_regime_badges():
             if vol_regime_detect:
                 info = vol_regime_detect(pair)
                 regime = info.get("regime", "NORMAL") if isinstance(info, dict) else "NORMAL"
-                color = info.get("color", "#e0e0e0") if isinstance(info, dict) else "#e0e0e0"
+                color = info.get("color", COLORS["text_primary"]) if isinstance(info, dict) else COLORS["text_primary"]
             else:
                 regime = "NORMAL"
-                color = "#e0e0e0"
+                color = COLORS["text_primary"]
         except Exception:
             regime = "NORMAL"
-            color = "#e0e0e0"
+            color = COLORS["text_primary"]
 
-        regime_colors = {"LOW": "#00cc66", "NORMAL": "#e0e0e0", "ELEVATED": "#ff8800",
-                         "HIGH": "#ff3333", "CRISIS": "#ff3333"}
+        regime_colors = {"LOW": COLORS["accent_green"], "NORMAL": COLORS["text_primary"], "ELEVATED": COLORS["accent_orange"],
+                         "HIGH": COLORS["accent_red"], "CRISIS": COLORS["accent_red"]}
         color = regime_colors.get(regime, color)
 
         badges.append(html.Div([
             html.Div(f"{pair[:3]}/{pair[3:]}", style={
-                "fontSize": "9px", "fontWeight": "700", "color": "#e0e0e0", "fontFamily": _MONO,
+                "fontSize": "9px", "fontWeight": "700", "color": COLORS["text_primary"], "fontFamily": _MONO,
             }),
             html.Div(regime, style={
                 "fontSize": "8px", "fontWeight": "600", "color": color, "fontFamily": _MONO,
@@ -524,7 +524,7 @@ def _build_regime_badges():
         ], style={
             "border": f"1px solid {color}", "borderRadius": "0px",
             "padding": "4px 6px", "textAlign": "center", "minWidth": "70px",
-            "backgroundColor": "#000000",
+            "backgroundColor": COLORS["bg_primary"],
         }))
     return badges
 
@@ -535,7 +535,7 @@ def _build_breakdown_table(window_short=20, window_long=120):
     corr_l = _safe_corr_matrix(window_long)
     if corr_s is None or corr_l is None:
         return html.Div("NO CORRELATION DATA",
-                        style={"color": "#9a9ab0", "fontSize": "10px", "padding": "8px"})
+                        style={"color": COLORS["text_secondary"], "fontSize": "10px", "padding": "8px"})
     n = len(MONITOR_PAIRS)
     # Ensure matrices match expected dimensions
     corr_s = np.array(corr_s, dtype=float)
@@ -543,7 +543,7 @@ def _build_breakdown_table(window_short=20, window_long=120):
     for arr_name, arr in [("corr_s", corr_s), ("corr_l", corr_l)]:
         if arr.ndim != 2 or arr.shape[0] < n or arr.shape[1] < n:
             return html.Div("CORRELATION DATA DIMENSION MISMATCH",
-                            style={"color": "#9a9ab0", "fontSize": "10px", "padding": "8px"})
+                            style={"color": COLORS["text_secondary"], "fontSize": "10px", "padding": "8px"})
     corr_s, corr_l = corr_s[:n, :n], corr_l[:n, :n]
     divergences = []
     for i in range(n):
@@ -563,14 +563,14 @@ def _build_breakdown_table(window_short=20, window_long=120):
 
     if not divergences:
         return html.Div("No significant divergences (|gap| > 0.3)",
-                        style={"color": "#9a9ab0", "fontSize": "10px", "padding": "8px"})
+                        style={"color": COLORS["text_secondary"], "fontSize": "10px", "padding": "8px"})
 
     header = html.Tr([html.Th(h, style={**TABLE_HEADER_STYLE, "fontSize": "8px"})
                        for h in ["PAIR A", "PAIR B", "20D", "120D", "GAP", "SIGNAL"]])
     body = []
     for d in divergences[:min(len(divergences), 10)]:
-        gap_color = "#ff3333" if abs(d["gap"]) > 0.4 else "#ff8800"
-        sig_color = "#ff3333" if d["signal"] == "DIVERGING" else "#00cc66"
+        gap_color = COLORS["accent_red"] if abs(d["gap"]) > 0.4 else COLORS["accent_orange"]
+        sig_color = COLORS["accent_red"] if d["signal"] == "DIVERGING" else COLORS["accent_green"]
         body.append(html.Tr([
             html.Td(d["pair_a"], style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
             html.Td(d["pair_b"], style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
@@ -861,13 +861,13 @@ def _build_rate_table():
         fgn = _sf(r.get("r_for", 0)) * 100
         diff = dom - fgn
         carry = "RECEIVE" if diff > 0.5 else "PAY" if diff < -0.5 else "FLAT"
-        carry_color = "#00cc66" if carry == "RECEIVE" else "#ff3333" if carry == "PAY" else "#9a9ab0"
+        carry_color = COLORS["accent_green"] if carry == "RECEIVE" else COLORS["accent_red"] if carry == "PAY" else COLORS["text_secondary"]
         body.append(html.Tr([
             html.Td(pair, style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
             html.Td(f"{dom:.2f}%", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
             html.Td(f"{fgn:.2f}%", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
             html.Td(f"{diff:+.2f}", style={**TABLE_CELL_STYLE, "textAlign": "right",
-                     "color": "#00cc66" if diff > 0 else "#ff3333"}),
+                     "color": COLORS["accent_green"] if diff > 0 else COLORS["accent_red"]}),
             html.Td(carry, style={**TABLE_CELL_STYLE, "color": carry_color, "fontWeight": "600"}),
         ]))
     return html.Table([html.Thead(header), html.Tbody(body)],
@@ -956,24 +956,24 @@ def _build_risk_sentiment():
         # Composite
         composite = np.mean([f[2] for f in factors])
         label = "RISK-OFF" if composite > 65 else "RISK-ON" if composite < 35 else "NEUTRAL"
-        color = "#ff3333" if composite > 65 else "#00cc66" if composite < 35 else "#ff8800"
+        color = COLORS["accent_red"] if composite > 65 else COLORS["accent_green"] if composite < 35 else COLORS["accent_orange"]
 
         items = [html.Div([
             html.Div(label, style={"fontSize": "16px", "fontWeight": "700",
                                    "color": color, "fontFamily": _MONO}),
             html.Div(f"COMPOSITE: {composite:.0f}" if np.isfinite(composite) else "COMPOSITE: —", style={
-                "fontSize": "9px", "color": "#9a9ab0", "fontFamily": _MONO}),
+                "fontSize": "9px", "color": COLORS["text_secondary"], "fontFamily": _MONO}),
         ], style={**STAT_BOX_STYLE, "borderTop": f"2px solid {color}"})]
 
         for name, val, score in factors:
             items.append(html.Div([
-                html.Div(val, style={"fontSize": "11px", "color": "#e0e0e0", "fontFamily": _MONO}),
-                html.Div(name, style={"fontSize": "8px", "color": "#9a9ab0", "fontFamily": _MONO}),
+                html.Div(val, style={"fontSize": "11px", "color": COLORS["text_primary"], "fontFamily": _MONO}),
+                html.Div(name, style={"fontSize": "8px", "color": COLORS["text_secondary"], "fontFamily": _MONO}),
             ], style={**STAT_BOX_STYLE}))
 
         return items
     except Exception:
-        return [html.Div("Error", style={"color": "#9a9ab0"})]
+        return [html.Div("Error", style={"color": COLORS["text_secondary"]})]
 
 
 def _build_cb_chart():
@@ -1374,7 +1374,7 @@ def layout():
         # ── Title + Controls ──
         html.Div([
             html.Span("RELATIVE VALUE", style={
-                "color": "#ffffff", "fontSize": "13px", "fontWeight": "700",
+                "color": COLORS["text_bright"], "fontSize": "13px", "fontWeight": "700",
                 "letterSpacing": "2px", "fontFamily": _MONO,
             }),
             html.Div([
@@ -1389,7 +1389,7 @@ def layout():
             ], style={"display": "flex", "gap": GAP}),
         ], style={"display": "flex", "justifyContent": "space-between",
                   "alignItems": "center", "padding": f"{GAP} 0",
-                  "borderBottom": "1px solid #2d2d50"}),
+                  "borderBottom": f"1px solid {COLORS['border']}"}),
 
         # ── Sub-Tabs ──
         dcc.Tabs(id=f"{_P}-tabs", value="cross-pair", children=[
@@ -1482,11 +1482,11 @@ def layout():
             html.Div([
                 html.Div([
                     html.Div("RATE DIFFERENTIALS", style={
-                        "color": "#9a9ab0", "fontSize": "9px", "fontWeight": "700",
+                        "color": COLORS["text_secondary"], "fontSize": "9px", "fontWeight": "700",
                         "letterSpacing": "1.5px", "marginBottom": GAP, "fontFamily": _MONO,
                     }),
                     html.Div(id=f"{_P}-rate-table", style={"overflowY": "auto", "maxHeight": "350px"}),
-                ], style={"flex": "1", "border": "1px solid #2d2d50", "padding": GAP}),
+                ], style={"flex": "1", "border": f"1px solid {COLORS['border']}", "padding": GAP}),
                 html.Div([
                     html.Div(id=f"{_P}-risk-sentiment", style={"marginBottom": GAP}),
                     html.Button("CSV", id=f"{_P}-csv-cb", n_clicks=0, style=CSV_BTN_STYLE),
@@ -1512,7 +1512,7 @@ def layout():
             dcc.Graph(id=f"{_P}-carry-bubble", config={"displayModeBar": False, "responsive": True},
                       style={"height": "400px", "marginBottom": GAP}),
             html.Div(id=f"{_P}-carry-table-wrapper", style={
-                "overflowY": "auto", "maxHeight": "350px", "border": "1px solid #2d2d50",
+                "overflowY": "auto", "maxHeight": "350px", "border": f"1px solid {COLORS['border']}",
             }),
             html.Div([
                 html.Div([
@@ -1613,7 +1613,7 @@ def register_callbacks(app):
     def update_signal_table(lookback):
         rows = _build_signal_table(lookback or 252)
         if not rows:
-            return html.Div("No signal data", style={"color": "#9a9ab0", "fontSize": "10px"})
+            return html.Div("No signal data", style={"color": COLORS["text_secondary"], "fontSize": "10px"})
 
         columns = [
             {"name": "PAIR", "id": "pair"},
@@ -1627,14 +1627,14 @@ def register_callbacks(app):
             columns=columns, data=rows, sort_action="native", page_size=30,
             style_table={"overflowX": "auto", "maxHeight": "400px"},
             style_header={
-                "backgroundColor": "#000000", "color": "#9a9ab0",
+                "backgroundColor": COLORS["bg_primary"], "color": COLORS["text_secondary"],
                 "fontWeight": "700", "fontSize": "9px", "textTransform": "uppercase",
-                "border": "1px solid #2d2d50", "fontFamily": _MONO,
+                "border": f"1px solid {COLORS['border']}", "fontFamily": _MONO,
             },
             style_cell={
-                "backgroundColor": "#000000", "color": "#e0e0e0",
+                "backgroundColor": COLORS["bg_primary"], "color": COLORS["text_primary"],
                 "fontSize": "11px", "fontFamily": _MONO,
-                "border": "1px solid #2d2d50", "padding": "4px 6px",
+                "border": f"1px solid {COLORS['border']}", "padding": "4px 6px",
                 "textAlign": "right",
             },
             style_cell_conditional=[
@@ -1646,13 +1646,13 @@ def register_callbacks(app):
                 {"if": {"filter_query": '{direction} = "BUY VOL"', "column_id": "direction"},
                  "color": "#1565c0", "fontWeight": "bold"},
                 {"if": {"filter_query": '{direction} = "SELL VOL"', "column_id": "direction"},
-                 "color": "#ff3333", "fontWeight": "bold"},
+                 "color": COLORS["accent_red"], "fontWeight": "bold"},
                 {"if": {"filter_query": "{composite} > 30", "column_id": "composite"},
-                 "color": "#ff3333", "fontWeight": "bold"},
+                 "color": COLORS["accent_red"], "fontWeight": "bold"},
                 {"if": {"filter_query": "{composite} < -30", "column_id": "composite"},
                  "color": "#1565c0", "fontWeight": "bold"},
                 {"if": {"filter_query": '{confidence} = "HIGH"', "column_id": "confidence"},
-                 "color": "#00cc66", "fontWeight": "bold"},
+                 "color": COLORS["accent_green"], "fontWeight": "bold"},
             ],
         )
 
@@ -1786,7 +1786,7 @@ def register_callbacks(app):
         except Exception as exc:
             logging.exception("update_macro failed")
             empty = no_data_fig("Error")
-            err_div = html.Div("Macro data error", style={"color": "#ff3333"})
+            err_div = html.Div("Macro data error", style={"color": COLORS["accent_red"]})
             return err_div, [err_div], empty, empty
 
     # ══════════ CARRY CALLBACKS ══════════
@@ -1810,20 +1810,20 @@ def register_callbacks(app):
         try:
             rows = _build_carry_data()
             if not rows:
-                return html.Div("No carry data", style={"color": "#9a9ab0"})
+                return html.Div("No carry data", style={"color": COLORS["text_secondary"]})
 
             header = html.Tr([html.Th(h, style={**TABLE_HEADER_STYLE, "fontSize": "8px"})
                                for h in ["PAIR", "ATM 1M", "ATM 3M", "ATM 1Y", "TERM", "FWD 3×3",
                                          "CARRY/D", "CARRY/VOL", "SIGNAL"]])
             body = []
             for r in rows:
-                sig_color = "#00cc66" if "SELL" in r.get("signal", "") else "#ff3333" if "BUY" in r.get("signal", "") else "#9a9ab0"
+                sig_color = COLORS["accent_green"] if "SELL" in r.get("signal", "") else COLORS["accent_red"] if "BUY" in r.get("signal", "") else COLORS["text_secondary"]
                 def _rv_fmt(v, fmt=".1f", suffix=""):
                     return f"{v:{fmt}}{suffix}" if np.isfinite(v) else "—"
                 ts = r['term_spread']
                 cv = r['carry_vol']
-                ts_color = "#ff3333" if np.isfinite(ts) and ts > 0.5 else "#00cc66" if np.isfinite(ts) and ts < -0.5 else "#e0e0e0"
-                cv_color = "#00cc66" if np.isfinite(cv) and cv > 2 else "#ff3333" if np.isfinite(cv) and cv < -1 else "#e0e0e0"
+                ts_color = COLORS["accent_red"] if np.isfinite(ts) and ts > 0.5 else COLORS["accent_green"] if np.isfinite(ts) and ts < -0.5 else COLORS["text_primary"]
+                cv_color = COLORS["accent_green"] if np.isfinite(cv) and cv > 2 else COLORS["accent_red"] if np.isfinite(cv) and cv < -1 else COLORS["text_primary"]
                 body.append(html.Tr([
                     html.Td(r["pair"], style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
                     html.Td(_rv_fmt(r['atm_1m'], ".1f", "v"), style={**TABLE_CELL_STYLE, "textAlign": "right"}),
@@ -1842,7 +1842,7 @@ def register_callbacks(app):
                                      "fontFamily": _MONO, "fontSize": "10px"})
         except Exception as exc:
             logging.exception("update_carry_table failed")
-            return html.Div("Carry data error", style={"color": "#ff3333", "padding": "8px"})
+            return html.Div("Carry data error", style={"color": COLORS["accent_red"], "padding": "8px"})
 
     @app.callback(
         [Output(f"{_P}-carry-term", "figure"), Output(f"{_P}-carry-fwd", "figure"),

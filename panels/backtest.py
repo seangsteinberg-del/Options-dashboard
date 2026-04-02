@@ -845,7 +845,7 @@ def layout():
 
                 html.Div([
                     html.Div("FILTER BY VOL REGIME", style={
-                        "color": "#808080", "fontSize": "9px", "fontWeight": "600",
+                        "color": COLORS["pnl_neutral"], "fontSize": "9px", "fontWeight": "600",
                         "textTransform": "uppercase", "marginBottom": "4px",
                         "fontFamily": "'JetBrains Mono', monospace",
                     }),
@@ -860,7 +860,7 @@ def layout():
                         ],
                         value="ALL",
                         clearable=False,
-                        style={"backgroundColor": "#000000", "color": "#d4d4d4"},
+                        style={"backgroundColor": COLORS["bg_primary"], "color": COLORS["text_primary"]},
                     ),
                 ], style={"marginTop": "12px"}),
 
@@ -1395,9 +1395,9 @@ def register_callbacks(app):
             empty_fig.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000",
                                     font=dict(color="#808080"))
             return (
-                [html.Div("No trades in selected regime", style={"color": "#808080"})],
+                [html.Div("No trades in selected regime", style={"color": COLORS["pnl_neutral"]})],
                 empty_fig, empty_fig, empty_fig, empty_fig,
-                html.Div("No trades", style={"color": "#808080"})
+                html.Div("No trades", style={"color": COLORS["pnl_neutral"]})
             )
 
         results = _compute_stats_from_trades(trades)

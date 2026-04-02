@@ -638,8 +638,7 @@ def chart_surface_3d(pair, sd, spot, r_dom, r_for, **kw):
         x=delta_pos * 100,
         y=sd["T_years"],
         z=sd["vol_grid"],
-        colorscale=[[0, "#1a1a3e"], [0.2, "#2a2a5e"], [0.4, "#6b4400"],
-                    [0.6, "#bf6b00"], [0.8, "#ff8800"], [1.0, "#ffcc66"]],
+        colorscale=CS_VOL_SURFACE,
         opacity=0.92,
         colorbar=dict(
             title=dict(text="Vol %", font=dict(color=COLORS["text_muted"], size=10)),
@@ -679,8 +678,7 @@ def chart_heatmap(pair, sd, spot, r_dom, r_for, **kw):
         x=sd["delta_labels"],
         y=sd["tenors"],
         z=sd["vol_grid"],
-        colorscale=[[0, "#1a1a3e"], [0.2, "#2a2a5e"], [0.4, "#6b4400"],
-                    [0.6, "#bf6b00"], [0.8, "#ff8800"], [1.0, "#ffcc66"]],
+        colorscale=CS_VOL_SURFACE,
         text=text_vals,
         texttemplate="%{text}",
         textfont=dict(size=10, color="#d0d0d0"),
@@ -2265,8 +2263,7 @@ def chart_fwd_vol_surface(pair, sd, spot, r_dom, r_for, **kw):
 
     fig = go.Figure(data=go.Heatmap(
         x=tenors, y=tenors, z=z_vals,
-        colorscale=[[0, "#1a1a3e"], [0.2, "#2a2a5e"], [0.4, "#6b4400"],
-                    [0.6, "#bf6b00"], [0.8, "#ff8800"], [1.0, "#ffcc66"]],
+        colorscale=CS_VOL_SURFACE,
         text=text_vals,
         texttemplate="%{text}",
         textfont=dict(size=10, color="#d0d0d0"),
