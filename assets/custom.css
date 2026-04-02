@@ -294,53 +294,60 @@ div[class*="-clearIndicator"] {
     color: #ff3333 !important;
 }
 
-/* Nuclear dropdown override — catches ALL remaining white elements */
-/* Scoped to .dash-dropdown only (not .js-plotly-plot or other components) */
-.dash-dropdown > div,
-.dash-dropdown > div > div,
-.dash-dropdown > div > div > div,
-.dash-dropdown .Select-control,
-.dash-dropdown .Select-multi-value-wrapper,
-.dash-dropdown .Select-placeholder,
-.dash-dropdown .Select-value,
-.dash-dropdown .Select-input,
-.dash-dropdown .Select-menu-outer,
-.dash-dropdown .Select-menu,
-.dash-dropdown .Select-option,
-.dash-dropdown .Select-noresults {
+/* Nuclear dropdown override — every single element inside a dropdown */
+.dash-dropdown div,
+.dash-dropdown span,
+.dash-dropdown input,
+.dash-dropdown ul,
+.dash-dropdown li {
     background-color: #000000 !important;
     color: #e0e0e0 !important;
     border-color: #2d2d50 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
+    outline: none !important;
 }
 .dash-dropdown input,
-.dash-dropdown input[type="text"] {
+.dash-dropdown input[type="text"],
+.dash-dropdown input[type="search"] {
     background-color: #000000 !important;
     color: #e0e0e0 !important;
     caret-color: #ff8800 !important;
     border: none !important;
+    -webkit-appearance: none !important;
 }
-.dash-dropdown .Select-menu-outer {
+.dash-dropdown .Select-menu-outer,
+.dash-dropdown [class*="menu"] {
     border: 1px solid #2d2d50 !important;
     z-index: 9500 !important;
 }
 .dash-dropdown .Select-option:hover,
-.dash-dropdown .Select-option.is-focused {
+.dash-dropdown .Select-option.is-focused,
+.dash-dropdown [class*="option"]:hover,
+.dash-dropdown [class*="focused"] {
     background-color: #0a0a1a !important;
     color: #ff8800 !important;
 }
-.dash-dropdown .Select-option.is-selected {
+.dash-dropdown .Select-option.is-selected,
+.dash-dropdown [class*="selected"] {
     background-color: #0a0a1a !important;
     color: #ff8800 !important;
     font-weight: 700 !important;
 }
-.dash-dropdown .Select-arrow-zone svg,
-.dash-dropdown .Select-clear-zone svg {
+.dash-dropdown svg {
     fill: #9a9ab0 !important;
 }
-.dash-dropdown .Select-arrow-zone:hover svg {
+.dash-dropdown svg:hover {
     fill: #ff8800 !important;
+}
+/* Prevent Plotly hover labels from being affected */
+.js-plotly-plot .hoverlayer * {
+    background-color: unset !important;
+    color: unset !important;
+    border-color: unset !important;
+    border-radius: unset !important;
+    box-shadow: unset !important;
+    outline: unset !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
