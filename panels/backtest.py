@@ -9,6 +9,8 @@ Supports straddles, strangles, risk reversals, butterflies, and calendar
 spreads with mark-to-market tracking and full trade logging.
 """
 
+import logging
+logger = logging.getLogger(__name__)
 import dash
 from dash import html, dcc, Input, Output, State, no_update, dash_table, callback_context
 from dash.exceptions import PreventUpdate

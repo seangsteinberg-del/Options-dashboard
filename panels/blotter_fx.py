@@ -11,6 +11,8 @@ Provides:
   - Day summary statistics: trades, notional, net delta/vega, premium
 """
 
+import logging
+logger = logging.getLogger(__name__)
 import dash
 from dash import html, dcc, Input, Output, State, no_update, dash_table, callback_context
 from dash.exceptions import PreventUpdate

@@ -551,6 +551,7 @@ def _build_vol_index_chart(pairs):
                           xaxis_title="Trading Days", yaxis_title="Vol (%)"))
         return fig
     except Exception:
+        logger.debug("G10 vol index chart failed", exc_info=True)
         return _empty_fig("G10 VOL INDEX", msg="Insufficient vol history")
 
 
@@ -590,6 +591,7 @@ def _build_skew_chart(pairs):
                           yaxis=dict(tickfont=dict(size=8, color="#e0e0e0"))))
         return fig
     except Exception:
+        logger.debug("Skew monitor chart failed", exc_info=True)
         return _empty_fig("SKEW MONITOR", _SMALL_H, "No RR data available")
 
 
@@ -633,6 +635,7 @@ def _build_term_chart(pairs):
                           yaxis=dict(tickfont=dict(size=8, color="#e0e0e0"))))
         return fig
     except Exception:
+        logger.debug("Term shape chart failed", exc_info=True)
         return _empty_fig("TERM SHAPE", _SMALL_H, "No term structure data")
 
 
@@ -687,6 +690,7 @@ def _build_vol_richness_heatmap(pairs):
         ))
         return fig
     except Exception:
+        logger.debug("Vol richness chart failed", exc_info=True)
         return _empty_fig("VOL RICHNESS", _SMALL_H, "No percentile data")
 
 

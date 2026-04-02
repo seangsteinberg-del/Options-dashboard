@@ -10,6 +10,8 @@ engine.  Every product generates payoff diagrams, MC path visualisations,
 and spot/vol sensitivity charts.
 """
 
+import logging
+logger = logging.getLogger(__name__)
 import dash
 from dash import html, dcc, Input, Output, State, no_update, callback_context
 import plotly.graph_objects as go

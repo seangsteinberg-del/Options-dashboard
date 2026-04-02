@@ -12,6 +12,7 @@ Four sub-tabs:
 
 import json
 import logging
+logger = logging.getLogger(__name__)
 import numpy as np
 import pandas as pd
 from dash import html, dcc, Input, Output, State, callback_context, ALL, MATCH, dash_table, no_update
@@ -121,6 +122,7 @@ def _build_vol_spread_ts(pair_a, pair_b, tenor, lookback):
         fig.update_xaxes(title_text="Trading Days")
         return fig
     except Exception:
+        logger.debug("Vol spread chart failed", exc_info=True)
         return _empty_fig("VOL SPREAD")
 
 
@@ -170,6 +172,7 @@ def _build_zscore_matrix(lookback):
                                      title=dict(text="Tenor", font=dict(size=9, color="#9a9ab0")))))
         return fig
     except Exception:
+        logger.debug("Z-score matrix chart failed", exc_info=True)
         return _empty_fig("Z-SCORE MATRIX")
 
 
@@ -201,6 +204,7 @@ def _build_ivrv_panel(pair, tenor, lookback):
                           legend=dict(x=0.02, y=0.98, font=dict(size=8))))
         return fig
     except Exception:
+        logger.debug("IV-RV chart failed", exc_info=True)
         return _empty_fig(f"{pair} IV-RV")
 
 
@@ -250,6 +254,7 @@ def _build_vol_beta_heatmap():
         )
         return fig
     except Exception:
+        logger.debug("Vol beta matrix chart failed", exc_info=True)
         return _empty_fig("VOL BETA MATRIX ERROR")
 
 
@@ -334,6 +339,7 @@ def _build_rr_bf_spreads(pair_a, pair_b, tenor="3M"):
         )
         return fig
     except Exception:
+        logger.debug("RR/BF spread chart failed", exc_info=True)
         return _empty_fig(f"RR/BF SPREAD: {pair_a} vs {pair_b}")
 
 
@@ -378,6 +384,7 @@ def _build_skew_scatter(pair_a, pair_b, tenor, lookback):
                           legend=dict(x=0.02, y=0.98, font=dict(size=8))))
         return fig
     except Exception:
+        logger.debug("Skew scatter chart failed", exc_info=True)
         return _empty_fig("SKEW SCATTER")
 
 
@@ -641,6 +648,7 @@ def _build_rolling_chart(pair_a, pair_b):
                           xaxis_title="Trading Days", yaxis_title="Correlation (\u03c1)"))
         return fig
     except Exception:
+        logger.debug("Rolling correlation chart failed", exc_info=True)
         return _empty_fig(f"ROLLING CORR: {pair_a} vs {pair_b}")
 
 
@@ -706,6 +714,7 @@ def _build_corr_cone(pair_a, pair_b):
         )
         return fig
     except Exception:
+        logger.debug("Correlation cone chart failed", exc_info=True)
         return _empty_fig(f"CORR CONE: {pair_a} vs {pair_b}")
 
 
@@ -838,6 +847,7 @@ def _build_corr_network(window=60):
         )
         return fig
     except Exception:
+        logger.debug("Correlation network chart failed", exc_info=True)
         return _empty_fig("CORRELATION NETWORK")
 
 
@@ -926,6 +936,7 @@ def _build_dxy_chart(lookback):
                           xaxis_title="Trading Days", yaxis_title="Index Level"))
         return fig
     except Exception:
+        logger.debug("DXY proxy chart failed", exc_info=True)
         return _empty_fig("DXY PROXY")
 
 
@@ -973,6 +984,7 @@ def _build_risk_sentiment():
 
         return items
     except Exception:
+        logger.debug("Risk sentiment build failed", exc_info=True)
         return [html.Div("Error", style={"color": COLORS["text_secondary"]})]
 
 
@@ -1108,6 +1120,7 @@ def _build_term_chart(pair, comp_pair=None):
                           xaxis_title="Tenor", yaxis_title="ATM Vol (%)"))
         return fig
     except Exception:
+        logger.debug("Term structure chart failed", exc_info=True)
         return _empty_fig(f"{pair} TERM")
 
 
@@ -1154,6 +1167,7 @@ def _build_fwd_vol(pair):
                           xaxis_title="Tenor", yaxis_title="Vol (%)"))
         return fig
     except Exception:
+        logger.debug("Forward vol chart failed", exc_info=True)
         return _empty_fig(f"{pair} FWD VOL")
 
 
@@ -1197,6 +1211,7 @@ def _build_calendar_spread(pair):
                           xaxis_title="Trading Days", yaxis_title="Spread (vol pts)"))
         return fig
     except Exception:
+        logger.debug("Calendar spread chart failed", exc_info=True)
         return _empty_fig(f"{pair} CALENDAR SPREAD")
 
 
@@ -1354,6 +1369,7 @@ def _build_carry_vol_bubble():
         )
         return fig
     except Exception:
+        logger.debug("Carry vs vol bubble chart failed", exc_info=True)
         return _empty_fig("CARRY vs VOL BUBBLE")
 
 
