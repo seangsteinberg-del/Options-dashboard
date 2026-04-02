@@ -989,203 +989,210 @@ def register_callbacks(app):
                 "color": COLORS["text_muted"], "padding": "20px"})
             return [empty_msg], empty_msg, True, html.Div()
 
-        spots, rates, vol_surfaces = _load_market_data()
+        try:
+            spots, rates, vol_surfaces = _load_market_data()
 
-        # Portfolio risk
-        risk = compute_portfolio_risk(spots, rates, vol_surfaces)
-        totals = risk.get("totals", {})
+            # Portfolio risk
+            risk = compute_portfolio_risk(spots, rates, vol_surfaces)
+            totals = risk.get("totals", {})
 
-        # Limit breaches -- use configurable limits from UI inputs
-        custom_limits = {
-            "max_total_delta": (limit_delta_m or 10) * 1_000_000,
-            "max_delta_per_pair": (limit_delta_m or 10) * 1_000_000 / 2,
-            "max_total_vega": (limit_vega_k or 500) * 1_000,
-            "max_vega_per_pair": (limit_vega_k or 500) * 1_000 / 3,
-            "max_vega_per_tenor_bucket": (limit_vega_k or 500) * 1_000 / 5,
-            "max_gamma_per_pair": (limit_gamma_k or 100) * 1_000,
-            "max_daily_theta": -50_000,
-            "max_var_95_1d": 500_000,
-            "max_notional_per_pair": 100_000_000,
-            "max_em_notional_pct": 0.30,
-        }
-        breaches = check_risk_limits(risk, limits=custom_limits)
-        n_breaches = len([b for b in breaches if b["severity"] in ("BREACH", "CRITICAL")])
+            # Limit breaches -- use configurable limits from UI inputs
+            custom_limits = {
+                "max_total_delta": (limit_delta_m or 10) * 1_000_000,
+                "max_delta_per_pair": (limit_delta_m or 10) * 1_000_000 / 2,
+                "max_total_vega": (limit_vega_k or 500) * 1_000,
+                "max_vega_per_pair": (limit_vega_k or 500) * 1_000 / 3,
+                "max_vega_per_tenor_bucket": (limit_vega_k or 500) * 1_000 / 5,
+                "max_gamma_per_pair": (limit_gamma_k or 100) * 1_000,
+                "max_daily_theta": -50_000,
+                "max_var_95_1d": 500_000,
+                "max_notional_per_pair": 100_000_000,
+                "max_em_notional_pct": 0.30,
+            }
+            breaches = check_risk_limits(risk, limits=custom_limits)
+            n_breaches = len([b for b in breaches if b["severity"] in ("BREACH", "CRITICAL")])
 
-        # Unrealised P&L estimate (price field from risk is mark-to-market)
-        unreal_pnl = totals.get("price", 0.0)
+            # Unrealised P&L estimate (price field from risk is mark-to-market)
+            unreal_pnl = totals.get("price", 0.0)
 
-        # VaR (parametric quick estimate)
-        total_notional = sum(p["notional"] for p in positions)
-        avg_vol = np.mean([
-            _safe_atm_vol(vol_surfaces.get(p["pair"], 0.10))
-            for p in positions
-        ])
-        var_result = parametric_var(avg_vol, total_notional, 0.95, 1)
-        var_95 = var_result.get("var", 0.0)
+            # VaR (parametric quick estimate)
+            total_notional = sum(p["notional"] for p in positions)
+            avg_vol = np.mean([
+                _safe_atm_vol(vol_surfaces.get(p["pair"], 0.10))
+                for p in positions
+            ])
+            var_result = parametric_var(avg_vol, total_notional, 0.95, 1)
+            var_95 = var_result.get("var", 0.0)
 
-        # Generate scenarios for CVaR
-        rng = np.random.RandomState(seed=42)
-        daily_vol = avg_vol / np.sqrt(252)
-        sim_returns = rng.normal(0, daily_vol, 2_000)
-        sim_pnl = sim_returns * total_notional
-        sorted_pnl = np.sort(sim_pnl)
-        cvar_idx = max(int(0.05 * len(sorted_pnl)), 1)
-        cvar_95 = -np.mean(sorted_pnl[:cvar_idx])
+            # Generate scenarios for CVaR
+            rng = np.random.RandomState(seed=42)
+            daily_vol = avg_vol / np.sqrt(252)
+            sim_returns = rng.normal(0, daily_vol, 2_000)
+            sim_pnl = sim_returns * total_notional
+            sorted_pnl = np.sort(sim_pnl)
+            cvar_idx = max(int(0.05 * len(sorted_pnl)), 1)
+            cvar_95 = -np.mean(sorted_pnl[:cvar_idx])
 
-        # Build stat boxes
-        stats = [
-            ("PORTFOLIO DELTA", totals.get("delta", 0), COLORS["accent_cyan"]),
-            ("TOTAL GAMMA", totals.get("gamma", 0), COLORS["accent_blue"]),
-            ("TOTAL VEGA", totals.get("vega", 0), COLORS["accent_purple"]),
-            ("DAILY THETA", totals.get("theta", 0), COLORS["accent_orange"]),
-            ("UNREALIZED P&L", unreal_pnl, _pnl_color(unreal_pnl)),
-            ("VaR 95% 1d", -var_95, COLORS["accent_red"]),
-            ("CVaR 95%", -cvar_95, COLORS["accent_rose"]),
-            ("LIMIT BREACHES", n_breaches, COLORS["accent_red"] if n_breaches > 0 else COLORS["accent_green"]),
-        ]
+            # Build stat boxes
+            stats = [
+                ("PORTFOLIO DELTA", totals.get("delta", 0), COLORS["accent_cyan"]),
+                ("TOTAL GAMMA", totals.get("gamma", 0), COLORS["accent_blue"]),
+                ("TOTAL VEGA", totals.get("vega", 0), COLORS["accent_purple"]),
+                ("DAILY THETA", totals.get("theta", 0), COLORS["accent_orange"]),
+                ("UNREALIZED P&L", unreal_pnl, _pnl_color(unreal_pnl)),
+                ("VaR 95% 1d", -var_95, COLORS["accent_red"]),
+                ("CVaR 95%", -cvar_95, COLORS["accent_rose"]),
+                ("LIMIT BREACHES", n_breaches, COLORS["accent_red"] if n_breaches > 0 else COLORS["accent_green"]),
+            ]
 
-        stat_boxes = []
-        for label, value, color in stats:
-            if label == "LIMIT BREACHES":
-                display_val = str(int(value))
-            else:
-                display_val = _fmt_usd(value)
-            stat_boxes.append(
+            stat_boxes = []
+            for label, value, color in stats:
+                if label == "LIMIT BREACHES":
+                    display_val = str(int(value))
+                else:
+                    display_val = _fmt_usd(value)
+                stat_boxes.append(
+                    html.Div([
+                        html.Div(label, style={
+                            "color": COLORS["text_secondary"],
+                            "fontSize": "9px",
+                            "fontWeight": "700",
+                            "fontFamily": "'JetBrains Mono', monospace",
+                            "letterSpacing": "1.2px",
+                            "textTransform": "uppercase",
+                            "marginBottom": GAP,
+                        }),
+                        html.Div(display_val, style={
+                            "color": color,
+                            "fontSize": "18px",
+                            "fontWeight": "800",
+                            "fontFamily": "'JetBrains Mono', monospace",
+                        }),
+                    ], style=_make_stat_style(color))
+                )
+
+            # Breach warning banner with flash animation
+            if n_breaches > 0:
+                breach_details = [b for b in breaches if b["severity"] in ("BREACH", "CRITICAL")]
+                breach_items = []
+                for b in breach_details[:6]:
+                    metric = b.get("metric", "?").replace("_", " ").upper()
+                    current = b.get("current", 0)
+                    limit_val = b.get("limit", 0)
+                    util = b.get("utilization", 0) * 100
+                    sev = b.get("severity", "BREACH")
+                    sev_color = COLORS["accent_red"] if sev == "CRITICAL" else COLORS["accent_orange"]
+                    breach_items.append(html.Div([
+                        html.Span(f"{metric}", style={"color": sev_color, "fontWeight": "700"}),
+                        html.Span(f"  {_fmt_usd(current)} / {_fmt_usd(limit_val)}"
+                                  f"  ({util:.0f}%)", style={"color": COLORS["text_secondary"]}),
+                    ], style={"fontSize": "9px", "fontFamily": "'JetBrains Mono', monospace",
+                              "padding": "2px 0"}))
+                stat_boxes.insert(0, html.Div(breach_items,
+                    className="breach-alert",
+                    style={
+                        "backgroundColor": "rgba(255,51,51,0.08)",
+                        "padding": "8px 12px",
+                        "width": "100%", "marginBottom": GAP,
+                    },
+                ))
+
+            # Build position table
+            pos_table = _build_position_table(positions, spots, rates, vol_surfaces)
+
+            # ── Morning Risk Report ──
+            n_positions = sum(1 for p in positions if p.get("status") == "open")
+            pairs_exposed = list(risk.get("by_pair", {}).keys())
+            top_vega_pair = max(risk.get("by_pair", {}).items(),
+                               key=lambda x: abs(x[1].get("vega", 0)),
+                               default=("N/A", {"vega": 0}))
+            top_delta_pair = max(risk.get("by_pair", {}).items(),
+                                key=lambda x: abs(x[1].get("delta", 0)),
+                                default=("N/A", {"delta": 0}))
+
+            morning_report = html.Div([
                 html.Div([
-                    html.Div(label, style={
-                        "color": COLORS["text_secondary"],
-                        "fontSize": "9px",
-                        "fontWeight": "700",
-                        "fontFamily": "'JetBrains Mono', monospace",
-                        "letterSpacing": "1.2px",
-                        "textTransform": "uppercase",
-                        "marginBottom": GAP,
-                    }),
-                    html.Div(display_val, style={
-                        "color": color,
-                        "fontSize": "18px",
-                        "fontWeight": "800",
-                        "fontFamily": "'JetBrains Mono', monospace",
-                    }),
-                ], style=_make_stat_style(color))
-            )
+                    # Portfolio Summary card
+                    html.Div(className="risk-report-card", style={"flex": "1", "minWidth": "200px"},
+                             children=[
+                        html.H4("PORTFOLIO SUMMARY"),
+                        html.Div(className="risk-report-metric", children=[
+                            html.Span("Positions", className="label"),
+                            html.Span(str(n_positions), className="value"),
+                        ]),
+                        html.Div(className="risk-report-metric", children=[
+                            html.Span("Pairs Exposed", className="label"),
+                            html.Span(str(len(pairs_exposed)), className="value"),
+                        ]),
+                        html.Div(className="risk-report-metric", children=[
+                            html.Span("Unrealized P&L", className="label"),
+                            html.Span(_fmt_usd(unreal_pnl), className="value",
+                                      style={"color": _pnl_color(unreal_pnl)}),
+                        ]),
+                        html.Div(className="risk-report-metric", children=[
+                            html.Span("Daily Theta", className="label"),
+                            html.Span(_fmt_usd(totals.get("theta", 0)), className="value",
+                                      style={"color": _pnl_color(totals.get("theta", 0))}),
+                        ]),
+                    ]),
+                    # Top Exposures card
+                    html.Div(className="risk-report-card", style={"flex": "1", "minWidth": "200px"},
+                             children=[
+                        html.H4("TOP EXPOSURES"),
+                        html.Div(className="risk-report-metric", children=[
+                            html.Span("Largest Vega", className="label"),
+                            html.Span(f"{top_vega_pair[0]}  {_fmt_usd(top_vega_pair[1].get('vega', 0))}",
+                                      className="value"),
+                        ]),
+                        html.Div(className="risk-report-metric", children=[
+                            html.Span("Largest Delta", className="label"),
+                            html.Span(f"{top_delta_pair[0]}  {_fmt_usd(top_delta_pair[1].get('delta', 0))}",
+                                      className="value"),
+                        ]),
+                        html.Div(className="risk-report-metric", children=[
+                            html.Span("Net Vega", className="label"),
+                            html.Span(_fmt_usd(totals.get("vega", 0)), className="value"),
+                        ]),
+                        html.Div(className="risk-report-metric", children=[
+                            html.Span("Net Gamma", className="label"),
+                            html.Span(_fmt_usd(totals.get("gamma", 0)), className="value"),
+                        ]),
+                    ]),
+                    # Risk Limits card
+                    html.Div(className="risk-report-card", style={"flex": "1", "minWidth": "200px"},
+                             children=[
+                        html.H4("RISK LIMITS"),
+                        html.Div(className="risk-report-metric", children=[
+                            html.Span("VaR 95% (1d)", className="label"),
+                            html.Span(_fmt_usd(var_95), className="value",
+                                      style={"color": COLORS["accent_red"]}),
+                        ]),
+                        html.Div(className="risk-report-metric", children=[
+                            html.Span("CVaR 95%", className="label"),
+                            html.Span(_fmt_usd(cvar_95), className="value",
+                                      style={"color": COLORS["accent_red"]}),
+                        ]),
+                        html.Div(className="risk-report-metric", children=[
+                            html.Span("Limit Breaches", className="label"),
+                            html.Span(str(n_breaches), className="value",
+                                      style={"color": COLORS["accent_red"] if n_breaches > 0 else COLORS["accent_green"]}),
+                        ]),
+                        html.Div(className="risk-report-metric", children=[
+                            html.Span("Delta Util %", className="label"),
+                            html.Span(f"{min(abs(totals.get('delta', 0)) / max(custom_limits.get('max_total_delta', 1), 1) * 100, 999):.0f}%",
+                                      className="value"),
+                        ]),
+                    ]),
+                ], style={"display": "flex", "gap": GAP, "flexWrap": "wrap"}),
+            ])
 
-        # Breach warning banner with flash animation
-        if n_breaches > 0:
-            breach_details = [b for b in breaches if b["severity"] in ("BREACH", "CRITICAL")]
-            breach_items = []
-            for b in breach_details[:6]:
-                metric = b.get("metric", "?").replace("_", " ").upper()
-                current = b.get("current", 0)
-                limit_val = b.get("limit", 0)
-                util = b.get("utilization", 0) * 100
-                sev = b.get("severity", "BREACH")
-                sev_color = COLORS["accent_red"] if sev == "CRITICAL" else COLORS["accent_orange"]
-                breach_items.append(html.Div([
-                    html.Span(f"{metric}", style={"color": sev_color, "fontWeight": "700"}),
-                    html.Span(f"  {_fmt_usd(current)} / {_fmt_usd(limit_val)}"
-                              f"  ({util:.0f}%)", style={"color": COLORS["text_secondary"]}),
-                ], style={"fontSize": "9px", "fontFamily": "'JetBrains Mono', monospace",
-                          "padding": "2px 0"}))
-            stat_boxes.insert(0, html.Div(breach_items,
-                className="breach-alert",
-                style={
-                    "backgroundColor": "rgba(255,51,51,0.08)",
-                    "padding": "8px 12px",
-                    "width": "100%", "marginBottom": GAP,
-                },
-            ))
+            return stat_boxes, pos_table, True, morning_report
 
-        # Build position table
-        pos_table = _build_position_table(positions, spots, rates, vol_surfaces)
-
-        # ── Morning Risk Report ──
-        n_positions = sum(1 for p in positions if p.get("status") == "open")
-        pairs_exposed = list(risk.get("by_pair", {}).keys())
-        top_vega_pair = max(risk.get("by_pair", {}).items(),
-                           key=lambda x: abs(x[1].get("vega", 0)),
-                           default=("N/A", {"vega": 0}))
-        top_delta_pair = max(risk.get("by_pair", {}).items(),
-                            key=lambda x: abs(x[1].get("delta", 0)),
-                            default=("N/A", {"delta": 0}))
-
-        morning_report = html.Div([
-            html.Div([
-                # Portfolio Summary card
-                html.Div(className="risk-report-card", style={"flex": "1", "minWidth": "200px"},
-                         children=[
-                    html.H4("PORTFOLIO SUMMARY"),
-                    html.Div(className="risk-report-metric", children=[
-                        html.Span("Positions", className="label"),
-                        html.Span(str(n_positions), className="value"),
-                    ]),
-                    html.Div(className="risk-report-metric", children=[
-                        html.Span("Pairs Exposed", className="label"),
-                        html.Span(str(len(pairs_exposed)), className="value"),
-                    ]),
-                    html.Div(className="risk-report-metric", children=[
-                        html.Span("Unrealized P&L", className="label"),
-                        html.Span(_fmt_usd(unreal_pnl), className="value",
-                                  style={"color": _pnl_color(unreal_pnl)}),
-                    ]),
-                    html.Div(className="risk-report-metric", children=[
-                        html.Span("Daily Theta", className="label"),
-                        html.Span(_fmt_usd(totals.get("theta", 0)), className="value",
-                                  style={"color": _pnl_color(totals.get("theta", 0))}),
-                    ]),
-                ]),
-                # Top Exposures card
-                html.Div(className="risk-report-card", style={"flex": "1", "minWidth": "200px"},
-                         children=[
-                    html.H4("TOP EXPOSURES"),
-                    html.Div(className="risk-report-metric", children=[
-                        html.Span("Largest Vega", className="label"),
-                        html.Span(f"{top_vega_pair[0]}  {_fmt_usd(top_vega_pair[1].get('vega', 0))}",
-                                  className="value"),
-                    ]),
-                    html.Div(className="risk-report-metric", children=[
-                        html.Span("Largest Delta", className="label"),
-                        html.Span(f"{top_delta_pair[0]}  {_fmt_usd(top_delta_pair[1].get('delta', 0))}",
-                                  className="value"),
-                    ]),
-                    html.Div(className="risk-report-metric", children=[
-                        html.Span("Net Vega", className="label"),
-                        html.Span(_fmt_usd(totals.get("vega", 0)), className="value"),
-                    ]),
-                    html.Div(className="risk-report-metric", children=[
-                        html.Span("Net Gamma", className="label"),
-                        html.Span(_fmt_usd(totals.get("gamma", 0)), className="value"),
-                    ]),
-                ]),
-                # Risk Limits card
-                html.Div(className="risk-report-card", style={"flex": "1", "minWidth": "200px"},
-                         children=[
-                    html.H4("RISK LIMITS"),
-                    html.Div(className="risk-report-metric", children=[
-                        html.Span("VaR 95% (1d)", className="label"),
-                        html.Span(_fmt_usd(var_95), className="value",
-                                  style={"color": COLORS["accent_red"]}),
-                    ]),
-                    html.Div(className="risk-report-metric", children=[
-                        html.Span("CVaR 95%", className="label"),
-                        html.Span(_fmt_usd(cvar_95), className="value",
-                                  style={"color": COLORS["accent_red"]}),
-                    ]),
-                    html.Div(className="risk-report-metric", children=[
-                        html.Span("Limit Breaches", className="label"),
-                        html.Span(str(n_breaches), className="value",
-                                  style={"color": COLORS["accent_red"] if n_breaches > 0 else COLORS["accent_green"]}),
-                    ]),
-                    html.Div(className="risk-report-metric", children=[
-                        html.Span("Delta Util %", className="label"),
-                        html.Span(f"{min(abs(totals.get('delta', 0)) / max(custom_limits.get('max_total_delta', 1), 1) * 100, 999):.0f}%",
-                                  className="value"),
-                    ]),
-                ]),
-            ], style={"display": "flex", "gap": GAP, "flexWrap": "wrap"}),
-        ])
-
-        return stat_boxes, pos_table, True, morning_report
+        except Exception:
+            logger.exception("update_main_risk failed")
+            err_msg = html.Div("Risk computation error — check logs.",
+                               style={"color": COLORS["text_muted"], "padding": "20px"})
+            return [err_msg], err_msg, True, html.Div()
 
     # -----------------------------------------------------------------------
     # 2. Greeks tab callback

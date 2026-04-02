@@ -1312,34 +1312,42 @@ def register_callbacks(app):
         delta = delta or 0.25
         lookback = lookback or 2
 
-        results = run_backtest(
-            strategy, pair, tenor, delta, lookback,
-            entry_signal, exit_rule, notional,
-        )
-
-        if results is None:
-            empty = no_data_fig(msg="NO DATA — insufficient Bloomberg history or no trades generated")
-            return (
-                [html.Div("No data or no trades generated with these parameters.",
-                          style={"color": COLORS["accent_orange"], "padding": "20px"})],
-                empty, empty, empty, empty,
-                html.Div("No trades to display.",
-                         style={"color": COLORS["text_muted"], "padding": "20px"}),
-                [],
+        try:
+            results = run_backtest(
+                strategy, pair, tenor, delta, lookback,
+                entry_signal, exit_rule, notional,
             )
 
-        # Serialize trades for the store (raw dicts for regime filtering)
-        trades_data = results["trades"].to_dict("records") if results and "trades" in results else []
+            if results is None:
+                empty = no_data_fig(msg="NO DATA — insufficient Bloomberg history or no trades generated")
+                return (
+                    [html.Div("No data or no trades generated with these parameters.",
+                              style={"color": COLORS["accent_orange"], "padding": "20px"})],
+                    empty, empty, empty, empty,
+                    html.Div("No trades to display.",
+                             style={"color": COLORS["text_muted"], "padding": "20px"}),
+                    [],
+                )
 
-        # Build all outputs
-        stats = _build_stats_row(results)
-        eq_fig = _build_equity_curve(results)
-        dist_fig = _build_pnl_distribution(results)
-        monthly_fig = _build_monthly_returns(results)
-        regime_fig = _build_regime_winrate(results)
-        trade_table = _build_trade_log(results)
+            # Serialize trades for the store (raw dicts for regime filtering)
+            trades_data = results["trades"].to_dict("records") if results and "trades" in results else []
 
-        return stats, eq_fig, dist_fig, monthly_fig, regime_fig, trade_table, trades_data
+            # Build all outputs
+            stats = _build_stats_row(results)
+            eq_fig = _build_equity_curve(results)
+            dist_fig = _build_pnl_distribution(results)
+            monthly_fig = _build_monthly_returns(results)
+            regime_fig = _build_regime_winrate(results)
+            trade_table = _build_trade_log(results)
+
+            return stats, eq_fig, dist_fig, monthly_fig, regime_fig, trade_table, trades_data
+
+        except Exception:
+            logger.exception("_run_backtest failed")
+            empty = no_data_fig(msg="BACKTEST ERROR — check logs")
+            err_div = html.Div("Backtest computation error — check logs.",
+                               style={"color": COLORS["text_muted"], "padding": "20px"})
+            return [err_div], empty, empty, empty, empty, err_div, []
 
     # ── CSV Export ──────────────────────────────────────────────────────
     @app.callback(

@@ -4137,79 +4137,86 @@ def register_callbacks(app):
                        "delta_labels": DELTA_LABELS,
                        "delta_numeric": np.array(DELTA_NUMERIC),
                        "surface_raw": {}}
-        sd = _filter_surface_data(sd_full, selected_tenors)
-        sd = _filter_delta_range(sd, delta_range or "10-50")
-        spot, fwd_1m, r_dom, r_for = _get_spot_and_rates(pair)
 
-        # Extra kwargs for chart functions
-        extra = {
-            "days_ago": hist_offset or 1,
-            "smile_tenor": smile_tenor or "3M",
-            "ts_tenor": smile_tenor or "3M",
-            "pdf_tenor": smile_tenor or "3M",
-            "compare": compare,
-            "cross_pair": cross_pair,
-            "model": model,
-            "selected_tenors": selected_tenors,
-            "delta_range": delta_range or "10-50",
-            # Lab controls
-            "lab_pairs": lab_pairs or [pair],
-            "lab_overlay": lab_overlay or "",
-            "lab_window": lab_window or 252,
-            "lab_normalize": lab_normalize or "raw",
-        }
-
-        # If model is SABR or VV, overlay on smile_curve and surface_3d
-        if model == "sabr":
-            extra["model"] = "sabr"
-        elif model == "vv":
-            extra["model"] = "vv"
-
-        # Render 4 charts
-        fig1 = _render_chart(q1, pair, sd, spot, r_dom, r_for, **extra)
-        fig2 = _render_chart(q2, pair, sd, spot, r_dom, r_for, **extra)
-        fig3 = _render_chart(q3, pair, sd, spot, r_dom, r_for, **extra)
-        fig4 = _render_chart(q4, pair, sd, spot, r_dom, r_for, **extra)
-
-        # ── Comparison overlay support (item 5) ──
-        # Apply comparison overlays to figures that are ATM term structure
-        # or 3D surface views.
         try:
-            if compare == "history":
-                # Overlay historical ATM term structure on current figures
-                offset = hist_offset or 5
-                for chart_type, fig in [
-                    (q1, fig1), (q2, fig2), (q3, fig3), (q4, fig4),
-                ]:
-                    if chart_type == "atm_term":
-                        _overlay_history_on_atm(fig, pair, sd, offset)
-                    elif chart_type == "heatmap":
-                        _overlay_history_annotation(fig, pair, sd, offset)
+            sd = _filter_surface_data(sd_full, selected_tenors)
+            sd = _filter_delta_range(sd, delta_range or "10-50")
+            spot, fwd_1m, r_dom, r_for = _get_spot_and_rates(pair)
 
-            elif compare == "cross" and cross_pair and cross_pair != pair:
-                # Overlay cross-pair ATM term structure
-                cross_sd = _get_surface_data(cross_pair)
-                if cross_sd is not None:
+            # Extra kwargs for chart functions
+            extra = {
+                "days_ago": hist_offset or 1,
+                "smile_tenor": smile_tenor or "3M",
+                "ts_tenor": smile_tenor or "3M",
+                "pdf_tenor": smile_tenor or "3M",
+                "compare": compare,
+                "cross_pair": cross_pair,
+                "model": model,
+                "selected_tenors": selected_tenors,
+                "delta_range": delta_range or "10-50",
+                # Lab controls
+                "lab_pairs": lab_pairs or [pair],
+                "lab_overlay": lab_overlay or "",
+                "lab_window": lab_window or 252,
+                "lab_normalize": lab_normalize or "raw",
+            }
+
+            # If model is SABR or VV, overlay on smile_curve and surface_3d
+            if model == "sabr":
+                extra["model"] = "sabr"
+            elif model == "vv":
+                extra["model"] = "vv"
+
+            # Render 4 charts
+            fig1 = _render_chart(q1, pair, sd, spot, r_dom, r_for, **extra)
+            fig2 = _render_chart(q2, pair, sd, spot, r_dom, r_for, **extra)
+            fig3 = _render_chart(q3, pair, sd, spot, r_dom, r_for, **extra)
+            fig4 = _render_chart(q4, pair, sd, spot, r_dom, r_for, **extra)
+
+            # ── Comparison overlay support (item 5) ──
+            # Apply comparison overlays to figures that are ATM term structure
+            # or 3D surface views.
+            try:
+                if compare == "history":
+                    # Overlay historical ATM term structure on current figures
+                    offset = hist_offset or 5
                     for chart_type, fig in [
                         (q1, fig1), (q2, fig2), (q3, fig3), (q4, fig4),
                     ]:
                         if chart_type == "atm_term":
-                            _overlay_cross_pair_on_atm(fig, cross_pair, cross_sd)
-                        elif chart_type == "surface_3d":
-                            _overlay_cross_surface_wireframe(fig, cross_pair, cross_sd)
+                            _overlay_history_on_atm(fig, pair, sd, offset)
+                        elif chart_type == "heatmap":
+                            _overlay_history_annotation(fig, pair, sd, offset)
+
+                elif compare == "cross" and cross_pair and cross_pair != pair:
+                    # Overlay cross-pair ATM term structure
+                    cross_sd = _get_surface_data(cross_pair)
+                    if cross_sd is not None:
+                        for chart_type, fig in [
+                            (q1, fig1), (q2, fig2), (q3, fig3), (q4, fig4),
+                        ]:
+                            if chart_type == "atm_term":
+                                _overlay_cross_pair_on_atm(fig, cross_pair, cross_sd)
+                            elif chart_type == "surface_3d":
+                                _overlay_cross_surface_wireframe(fig, cross_pair, cross_sd)
+            except Exception:
+                logger.exception("Comparison overlay failed for %s (compare=%s, cross_pair=%s)", pair, compare, cross_pair)
+
+            # Build stat boxes (always use full surface for KPIs)
+            stats = _build_stat_boxes(pair, sd_full, spot, fwd_1m, r_dom, r_for)
+
+            # Build overnight summary strip
+            try:
+                overnight = _build_overnight_summary(pair, spot)
+            except Exception:
+                overnight = html.Div()
+
+            return fig1, fig2, fig3, fig4, stats, overnight
+
         except Exception:
-            logger.exception("Comparison overlay failed for %s (compare=%s, cross_pair=%s)", pair, compare, cross_pair)
-
-        # Build stat boxes (always use full surface for KPIs)
-        stats = _build_stat_boxes(pair, sd_full, spot, fwd_1m, r_dom, r_for)
-
-        # Build overnight summary strip
-        try:
-            overnight = _build_overnight_summary(pair, spot)
-        except Exception:
-            overnight = html.Div()
-
-        return fig1, fig2, fig3, fig4, stats, overnight
+            logger.exception("Live mode rendering failed for %s", pair)
+            ndf = no_data_fig(height=CHART_MD, msg="RENDER ERROR")
+            return ndf, ndf, ndf, ndf, html.Div(), html.Div()
 
     # ── CSV Export ──────────────────────────────────────────────────────
     @app.callback(
@@ -4473,12 +4480,13 @@ def register_callbacks(app):
             pairs = [pairs]
         if not pairs or len(pairs) < 2:
             return _empty_fig("Select 2-5 pairs")
-        pairs = pairs[:5]
-        tenor = tenor or "3M"
-        comp_type = comp_type or "term_structure"
-        fig = go.Figure()
 
         try:
+            pairs = pairs[:5]
+            tenor = tenor or "3M"
+            comp_type = comp_type or "term_structure"
+            fig = go.Figure()
+
             if comp_type == "term_structure":
                 for idx, pair in enumerate(pairs):
                     ts = get_fx_term_structure(pair)

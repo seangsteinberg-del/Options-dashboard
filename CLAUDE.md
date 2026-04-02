@@ -19,7 +19,7 @@ Bloomberg Terminal on localhost:8194 is **required** — the app has no syntheti
 ## Testing
 
 ```bash
-python -m pytest tests/ -v    # 521 unit tests (no Bloomberg required)
+python -m pytest tests/ -v    # 522 unit tests (no Bloomberg required)
 python test_bbg.py             # Bloomberg connectivity test (requires Terminal running)
 ```
 
