@@ -1,0 +1,167 @@
+2026-03-29 20:12:49,337 - mcp.server.lowlevel.server - DEBUG - [server.py:145] - Initializing server 'UnrealMCP_Advanced'
+2026-03-29 20:12:49,337 - mcp.server.lowlevel.server - DEBUG - [server.py:384] - Registering handler for ListToolsRequest
+2026-03-29 20:12:49,337 - mcp.server.lowlevel.server - DEBUG - [server.py:406] - Registering handler for CallToolRequest
+2026-03-29 20:12:49,338 - mcp.server.lowlevel.server - DEBUG - [server.py:252] - Registering handler for ListResourcesRequest
+2026-03-29 20:12:49,338 - mcp.server.lowlevel.server - DEBUG - [server.py:286] - Registering handler for ReadResourceRequest
+2026-03-29 20:12:49,338 - mcp.server.lowlevel.server - DEBUG - [server.py:222] - Registering handler for PromptListRequest
+2026-03-29 20:12:49,338 - mcp.server.lowlevel.server - DEBUG - [server.py:239] - Registering handler for GetPromptRequest
+2026-03-29 20:12:49,338 - mcp.server.lowlevel.server - DEBUG - [server.py:267] - Registering handler for ListResourceTemplatesRequest
+2026-03-29 20:12:49,525 - UnrealMCP_Advanced - INFO - [shipwrecked_tools.py:666] - Shipwrecked extended tools registered: 56 new tools
+2026-03-29 20:12:52,571 - UnrealMCP_Advanced - INFO - [remote_control_proxy.py:249] - Remote Control API proxy tools registered: 8 tools
+2026-03-29 20:12:52,584 - UnrealMCP_Advanced - INFO - [python_exec.py:80] - Python exec tools registered: 2 tools
+2026-03-29 20:12:52,601 - UnrealMCP_Advanced - INFO - [build_log_monitor.py:247] - Build log monitor tools registered: 3 tools
+2026-03-29 20:12:52,634 - UnrealMCP_Advanced - INFO - [pie_inspector.py:141] - PIE session inspector tools registered: 7 tools
+2026-03-29 20:12:52,654 - UnrealMCP_Advanced - INFO - [source_analyzer.py:38] - tree-sitter not available — using regex-based analysis
+2026-03-29 20:12:52,668 - UnrealMCP_Advanced - INFO - [source_analyzer.py:518] - Source code analyzer tools registered: 6 tools (tree-sitter: False)
+2026-03-29 20:12:52,874 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:2819] - Starting Advanced MCP server with stdio transport
+2026-03-29 20:12:52,886 - asyncio - DEBUG - [proactor_events.py:634] - Using proactor: IocpProactor
+2026-03-29 20:12:52,890 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:434] - UnrealMCP Advanced server starting up
+2026-03-29 20:12:52,890 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:435] - Connection will be established lazily on first tool call
+2026-03-29 20:12:52,912 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: root=InitializedNotification(method='notifications/initialized', params=None, jsonrpc='2.0')
+2026-03-29 20:12:52,914 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x000001FFDCCFB830>
+2026-03-29 20:12:52,914 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListToolsRequest
+2026-03-29 20:12:52,915 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListToolsRequest
+2026-03-29 20:12:52,947 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-03-29 20:12:52,954 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x000001FFDCFC5FA0>
+2026-03-29 20:12:52,954 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListPromptsRequest
+2026-03-29 20:12:52,954 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListPromptsRequest
+2026-03-29 20:12:52,955 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x000001FFDCFC5EE0>
+2026-03-29 20:12:52,956 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListResourcesRequest
+2026-03-29 20:12:52,956 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListResourcesRequest
+2026-03-29 20:12:52,956 - mcp.server.fastmcp.resources.resource_manager - DEBUG - [resource_manager.py:89] - Listing resources
+2026-03-29 20:12:52,957 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-03-29 20:12:52,958 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-03-30 18:56:55,160 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:429] - Unreal connection reset
+2026-03-30 18:56:55,163 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:441] - Unreal MCP Advanced server shut down
+2026-03-31 18:58:01,034 - mcp.server.lowlevel.server - DEBUG - [server.py:145] - Initializing server 'UnrealMCP_Advanced'
+2026-03-31 18:58:01,034 - mcp.server.lowlevel.server - DEBUG - [server.py:384] - Registering handler for ListToolsRequest
+2026-03-31 18:58:01,035 - mcp.server.lowlevel.server - DEBUG - [server.py:406] - Registering handler for CallToolRequest
+2026-03-31 18:58:01,035 - mcp.server.lowlevel.server - DEBUG - [server.py:252] - Registering handler for ListResourcesRequest
+2026-03-31 18:58:01,035 - mcp.server.lowlevel.server - DEBUG - [server.py:286] - Registering handler for ReadResourceRequest
+2026-03-31 18:58:01,035 - mcp.server.lowlevel.server - DEBUG - [server.py:222] - Registering handler for PromptListRequest
+2026-03-31 18:58:01,035 - mcp.server.lowlevel.server - DEBUG - [server.py:239] - Registering handler for GetPromptRequest
+2026-03-31 18:58:01,035 - mcp.server.lowlevel.server - DEBUG - [server.py:267] - Registering handler for ListResourceTemplatesRequest
+2026-03-31 18:58:01,035 - mcp.server.lowlevel.server - DEBUG - [server.py:145] - Initializing server 'UnrealMCP_Advanced'
+2026-03-31 18:58:01,035 - mcp.server.lowlevel.server - DEBUG - [server.py:384] - Registering handler for ListToolsRequest
+2026-03-31 18:58:01,035 - mcp.server.lowlevel.server - DEBUG - [server.py:406] - Registering handler for CallToolRequest
+2026-03-31 18:58:01,035 - mcp.server.lowlevel.server - DEBUG - [server.py:252] - Registering handler for ListResourcesRequest
+2026-03-31 18:58:01,035 - mcp.server.lowlevel.server - DEBUG - [server.py:286] - Registering handler for ReadResourceRequest
+2026-03-31 18:58:01,035 - mcp.server.lowlevel.server - DEBUG - [server.py:222] - Registering handler for PromptListRequest
+2026-03-31 18:58:01,036 - mcp.server.lowlevel.server - DEBUG - [server.py:239] - Registering handler for GetPromptRequest
+2026-03-31 18:58:01,036 - mcp.server.lowlevel.server - DEBUG - [server.py:267] - Registering handler for ListResourceTemplatesRequest
+2026-03-31 18:58:01,147 - UnrealMCP_Advanced - INFO - [shipwrecked_tools.py:717] - Shipwrecked extended tools registered: 57 new tools
+2026-03-31 18:58:01,148 - UnrealMCP_Advanced - INFO - [shipwrecked_tools.py:717] - Shipwrecked extended tools registered: 57 new tools
+2026-03-31 18:58:02,027 - UnrealMCP_Advanced - INFO - [remote_control_proxy.py:249] - Remote Control API proxy tools registered: 8 tools
+2026-03-31 18:58:02,035 - UnrealMCP_Advanced - INFO - [python_exec.py:80] - Python exec tools registered: 2 tools
+2026-03-31 18:58:02,039 - UnrealMCP_Advanced - INFO - [remote_control_proxy.py:249] - Remote Control API proxy tools registered: 8 tools
+2026-03-31 18:58:02,043 - UnrealMCP_Advanced - INFO - [python_exec.py:80] - Python exec tools registered: 2 tools
+2026-03-31 18:58:02,043 - UnrealMCP_Advanced - INFO - [build_log_monitor.py:247] - Build log monitor tools registered: 3 tools
+2026-03-31 18:58:02,055 - UnrealMCP_Advanced - INFO - [pie_inspector.py:141] - PIE session inspector tools registered: 7 tools
+2026-03-31 18:58:02,055 - UnrealMCP_Advanced - INFO - [build_log_monitor.py:247] - Build log monitor tools registered: 3 tools
+2026-03-31 18:58:02,058 - UnrealMCP_Advanced - INFO - [source_analyzer.py:38] - tree-sitter not available — using regex-based analysis
+2026-03-31 18:58:02,067 - UnrealMCP_Advanced - INFO - [pie_inspector.py:141] - PIE session inspector tools registered: 7 tools
+2026-03-31 18:58:02,069 - UnrealMCP_Advanced - INFO - [source_analyzer.py:518] - Source code analyzer tools registered: 6 tools (tree-sitter: False)
+2026-03-31 18:58:02,070 - UnrealMCP_Advanced - INFO - [source_analyzer.py:38] - tree-sitter not available — using regex-based analysis
+2026-03-31 18:58:02,081 - UnrealMCP_Advanced - INFO - [source_analyzer.py:518] - Source code analyzer tools registered: 6 tools (tree-sitter: False)
+2026-03-31 18:58:02,220 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:2819] - Starting Advanced MCP server with stdio transport
+2026-03-31 18:58:02,227 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:2819] - Starting Advanced MCP server with stdio transport
+2026-03-31 18:58:02,230 - asyncio - DEBUG - [proactor_events.py:634] - Using proactor: IocpProactor
+2026-03-31 18:58:02,235 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:434] - UnrealMCP Advanced server starting up
+2026-03-31 18:58:02,235 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:435] - Connection will be established lazily on first tool call
+2026-03-31 18:58:02,238 - asyncio - DEBUG - [proactor_events.py:634] - Using proactor: IocpProactor
+2026-03-31 18:58:02,245 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:434] - UnrealMCP Advanced server starting up
+2026-03-31 18:58:02,245 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:435] - Connection will be established lazily on first tool call
+2026-03-31 18:58:02,256 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: root=InitializedNotification(method='notifications/initialized', params=None, jsonrpc='2.0')
+2026-03-31 18:58:02,257 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x000002111A83BE00>
+2026-03-31 18:58:02,258 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListToolsRequest
+2026-03-31 18:58:02,258 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListToolsRequest
+2026-03-31 18:58:02,271 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: root=InitializedNotification(method='notifications/initialized', params=None, jsonrpc='2.0')
+2026-03-31 18:58:02,274 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x0000024790DFBE60>
+2026-03-31 18:58:02,274 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListToolsRequest
+2026-03-31 18:58:02,274 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListToolsRequest
+2026-03-31 18:58:02,293 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-03-31 18:58:02,301 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x000002111A5A61E0>
+2026-03-31 18:58:02,301 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListPromptsRequest
+2026-03-31 18:58:02,301 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListPromptsRequest
+2026-03-31 18:58:02,303 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x000002111A78F2C0>
+2026-03-31 18:58:02,303 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListResourcesRequest
+2026-03-31 18:58:02,303 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListResourcesRequest
+2026-03-31 18:58:02,303 - mcp.server.fastmcp.resources.resource_manager - DEBUG - [resource_manager.py:89] - Listing resources
+2026-03-31 18:58:02,304 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-03-31 18:58:02,305 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-03-31 18:58:02,309 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-03-31 18:58:02,318 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x0000024790DFB7A0>
+2026-03-31 18:58:02,319 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListPromptsRequest
+2026-03-31 18:58:02,319 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListPromptsRequest
+2026-03-31 18:58:02,320 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x0000024790F06840>
+2026-03-31 18:58:02,320 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListResourcesRequest
+2026-03-31 18:58:02,321 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListResourcesRequest
+2026-03-31 18:58:02,321 - mcp.server.fastmcp.resources.resource_manager - DEBUG - [resource_manager.py:89] - Listing resources
+2026-03-31 18:58:02,322 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-03-31 18:58:02,323 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-03-31 22:21:01,539 - mcp.server.lowlevel.server - DEBUG - [server.py:145] - Initializing server 'UnrealMCP_Advanced'
+2026-03-31 22:21:01,540 - mcp.server.lowlevel.server - DEBUG - [server.py:384] - Registering handler for ListToolsRequest
+2026-03-31 22:21:01,540 - mcp.server.lowlevel.server - DEBUG - [server.py:406] - Registering handler for CallToolRequest
+2026-03-31 22:21:01,540 - mcp.server.lowlevel.server - DEBUG - [server.py:252] - Registering handler for ListResourcesRequest
+2026-03-31 22:21:01,540 - mcp.server.lowlevel.server - DEBUG - [server.py:286] - Registering handler for ReadResourceRequest
+2026-03-31 22:21:01,540 - mcp.server.lowlevel.server - DEBUG - [server.py:222] - Registering handler for PromptListRequest
+2026-03-31 22:21:01,540 - mcp.server.lowlevel.server - DEBUG - [server.py:239] - Registering handler for GetPromptRequest
+2026-03-31 22:21:01,540 - mcp.server.lowlevel.server - DEBUG - [server.py:267] - Registering handler for ListResourceTemplatesRequest
+2026-03-31 22:21:01,625 - UnrealMCP_Advanced - INFO - [shipwrecked_tools.py:717] - Shipwrecked extended tools registered: 57 new tools
+2026-03-31 22:21:02,356 - UnrealMCP_Advanced - INFO - [remote_control_proxy.py:249] - Remote Control API proxy tools registered: 8 tools
+2026-03-31 22:21:02,359 - UnrealMCP_Advanced - INFO - [python_exec.py:80] - Python exec tools registered: 2 tools
+2026-03-31 22:21:02,366 - UnrealMCP_Advanced - INFO - [build_log_monitor.py:247] - Build log monitor tools registered: 3 tools
+2026-03-31 22:21:02,373 - UnrealMCP_Advanced - INFO - [pie_inspector.py:141] - PIE session inspector tools registered: 7 tools
+2026-03-31 22:21:02,375 - UnrealMCP_Advanced - INFO - [source_analyzer.py:38] - tree-sitter not available — using regex-based analysis
+2026-03-31 22:21:02,382 - UnrealMCP_Advanced - INFO - [source_analyzer.py:518] - Source code analyzer tools registered: 6 tools (tree-sitter: False)
+2026-03-31 22:21:02,493 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:2819] - Starting Advanced MCP server with stdio transport
+2026-03-31 22:21:02,499 - asyncio - DEBUG - [proactor_events.py:634] - Using proactor: IocpProactor
+2026-03-31 22:21:02,502 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:434] - UnrealMCP Advanced server starting up
+2026-03-31 22:21:02,503 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:435] - Connection will be established lazily on first tool call
+2026-03-31 22:21:02,522 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: root=InitializedNotification(method='notifications/initialized', params=None, jsonrpc='2.0')
+2026-03-31 22:21:02,523 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x000002774602BB60>
+2026-03-31 22:21:02,523 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListToolsRequest
+2026-03-31 22:21:02,524 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListToolsRequest
+2026-03-31 22:21:02,546 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-03-31 22:21:02,551 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x00000277460B4260>
+2026-03-31 22:21:02,552 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListPromptsRequest
+2026-03-31 22:21:02,552 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListPromptsRequest
+2026-03-31 22:21:02,553 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x0000027746136810>
+2026-03-31 22:21:02,553 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListResourcesRequest
+2026-03-31 22:21:02,553 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListResourcesRequest
+2026-03-31 22:21:02,553 - mcp.server.fastmcp.resources.resource_manager - DEBUG - [resource_manager.py:89] - Listing resources
+2026-03-31 22:21:02,554 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-03-31 22:21:02,554 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-04-01 23:10:59,610 - mcp.server.lowlevel.server - DEBUG - [server.py:145] - Initializing server 'UnrealMCP_Advanced'
+2026-04-01 23:10:59,610 - mcp.server.lowlevel.server - DEBUG - [server.py:384] - Registering handler for ListToolsRequest
+2026-04-01 23:10:59,610 - mcp.server.lowlevel.server - DEBUG - [server.py:406] - Registering handler for CallToolRequest
+2026-04-01 23:10:59,610 - mcp.server.lowlevel.server - DEBUG - [server.py:252] - Registering handler for ListResourcesRequest
+2026-04-01 23:10:59,610 - mcp.server.lowlevel.server - DEBUG - [server.py:286] - Registering handler for ReadResourceRequest
+2026-04-01 23:10:59,610 - mcp.server.lowlevel.server - DEBUG - [server.py:222] - Registering handler for PromptListRequest
+2026-04-01 23:10:59,610 - mcp.server.lowlevel.server - DEBUG - [server.py:239] - Registering handler for GetPromptRequest
+2026-04-01 23:10:59,610 - mcp.server.lowlevel.server - DEBUG - [server.py:267] - Registering handler for ListResourceTemplatesRequest
+2026-04-01 23:10:59,731 - UnrealMCP_Advanced - INFO - [shipwrecked_tools.py:717] - Shipwrecked extended tools registered: 57 new tools
+2026-04-01 23:11:00,902 - UnrealMCP_Advanced - INFO - [remote_control_proxy.py:249] - Remote Control API proxy tools registered: 8 tools
+2026-04-01 23:11:00,929 - UnrealMCP_Advanced - INFO - [python_exec.py:80] - Python exec tools registered: 2 tools
+2026-04-01 23:11:00,944 - UnrealMCP_Advanced - INFO - [build_log_monitor.py:247] - Build log monitor tools registered: 3 tools
+2026-04-01 23:11:00,961 - UnrealMCP_Advanced - INFO - [pie_inspector.py:141] - PIE session inspector tools registered: 7 tools
+2026-04-01 23:11:00,966 - UnrealMCP_Advanced - INFO - [source_analyzer.py:38] - tree-sitter not available — using regex-based analysis
+2026-04-01 23:11:00,984 - UnrealMCP_Advanced - INFO - [source_analyzer.py:518] - Source code analyzer tools registered: 6 tools (tree-sitter: False)
+2026-04-01 23:11:01,194 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:2819] - Starting Advanced MCP server with stdio transport
+2026-04-01 23:11:01,221 - asyncio - DEBUG - [proactor_events.py:634] - Using proactor: IocpProactor
+2026-04-01 23:11:01,227 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:434] - UnrealMCP Advanced server starting up
+2026-04-01 23:11:01,227 - UnrealMCP_Advanced - INFO - [unreal_mcp_server_advanced.py:435] - Connection will be established lazily on first tool call
+2026-04-01 23:11:01,261 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: root=InitializedNotification(method='notifications/initialized', params=None, jsonrpc='2.0')
+2026-04-01 23:11:01,265 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x0000019C9F03BD70>
+2026-04-01 23:11:01,266 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListToolsRequest
+2026-04-01 23:11:01,266 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListToolsRequest
+2026-04-01 23:11:01,310 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-04-01 23:11:01,320 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x0000019C9F1466C0>
+2026-04-01 23:11:01,323 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListPromptsRequest
+2026-04-01 23:11:01,324 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListPromptsRequest
+2026-04-01 23:11:01,325 - mcp.server.lowlevel.server - DEBUG - [server.py:491] - Received message: <mcp.shared.session.RequestResponder object at 0x0000019C9F1467B0>
+2026-04-01 23:11:01,325 - mcp.server.lowlevel.server - INFO - [server.py:534] - Processing request of type ListResourcesRequest
+2026-04-01 23:11:01,325 - mcp.server.lowlevel.server - DEBUG - [server.py:537] - Dispatching request of type ListResourcesRequest
+2026-04-01 23:11:01,325 - mcp.server.fastmcp.resources.resource_manager - DEBUG - [resource_manager.py:89] - Listing resources
+2026-04-01 23:11:01,326 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
+2026-04-01 23:11:01,327 - mcp.server.lowlevel.server - DEBUG - [server.py:572] - Response sent
