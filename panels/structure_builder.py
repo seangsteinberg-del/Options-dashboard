@@ -2229,87 +2229,61 @@ def _stat_box(label, value, color=COLORS["accent_cyan"]):
 # ============================================================================
 
 def _make_leg_row(idx, cp="call", side="buy", delta=0.25, ratio=1, tenor_mult=1.0, visible=True):
-    """Generate one leg configuration row with dropdowns and inputs."""
+    """Generate one leg configuration row — fits within 250px sidebar."""
     row_bg = "#06060f" if idx % 2 == 0 else COLORS["bg_primary"]
-    display = "grid" if visible else "none"
-    buy_color = COLORS["accent_green"]
-    sell_color = COLORS["accent_red"]
-    side_color = buy_color if side == "buy" else sell_color
+    display = "block" if visible else "none"
+    _sm = {"fontSize": "9px", "color": COLORS["text_muted"], "minWidth": "14px"}
+    _inp = {**INPUT_STYLE, "padding": "3px 4px", "fontSize": "10px", "textAlign": "center"}
     return html.Div([
-        # Row 1: leg label + C/P + Side + Delta
+        # Top: L# + C/P + Side (3-col grid fits ~220px)
         html.Div([
             html.Div(f"L{idx+1}", style={
-                "color": COLORS["accent_orange"], "fontSize": "12px", "fontWeight": "700",
-                "minWidth": "30px",
+                "color": COLORS["accent_orange"], "fontSize": "11px", "fontWeight": "700",
             }),
             dcc.Dropdown(
                 id={"type": "stb-cp", "index": idx},
-                options=[{"label": "CALL", "value": "call"}, {"label": "PUT", "value": "put"}],
+                options=[{"label": "C", "value": "call"}, {"label": "P", "value": "put"}],
                 value=cp, clearable=False,
-                style={"flex": "1", "fontSize": "11px", "minWidth": "75px"},
+                style={"width": "50px", "fontSize": "10px"},
             ),
             dcc.Dropdown(
                 id={"type": "stb-side", "index": idx},
                 options=[{"label": "BUY", "value": "buy"}, {"label": "SELL", "value": "sell"}],
                 value=side, clearable=False,
-                style={"flex": "1", "fontSize": "11px", "minWidth": "70px"},
+                style={"width": "60px", "fontSize": "10px"},
             ),
             html.Div([
-                html.Div("\u0394", style={"color": COLORS["text_muted"], "fontSize": "9px"}),
-                dcc.Input(
-                    id={"type": "stb-delta", "index": idx},
-                    type="number", value=delta, min=0.05, max=0.95, step=0.05,
-                    style={**INPUT_STYLE, "width": "55px", "padding": "4px 6px", "fontSize": "11px",
-                           "textAlign": "center"},
-                    debounce=True,
-                ),
-            ], style={"display": "flex", "alignItems": "center", "gap": "2px"}),
-        ], style={"display": "flex", "gap": "6px", "alignItems": "center"}),
-        # Row 2: Ratio + Tenor mult + computed Strike + Vol + Premium
+                html.Span("\u0394", style=_sm),
+                dcc.Input(id={"type": "stb-delta", "index": idx}, type="number",
+                          value=delta, min=0.05, max=0.95, step=0.05,
+                          style={**_inp, "width": "48px"}, debounce=True),
+            ], style={"display": "flex", "alignItems": "center", "gap": "1px"}),
+        ], style={"display": "flex", "gap": "4px", "alignItems": "center"}),
+        # Bottom: R + T× + K + σ + $ (compact readout)
         html.Div([
-            html.Div([
-                html.Span("R:", style={"color": COLORS["text_muted"], "fontSize": "9px"}),
-                dcc.Input(
-                    id={"type": "stb-ratio", "index": idx},
-                    type="number", value=ratio, min=1, max=3, step=1,
-                    style={**INPUT_STYLE, "width": "35px", "padding": "3px 4px", "fontSize": "10px",
-                           "textAlign": "center"},
-                    debounce=True,
-                ),
-            ], style={"display": "flex", "alignItems": "center", "gap": "2px"}),
-            html.Div([
-                html.Span("T\u00d7:", style={"color": COLORS["text_muted"], "fontSize": "9px"}),
-                dcc.Input(
-                    id={"type": "stb-tenor-mult", "index": idx},
-                    type="number", value=tenor_mult, min=0.5, max=4.0, step=0.5,
-                    style={**INPUT_STYLE, "width": "40px", "padding": "3px 4px", "fontSize": "10px",
-                           "textAlign": "center"},
-                    debounce=True,
-                ),
-            ], style={"display": "flex", "alignItems": "center", "gap": "2px"}),
-            html.Div([
-                html.Span("K:", style={"color": COLORS["text_muted"], "fontSize": "9px"}),
-                html.Span(id={"type": "stb-strike-disp", "index": idx},
-                          style={"color": COLORS["accent_cyan"], "fontSize": "11px", "fontWeight": "600"}),
-            ], style={"display": "flex", "alignItems": "center", "gap": "2px"}),
-            html.Div([
-                html.Span("\u03c3:", style={"color": COLORS["text_muted"], "fontSize": "9px"}),
-                html.Span(id={"type": "stb-vol-disp", "index": idx},
-                          style={"color": COLORS["text_primary"], "fontSize": "11px"}),
-            ], style={"display": "flex", "alignItems": "center", "gap": "2px"}),
-            html.Div([
-                html.Span("$:", style={"color": COLORS["text_muted"], "fontSize": "9px"}),
-                html.Span(id={"type": "stb-prem-disp", "index": idx},
-                          style={"color": COLORS["accent_orange"], "fontSize": "11px", "fontWeight": "600"}),
-            ], style={"display": "flex", "alignItems": "center", "gap": "2px"}),
-        ], style={"display": "flex", "gap": "10px", "alignItems": "center", "marginTop": "3px",
-                  "paddingLeft": "30px"}),
+            html.Span("R:", style=_sm),
+            dcc.Input(id={"type": "stb-ratio", "index": idx}, type="number",
+                      value=ratio, min=1, max=3, step=1,
+                      style={**_inp, "width": "28px"}, debounce=True),
+            html.Span("T\u00d7:", style={**_sm, "marginLeft": "4px"}),
+            dcc.Input(id={"type": "stb-tenor-mult", "index": idx}, type="number",
+                      value=tenor_mult, min=0.5, max=4.0, step=0.5,
+                      style={**_inp, "width": "32px"}, debounce=True),
+            html.Span("|", style={"color": COLORS["border"], "margin": "0 3px"}),
+            html.Span(id={"type": "stb-strike-disp", "index": idx},
+                      style={"color": COLORS["accent_cyan"], "fontSize": "10px"}),
+            html.Span(id={"type": "stb-vol-disp", "index": idx},
+                      style={"color": COLORS["text_muted"], "fontSize": "10px", "marginLeft": "4px"}),
+            html.Span(id={"type": "stb-prem-disp", "index": idx},
+                      style={"color": COLORS["accent_orange"], "fontSize": "10px", "marginLeft": "4px"}),
+        ], style={"display": "flex", "alignItems": "center", "gap": "2px",
+                  "marginTop": "2px", "flexWrap": "wrap"}),
     ], id={"type": "stb-leg-row", "index": idx}, style={
-        "display": display, "flexDirection": "column",
-        "padding": "8px 10px", "borderRadius": "0px",
+        "display": display,
+        "padding": "6px 8px", "borderRadius": "0px",
         "backgroundColor": row_bg,
         "borderLeft": f"3px solid {COLORS['accent_orange']}",
-        "marginBottom": "4px",
+        "marginBottom": "3px",
     })
 
 
