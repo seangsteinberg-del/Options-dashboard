@@ -352,8 +352,7 @@ def _build_kpi_data(rows):
         book_vega = totals.get("vega", 0)
         book_theta = totals.get("theta", 0)
     except Exception as _e:
-        import logging as _lg
-        _lg.getLogger(__name__).debug("Portfolio load fallback: %s", _e)
+        logger.debug("Portfolio load fallback: %s", _e)
         book_vega, book_theta = 0, 0
     if not np.isfinite(book_vega) or not np.isfinite(book_theta) or (book_vega == 0 and book_theta == 0):
         kpis["book_vega"]  = "N/A"
@@ -368,8 +367,7 @@ def _build_kpi_data(rows):
         n48 = sum(1 for e in evts if e["days_away"] <= 2)
         kpis["events_48h"] = n48
     except Exception as _e:
-        import logging as _lg
-        _lg.getLogger(__name__).debug("Events fallback: %s", _e)
+        logger.debug("Events fallback: %s", _e)
         kpis["events_48h"] = 0
 
     return kpis
@@ -1073,8 +1071,7 @@ def register_callbacks(app):
             positioning = _build_positioning(pairs)
             return _render_events(events), _render_positioning(positioning)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).error("Book/events update failed: %s", e)
+            logger.error("Book/events update failed: %s", e)
             empty = html.Div("Data unavailable", style={"color": COLORS["text_secondary"], "fontSize": "11px"})
             return empty, empty
 
@@ -1199,6 +1196,5 @@ def register_callbacks(app):
         try:
             return export_csv(fig, panel, chart_type)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).error("CSV export failed: %s", e)
+            logger.error("CSV export failed: %s", e)
             return no_update

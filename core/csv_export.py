@@ -2,7 +2,6 @@
 
 import logging
 import os
-import traceback
 from datetime import datetime
 import numpy as np
 import pandas as pd
@@ -158,5 +157,5 @@ def export_csv(fig_dict, panel_name, chart_type):
         # Also return for dcc.Download (works in browser mode)
         return dcc.send_string(csv_string, filename)
     except Exception:
-        traceback.print_exc()
+        logger.exception("CSV export failed")
         return no_update

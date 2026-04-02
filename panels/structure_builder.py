@@ -459,8 +459,7 @@ def _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surf
         target_delta = delta_abs * cp_sign
         K = delta_to_strike(target_delta, S, leg_T, r_d, r_f, vol, cp_sign)
         if np.isnan(K) or K <= 0:
-            import logging
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "Leg %d: delta_to_strike returned invalid K=%.6f for delta=%.2f, "
                 "falling back to forward", i + 1, K if not np.isnan(K) else 0, target_delta)
             F = fx_forward(S, r_d, r_f, leg_T)
