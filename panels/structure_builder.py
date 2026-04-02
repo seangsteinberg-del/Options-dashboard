@@ -2605,24 +2605,16 @@ def layout():
                 ], style={"display": "flex", "gap": "12px", "flexWrap": "wrap",
                           "marginBottom": "12px"}),
 
-                # P&L Surface (Spot x Vol)
-                html.Div([
-                    html.Div("3D P&L SURFACE (SPOT \u00d7 VOL)", style={
-                        "color": "#ffffff", "fontSize": "11px", "fontWeight": "700",
-                        "fontFamily": "'JetBrains Mono', monospace", "letterSpacing": "1px",
-                        "textTransform": "uppercase", "marginBottom": "6px",
-                        "paddingBottom": "4px", "borderBottom": f"1px solid {COLORS['border_subtle']}",
-                    }),
-                    dcc.Graph(id="stb-pnl-surface", config={"displayModeBar": True, "scrollZoom": True},
-                              style={"height": "400px"}),
-                ], style={**CARD_STYLE, "padding": "14px", "marginBottom": "12px"},
-                   className="dashboard-card"),
-
-                # Chart grid row 2 (4 charts: smile, 3D, premium table, scenario)
+                # Chart grid row 2 (4 charts: smile, spot×vol surface, premium table, scenario)
                 html.Div([
                     html.Div([
                         dcc.Graph(id="struct-smile-chart", style={"height": "380px"},
                                   config={"displayModeBar": True, "scrollZoom": False}),
+                    ], style={**CARD_STYLE, "flex": "1", "minWidth": "340px",
+                              "padding": "12px"}, className="dashboard-card"),
+                    html.Div([
+                        dcc.Graph(id="stb-pnl-surface", config={"displayModeBar": True, "scrollZoom": True},
+                                  style={"height": "380px"}),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "340px",
                               "padding": "12px"}, className="dashboard-card"),
                     html.Div([
