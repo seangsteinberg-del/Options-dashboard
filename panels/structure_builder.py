@@ -2191,8 +2191,8 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
 
     fig.update_layout(
         paper_bgcolor=tpl["paper_bgcolor"], plot_bgcolor=tpl["plot_bgcolor"],
-        font=tpl["font"], margin=dict(l=55, r=15, t=35, b=30),
-        hoverlabel=tpl["hoverlabel"], height=380,
+        font=tpl["font"], margin=dict(l=55, r=15, t=35, b=35),
+        hoverlabel=tpl["hoverlabel"], height=520,
     )
     fig.update_xaxes(gridcolor="#1a1a30")
     fig.update_xaxes(title_text="Vol Shift (%)", ticksuffix="%", row=1, col=1)
@@ -2570,7 +2570,7 @@ def layout():
                     }, className="dashboard-card"),
                     html.Div([
                         html.Button("CSV", id="stb-csv-scenario", n_clicks=0, style=CSV_BTN_STYLE),
-                        dcc.Graph(id="stb-scenario-chart", style={"height": "380px"},
+                        dcc.Graph(id="stb-scenario-chart", style={"height": "520px"},
                                   config={"displayModeBar": True, "scrollZoom": False}),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "340px",
                               "padding": "12px"}, className="dashboard-card"),
@@ -2696,6 +2696,9 @@ def _build_parallel_coords(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.1
     if not processed_legs or T < 1e-6:
         return no_data_fig(height=350, msg="ADD LEGS FOR PARALLEL COORDINATES")
 
+    if len(processed_legs) < 2:
+        return no_data_fig(height=350, msg="PARALLEL COORDINATES: ADD 2+ LEGS TO COMPARE")
+
     # Compute per-leg metrics
     leg_data = {"leg": [], "delta": [], "gamma": [], "vega": [], "theta": [],
                 "premium": [], "strike": [], "vol": []}
@@ -2747,10 +2750,11 @@ def _build_parallel_coords(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.1
     fig.update_layout(
         paper_bgcolor="#000000", plot_bgcolor="#000000",
         font=dict(family="'JetBrains Mono', monospace", color="#e0e0e0"),
-        title=dict(text="PARALLEL COORDINATES -- LEG COMPARISON",
-                   font=dict(color="#ffffff", size=13)),
-        margin=dict(l=60, r=60, t=50, b=30),
-        height=350,
+        title=dict(text="LEG COMPARISON (PARALLEL COORDINATES)",
+                   font=dict(color="#ffffff", size=12),
+                   x=0.5, xanchor="center"),
+        margin=dict(l=60, r=60, t=70, b=30),
+        height=380,
     )
     return fig
 
