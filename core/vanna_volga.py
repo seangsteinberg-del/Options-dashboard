@@ -269,7 +269,7 @@ def vv_greeks(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol, cp):
     price = _price(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol, cp)
 
     # Bump sizes -- 0.01 % of value for spot, 0.01 vol pt for vol, 1e-5 for rates
-    dS = S * 1e-4
+    dS = max(S * 1e-4, 1e-10)
     dV = 1e-4
     dR = 1e-5
     dT = 1.0 / 365.0
@@ -357,7 +357,7 @@ def sabr_vol(F, K, T, alpha, beta, rho, nu):
         return max(v, 1e-6)
 
     FK = F * K
-    FK_beta2 = FK ** ((1.0 - beta) / 2.0)
+    FK_beta2 = max(FK ** ((1.0 - beta) / 2.0), 1e-12)
     log_FK = np.log(F / K)
 
     z = (nu / alpha) * FK_beta2 * log_FK
@@ -375,7 +375,7 @@ def sabr_vol(F, K, T, alpha, beta, rho, nu):
     )
 
     correction = 1.0 + (
-        (1.0 - beta) ** 2 / 24.0 * alpha ** 2 / (FK ** (1.0 - beta))
+        (1.0 - beta) ** 2 / 24.0 * alpha ** 2 / max(FK ** (1.0 - beta), 1e-12)
         + 0.25 * rho * beta * nu * alpha / FK_beta2
         + (2.0 - 3.0 * rho ** 2) / 24.0 * nu ** 2
     ) * T
