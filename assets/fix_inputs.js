@@ -37,7 +37,9 @@
     var _debounceTimer;
     var observer = new MutationObserver(function() {
         clearTimeout(_debounceTimer);
-        _debounceTimer = setTimeout(fixInputs, 80);
+        _debounceTimer = setTimeout(function() {
+            try { fixInputs(); } catch(e) { /* silent */ }
+        }, 80);
     });
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
 })();

@@ -48,6 +48,8 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 * {
     box-sizing: border-box;
+    scrollbar-width: thin;
+    scrollbar-color: #333355 #000000;
 }
 
 /* Keep only ticker tape animation */
@@ -83,10 +85,6 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
     background: #444466;
-}
-* {
-    scrollbar-width: thin;
-    scrollbar-color: #333355 #000000;
 }
 
 /* Text selection — Bloomberg orange highlight */
@@ -623,6 +621,9 @@ button:focus-visible {
     font-size: 16px;
     font-weight: 700;
     color: #d4d4d4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .stat-label {
     font-family: var(--font);
@@ -1141,3 +1142,27 @@ a:hover { text-decoration: underline; color: #ffaa33; }
 .risk-report-metric:last-child { border-bottom: none; }
 .risk-report-metric .label { color: #808080; }
 .risk-report-metric .value { color: #d4d4d4; font-weight: 600; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Focus Visible — Accessibility
+   ═══════════════════════════════════════════════════════════════════════════ */
+a:focus-visible,
+.lab-link-btn:focus-visible,
+.deeplink-btn:focus-visible,
+.watchlist-toggle:focus-visible {
+    outline: 1px solid #ff8800;
+    outline-offset: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Responsive — Ensure usability at 1200px min-width
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 1200px) {
+    .stat-row {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+    .metric-popup {
+        width: 90vw !important;
+        max-width: 700px !important;
+    }
+}
