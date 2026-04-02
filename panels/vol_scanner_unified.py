@@ -77,23 +77,21 @@ TAIL_MOVES = [1, 2, 3, 5]
 
 # Dark-midpoint scales: extremes glow, averages recede into the bg
 RICHNESS_COLORSCALE = [
-    [0.00, "#1565c0"],   # cold blue — cheapest
-    [0.15, "#0d47a1"],
-    [0.30, "#0a1628"],   # fades to near-black
-    [0.50, "#0e0e0e"],   # midpoint — blends with bg
-    [0.70, "#2a1200"],   # warms up
-    [0.85, "#bf5b00"],
-    [1.00, "#ff8800"],   # amber — richest (matches accent)
+    [0.00, "#1565c0"],
+    [0.20, "#0d5a9e"],
+    [0.35, "#1a2a4a"],
+    [0.50, "#2a2a40"],   # visible dark gray midpoint (NOT black)
+    [0.65, "#4a2a1a"],
+    [0.80, "#bf5b00"],
+    [1.00, "#ff8800"],
 ]
 
 SKEW_COLORSCALE = [
-    [0.00, "#c62828"],   # deep red — negative skew
-    [0.25, "#6d1b1b"],
-    [0.42, "#1a0e0e"],   # fades to near-black
-    [0.50, "#0e0e0e"],   # midpoint
-    [0.58, "#0a0e1a"],   # fades from near-black
-    [0.75, "#0d47a1"],
-    [1.00, "#1e88e5"],   # blue — positive skew
+    [0.00, "#c62828"],
+    [0.25, "#6d2020"],
+    [0.50, "#2a2a40"],   # visible dark gray midpoint (NOT black)
+    [0.75, "#1a3a6d"],
+    [1.00, "#1e88e5"],
 ]
 
 
@@ -147,9 +145,9 @@ def _empty_fig(title="", msg=None):
         # Data genuinely unavailable — show clear explanation
         fig.update_layout(**_chart_layout(
             height=CHART_SM, margin=dict(l=20, r=10, t=30, b=10),
-            title=dict(text=title, font=dict(size=10, color="#808080")),
+            title=dict(text=title, font=dict(size=10, color="#9a9ab0")),
             annotations=[dict(text=msg, x=0.5, y=0.5, showarrow=False,
-                              font=dict(color="#808080", size=9, family="'JetBrains Mono', monospace"),
+                              font=dict(color="#9a9ab0", size=9, family="'JetBrains Mono', monospace"),
                               xref="paper", yref="paper")]))
     else:
         # Initial loading state — skeleton grid
@@ -158,9 +156,9 @@ def _empty_fig(title="", msg=None):
                           xref="paper", yref="paper", line=dict(color="#0d0d1a", width=1))
         fig.update_layout(**_chart_layout(
             height=CHART_SM, margin=dict(l=20, r=10, t=30, b=10),
-            title=dict(text=title, font=dict(size=10, color="#808080")),
+            title=dict(text=title, font=dict(size=10, color="#9a9ab0")),
             annotations=[dict(text="LOADING", x=0.5, y=0.5, showarrow=False,
-                              font=dict(color="#333355", size=10, family="'JetBrains Mono', monospace"),
+                              font=dict(color="#3a3a5c", size=10, family="'JetBrains Mono', monospace"),
                               xref="paper", yref="paper")]))
     return fig
 
@@ -315,7 +313,7 @@ def _build_top_movers(rows):
     biggest_ivrv = max(rows, key=lambda r: abs(r.get("ivrv_3m", 0)))
     strongest = max(rows, key=lambda r: abs(r.get("composite", 0)))
     strength_val = strongest.get("composite", 0)
-    strength_color = "#ff3333" if strength_val > 0 else "#00cc66" if strength_val < 0 else "#808080"
+    strength_color = "#ff3333" if strength_val > 0 else "#00cc66" if strength_val < 0 else "#9a9ab0"
     n_inverted = sum(1 for r in rows if r.get("atm_1m", 0) > 0 and r.get("atm_1y", 0) > 0
                      and r.get("atm_1m", 0) > r.get("atm_1y", 0))
 
@@ -325,14 +323,14 @@ def _build_top_movers(rows):
         ("BIGGEST SKEW", f"{biggest_skew['pair']} {biggest_skew['rr25_3m']:+.1f}v", "#ff8800"),
         ("IV-RV GAP", f"{biggest_ivrv['pair']} {biggest_ivrv['ivrv_3m']:+.1f}v", "#ff8800"),
         ("STRONGEST", f"{strongest['pair']} {strength_val:+.0f}", strength_color),
-        ("TERM INVERSION", f"{n_inverted}/{len(rows)}", "#ff3333" if n_inverted > 0 else "#808080"),
+        ("TERM INVERSION", f"{n_inverted}/{len(rows)}", "#ff3333" if n_inverted > 0 else "#9a9ab0"),
     ]
     boxes = []
     for label, value, color in items:
         boxes.append(html.Div([
             html.Div(value, style={"fontSize": "11px", "fontWeight": "700",
                                    "color": color, "fontFamily": _MONO}),
-            html.Div(label, style={"fontSize": "8px", "color": "#808080",
+            html.Div(label, style={"fontSize": "8px", "color": "#9a9ab0",
                                    "letterSpacing": "1px", "fontFamily": _MONO}),
         ], style={**STAT_BOX_STYLE, "borderTop": f"2px solid {color}", "flex": "1"}))
     return boxes
@@ -382,12 +380,12 @@ def _build_heatmap(metric, lookback):
 
         fig = go.Figure(go.Heatmap(
             z=z, x=HEATMAP_TENORS, y=ALL_PAIRS, customdata=custom,
-            text=text, texttemplate="%{text}", textfont=dict(size=9, color="#c0c0c0"),
+            text=text, texttemplate="%{text}", textfont=dict(size=9, color="#d0d0d0"),
             colorscale=RICHNESS_COLORSCALE, zmin=0, zmax=100,
             hovertemplate="<b>%{y}</b> %{x}<br>Vol: %{customdata:.2f}<br>Pctl: %{z:.1f}%<extra></extra>",
             colorbar=dict(
-                title=dict(text="Pctl", font=dict(size=9, color="#808080")),
-                tickfont=dict(size=8, color="#808080"),
+                title=dict(text="Pctl", font=dict(size=9, color="#9a9ab0")),
+                tickfont=dict(size=8, color="#9a9ab0"),
                 len=0.6, thickness=10,
                 outlinewidth=0, bgcolor="rgba(0,0,0,0)",
                 tickvals=[0, 25, 50, 75, 100],
@@ -397,12 +395,12 @@ def _build_heatmap(metric, lookback):
         fig.update_layout(**_chart_layout(height=CHART_LG,
                           margin=dict(l=65, r=60, t=30, b=20),
                           title=dict(text=f"VOL RICHNESS — {metric} ({lookback}D)",
-                                     font=dict(size=10, color="#808080")),
-                          yaxis=dict(autorange="reversed", tickfont=dict(size=8, color="#808080"),
+                                     font=dict(size=10, color="#9a9ab0")),
+                          yaxis=dict(autorange="reversed", tickfont=dict(size=8, color="#9a9ab0"),
                                      showgrid=False),
-                          xaxis=dict(tickfont=dict(size=9, color="#808080"), side="bottom",
+                          xaxis=dict(tickfont=dict(size=9, color="#9a9ab0"), side="bottom",
                                      showgrid=False,
-                                     title=dict(text="Tenor", font=dict(size=9, color="#808080")))))
+                                     title=dict(text="Tenor", font=dict(size=9, color="#9a9ab0")))))
         return fig
     except Exception as exc:
         logger.warning("Vol richness heatmap failed: %s", exc)
@@ -431,13 +429,13 @@ def _build_cross_bar(metric, lookback):
         fig = go.Figure(go.Bar(y=pairs_l, x=pcts, orientation="h",
                                 marker_color=colors,
                                 text=[f"{p:.0f}%" for p in pcts],
-                                textposition="outside", textfont=dict(size=7, color="#808080")))
+                                textposition="outside", textfont=dict(size=7, color="#9a9ab0")))
         fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=55, r=20, t=25, b=10), showlegend=False,
                           title=dict(text=f"3M {metric} PERCENTILE RANK",
-                                     font=dict(size=10, color="#808080")),
+                                     font=dict(size=10, color="#9a9ab0")),
                           xaxis=dict(range=[0, 105], tickfont=dict(size=8),
-                                     title=dict(text="Percentile (%)", font=dict(size=9, color="#808080"))),
+                                     title=dict(text="Percentile (%)", font=dict(size=9, color="#9a9ab0"))),
                           yaxis=dict(tickfont=dict(size=7))))
         return fig
     except Exception as exc:
@@ -464,13 +462,13 @@ def _build_atm_history(pair, tenor, lookback):
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=x, y=[mean_v + std_v]*len(x),
-                                 mode="lines", line=dict(color="#333355", width=1, dash="dot"),
+                                 mode="lines", line=dict(color="#3a3a5c", width=1, dash="dot"),
                                  showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=[mean_v - std_v]*len(x),
-                                 mode="lines", line=dict(color="#333355", width=1, dash="dot"),
+                                 mode="lines", line=dict(color="#3a3a5c", width=1, dash="dot"),
                                  fill="tonexty", fillcolor="rgba(34,34,64,0.15)", showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=[mean_v]*len(x),
-                                 mode="lines", line=dict(color="#808080", width=1, dash="dash"),
+                                 mode="lines", line=dict(color="#9a9ab0", width=1, dash="dash"),
                                  showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=arr.tolist(), mode="lines",
                                  line=dict(color="#ff8800", width=2.5), name="ATM",
@@ -482,7 +480,7 @@ def _build_atm_history(pair, tenor, lookback):
         fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=False,
                           title=dict(text=f"{pair} ATM {tenor} HISTORY",
-                                     font=dict(size=9, color="#808080")),
+                                     font=dict(size=9, color="#9a9ab0")),
                           xaxis_title="Trading Days", yaxis_title="Vol (%)"))
         return fig
     except Exception as exc:
@@ -512,7 +510,7 @@ def _build_ivrv_chart(pair, tenor, lookback):
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} IV vs RV ({tenor})",
-                                     font=dict(size=9, color="#808080")),
+                                     font=dict(size=9, color="#9a9ab0")),
                           xaxis_title="Trading Days", yaxis_title="Vol (%)"))
         return fig
     except Exception as exc:
@@ -547,11 +545,11 @@ def _build_volcone_chart(pair, lookback):
                                      showlegend=False))
             fig.add_trace(go.Scatter(x=x, y=cone["p25"].values, mode="lines",
                                      line=dict(color="rgba(255,136,0,0.3)", width=1),
-                                     fill="tonexty", fillcolor="rgba(255,136,0,0.08)",
+                                     fill="tonexty", fillcolor="rgba(255,136,0,0.14)",
                                      showlegend=False))
         if "p50" in cone.columns:
             fig.add_trace(go.Scatter(x=x, y=cone["p50"].values, mode="lines",
-                                     line=dict(color="#808080", width=1, dash="dot"),
+                                     line=dict(color="#9a9ab0", width=1, dash="dot"),
                                      name="Median",
                                      hovertemplate="Window: %{x}d<br>Median: %{y:.2f}%<extra></extra>"))
         if "current" in cone.columns:
@@ -567,7 +565,7 @@ def _build_volcone_chart(pair, lookback):
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} VOL CONE",
-                                     font=dict(size=9, color="#808080")),
+                                     font=dict(size=9, color="#9a9ab0")),
                           xaxis_title="Window (days)", yaxis_title="Vol (%)"))
         return fig
     except Exception as exc:
@@ -604,11 +602,11 @@ def _build_drill_stats(pair, tenor, lookback):
         try:
             regime = vol_regime_detect(pair)
             regime_label = regime.get("regime", "NORMAL") if isinstance(regime, dict) else "NORMAL"
-            regime_color = regime.get("color", "#d4d4d4") if isinstance(regime, dict) else "#d4d4d4"
+            regime_color = regime.get("color", "#e0e0e0") if isinstance(regime, dict) else "#e0e0e0"
         except Exception as exc:
             logger.warning("Vol regime detect failed for %s: %s", pair, exc)
             regime_label = "NORMAL"
-            regime_color = "#d4d4d4"
+            regime_color = "#e0e0e0"
 
         items = [
             ("IV %ILE", f"{pct:.0f}%", pct_color),
@@ -622,13 +620,13 @@ def _build_drill_stats(pair, tenor, lookback):
             boxes.append(html.Div([
                 html.Div(value, style={"fontSize": "11px", "fontWeight": "700",
                                        "color": color, "fontFamily": _MONO}),
-                html.Div(label, style={"fontSize": "8px", "color": "#808080",
+                html.Div(label, style={"fontSize": "8px", "color": "#9a9ab0",
                                        "letterSpacing": "1px", "fontFamily": _MONO}),
             ], style={**STAT_BOX_STYLE, "marginBottom": "4px"}))
         return boxes
     except Exception as exc:
         logger.warning("Drill stats failed: %s", exc)
-        return [html.Div("Error loading stats", style={"color": "#808080", "fontSize": "10px"})]
+        return [html.Div("Error loading stats", style={"color": "#9a9ab0", "fontSize": "10px"})]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -654,12 +652,12 @@ def _build_skew_surface():
 
         fig = go.Figure(go.Heatmap(
             z=z_vals, x=SURFACE_TENORS, y=ALL_PAIRS, text=text_vals,
-            texttemplate="%{text}", textfont=dict(size=9, color="#c0c0c0"),
+            texttemplate="%{text}", textfont=dict(size=9, color="#d0d0d0"),
             colorscale=SKEW_COLORSCALE, zmin=-3, zmax=3,
             hovertemplate="<b>%{y}</b> %{x}<br>25D RR: %{z:+.2f}<extra></extra>",
             colorbar=dict(
-                title=dict(text="RR", font=dict(size=9, color="#808080")),
-                tickfont=dict(size=8, color="#808080"),
+                title=dict(text="RR", font=dict(size=9, color="#9a9ab0")),
+                tickfont=dict(size=8, color="#9a9ab0"),
                 len=0.6, thickness=10,
                 outlinewidth=0, bgcolor="rgba(0,0,0,0)",
                 tickvals=[-3, -1.5, 0, 1.5, 3],
@@ -669,12 +667,12 @@ def _build_skew_surface():
         fig.update_layout(**_chart_layout(height=CHART_LG,
                           margin=dict(l=65, r=60, t=30, b=20),
                           title=dict(text="25D RISK REVERSAL SURFACE",
-                                     font=dict(size=10, color="#808080")),
-                          yaxis=dict(autorange="reversed", tickfont=dict(size=8, color="#808080"),
+                                     font=dict(size=10, color="#9a9ab0")),
+                          yaxis=dict(autorange="reversed", tickfont=dict(size=8, color="#9a9ab0"),
                                      showgrid=False),
-                          xaxis=dict(tickfont=dict(size=9, color="#808080"), side="bottom",
+                          xaxis=dict(tickfont=dict(size=9, color="#9a9ab0"), side="bottom",
                                      showgrid=False,
-                                     title=dict(text="Tenor", font=dict(size=9, color="#808080")))))
+                                     title=dict(text="Tenor", font=dict(size=9, color="#9a9ab0")))))
         return fig
     except Exception as exc:
         logger.warning("Skew surface failed: %s", exc)
@@ -724,7 +722,7 @@ def _build_rr_spot_chart(pair, tenor):
                           margin=dict(l=50, r=50, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} RR vs SPOT ({tenor})",
-                                     font=dict(size=9, color="#808080"))))
+                                     font=dict(size=9, color="#9a9ab0"))))
         fig.update_yaxes(title_text="25D RR (vol pts)", secondary_y=False)
         fig.update_yaxes(title_text="Spot", secondary_y=True)
         fig.update_xaxes(title_text="Trading Days")
@@ -772,7 +770,7 @@ def _build_smile_comparison(pair):
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} SMILE COMPARISON",
-                                     font=dict(size=9, color="#808080")),
+                                     font=dict(size=9, color="#9a9ab0")),
                           xaxis_title="Delta", yaxis_title="Vol (%)"))
         return fig
     except Exception as exc:
@@ -800,7 +798,7 @@ def _build_bf_map():
         data.sort(key=lambda d: d["bf"])
         pairs_l = [d["pair"] for d in data]
         bfs = [d["bf"] for d in data]
-        colors = ["#ff3333" if b > 0.8 else "#ff8800" if b > 0.4 else "#808080" for b in bfs]
+        colors = ["#ff3333" if b > 0.8 else "#ff8800" if b > 0.4 else "#9a9ab0" for b in bfs]
 
         fig = go.Figure(go.Bar(y=pairs_l, x=bfs, orientation="h",
                                 marker_color=colors,
@@ -810,9 +808,9 @@ def _build_bf_map():
         fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=55, r=20, t=25, b=10), showlegend=False,
                           title=dict(text="25D BUTTERFLY (3M)",
-                                     font=dict(size=10, color="#808080")),
+                                     font=dict(size=10, color="#9a9ab0")),
                           xaxis=dict(tickfont=dict(size=8),
-                                     title=dict(text="25D BF (vol pts)", font=dict(size=9, color="#808080"))),
+                                     title=dict(text="25D BF (vol pts)", font=dict(size=9, color="#9a9ab0"))),
                           yaxis=dict(tickfont=dict(size=7))))
         return fig
     except Exception as exc:
@@ -842,8 +840,8 @@ def _build_tail_table(pair, tenor):
                 logger.warning("Tail probability failed for %s: %s", pair, exc)
                 up, dn = 0, 0
 
-            up_color = "#ff3333" if up > 15 else "#ff8800" if up > 5 else "#808080"
-            dn_color = "#ff3333" if dn > 15 else "#ff8800" if dn > 5 else "#808080"
+            up_color = "#ff3333" if up > 15 else "#ff8800" if up > 5 else "#9a9ab0"
+            dn_color = "#ff3333" if dn > 15 else "#ff8800" if dn > 5 else "#9a9ab0"
             body.append(html.Tr([
                 html.Td(f"±{move}%", style={**TABLE_CELL_STYLE, "fontWeight": "600"}),
                 html.Td(f"{up:.1f}%", style={**TABLE_CELL_STYLE, "color": up_color}),
@@ -854,7 +852,7 @@ def _build_tail_table(pair, tenor):
                                  "fontFamily": _MONO, "fontSize": "10px"})
     except Exception as exc:
         logger.warning("Tail table failed: %s", exc)
-        return html.Div("No tail data", style={"color": "#808080", "fontSize": "10px"})
+        return html.Div("No tail data", style={"color": "#9a9ab0", "fontSize": "10px"})
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -885,7 +883,7 @@ def _spark_term_structure(pair):
         fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=20, b=15), showlegend=False,
                           title=dict(text=f"{pair} TERM STRUCTURE",
-                                     font=dict(size=9, color="#808080"))))
+                                     font=dict(size=9, color="#9a9ab0"))))
         return fig
     except Exception as exc:
         logger.warning("Term structure chart failed for %s: %s", pair, exc)
@@ -923,7 +921,7 @@ def layout():
             ], style={"display": "flex", "gap": GAP}),
         ], style={"display": "flex", "justifyContent": "space-between",
                   "alignItems": "center", "padding": "8px 0",
-                  "borderBottom": "1px solid #222240"}),
+                  "borderBottom": "1px solid #2d2d50"}),
 
         # ── View Tabs ──
         dcc.Tabs(id=f"{_P}-view-tabs", value="table", children=[
@@ -943,7 +941,7 @@ def layout():
             html.Div(id=f"{_P}-table-wrapper", style={"marginTop": GAP}),
             # Drill-down
             html.Div(id=f"{_P}-table-drilldown", style={
-                "display": "none", "marginTop": "8px", "border": "1px solid #222240",
+                "display": "none", "marginTop": "8px", "border": "1px solid #2d2d50",
                 "padding": "8px",
             }, children=[
                 html.Div([
@@ -997,7 +995,7 @@ def layout():
 
             # Drill-down section
             html.Div(id=f"{_P}-hm-drill", style={
-                "marginTop": SECTION_GAP, "border": "1px solid #222240", "padding": GAP,
+                "marginTop": SECTION_GAP, "border": "1px solid #2d2d50", "padding": GAP,
             }, children=[
                 html.Div([
                     html.Span(id=f"{_P}-drill-label", style={
@@ -1071,11 +1069,11 @@ def layout():
                 ], style={"flex": "3"}),
                 html.Div([
                     html.Div("TAIL PROBABILITIES", style={
-                        "color": "#808080", "fontSize": "9px", "fontWeight": "700",
+                        "color": "#9a9ab0", "fontSize": "9px", "fontWeight": "700",
                         "letterSpacing": "1.5px", "marginBottom": GAP, "fontFamily": _MONO,
                     }),
                     html.Div(id=f"{_P}-tail-table"),
-                ], style={"flex": "2", "padding": GAP, "border": "1px solid #222240"}),
+                ], style={"flex": "2", "padding": GAP, "border": "1px solid #2d2d50"}),
             ], style={"display": "flex", "gap": GAP, "marginTop": GAP}),
 
             # Skew slope heatmap
@@ -1176,21 +1174,21 @@ def register_callbacks(app):
             row_selectable="single",
             style_table={"overflowX": "auto", "maxHeight": "450px", "overflowY": "auto"},
             style_header={
-                "backgroundColor": "#000000", "color": "#808080",
+                "backgroundColor": "#000000", "color": "#9a9ab0",
                 "fontWeight": "700", "fontSize": "9px", "textTransform": "uppercase",
                 "letterSpacing": "1px", "border": "1px solid #111122",
-                "borderBottom": "2px solid #222240",
+                "borderBottom": "2px solid #2d2d50",
                 "fontFamily": _MONO, "padding": "6px 6px",
             },
             style_cell={
-                "backgroundColor": "#000000", "color": "#d4d4d4",
+                "backgroundColor": "#000000", "color": "#e0e0e0",
                 "fontSize": "11px", "fontFamily": _MONO,
                 "border": "1px solid #111122", "padding": "4px 6px",
                 "textAlign": "right", "minWidth": "60px",
             },
             style_cell_conditional=[
                 {"if": {"column_id": "pair"}, "textAlign": "left", "fontWeight": "700",
-                 "color": "#ffffff", "borderRight": "2px solid #222240"},
+                 "color": "#ffffff", "borderRight": "2px solid #2d2d50"},
                 {"if": {"column_id": "group"}, "textAlign": "center", "color": "#555555",
                  "fontSize": "9px"},
                 {"if": {"column_id": "spot"}, "color": "#666666"},
@@ -1273,7 +1271,7 @@ def register_callbacks(app):
                  "color": "#ff8800", "borderLeft": "2px solid #ff8800"},
                 # Term signals
                 {"if": {"filter_query": '{signal} contains "TERM"', "column_id": "signal"},
-                 "color": "#d4d4d4", "borderLeft": "2px solid #808080"},
+                 "color": "#e0e0e0", "borderLeft": "2px solid #9a9ab0"},
             ],
         )
 
@@ -1302,7 +1300,7 @@ def register_callbacks(app):
         pair = row.get("pair", "EURUSD")
 
         return (
-            {"display": "block", "marginTop": "8px", "border": "1px solid #222240", "padding": "8px"},
+            {"display": "block", "marginTop": "8px", "border": "1px solid #2d2d50", "padding": "8px"},
             f"{pair} — DRILL-DOWN",
             _build_atm_history(pair, "3M", 252),
             _build_ivrv_chart(pair, "3M", 252),
@@ -1433,15 +1431,15 @@ def register_callbacks(app):
             x=col_labels, y=pairs, z=z_vals,
             colorscale=[
                 [0.0, "#c62828"],
-                [0.5, "#0e0e0e"],
+                [0.5, "#2a2a40"],
                 [1.0, "#1e88e5"],
             ],
             text=text, texttemplate="%{text}",
-            textfont=dict(size=10, color="#c0c0c0"),
+            textfont=dict(size=10, color="#d0d0d0"),
             hovertemplate="Pair: %{y}<br>Segment: %{x}<br>Slope: %{z:+.4f}<extra></extra>",
             colorbar=dict(
-                title=dict(text="Slope", font=dict(color="#808080", size=10)),
-                tickfont=dict(color="#808080", size=9),
+                title=dict(text="Slope", font=dict(color="#9a9ab0", size=10)),
+                tickfont=dict(color="#9a9ab0", size=9),
                 len=0.8, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
             ),
             xgap=2, ygap=2,
@@ -1452,8 +1450,8 @@ def register_callbacks(app):
                        font=dict(color="#ffffff", size=13)),
             margin=dict(l=80, r=30, t=50, b=30),
             height=max(350, len(pairs) * 24 + 80),
-            xaxis=dict(title="", type="category", side="top", tickfont=dict(size=9, color="#808080")),
-            yaxis=dict(title="", type="category", autorange="reversed", tickfont=dict(size=10, color="#d4d4d4")),
+            xaxis=dict(title="", type="category", side="top", tickfont=dict(size=9, color="#9a9ab0")),
+            yaxis=dict(title="", type="category", autorange="reversed", tickfont=dict(size=10, color="#e0e0e0")),
         ))
         return fig
 
@@ -1489,20 +1487,20 @@ def register_callbacks(app):
             z=z_matrix,
             colorscale=[
                 [0.0, "#1565c0"],
-                [0.25, "#0d47a1"],
-                [0.40, "#0a1628"],
-                [0.50, "#0e0e0e"],
-                [0.60, "#2a1200"],
-                [0.75, "#bf5b00"],
+                [0.25, "#0d5a9e"],
+                [0.35, "#1a2a4a"],
+                [0.50, "#2a2a40"],
+                [0.65, "#4a2a1a"],
+                [0.80, "#bf5b00"],
                 [1.0, "#ff8800"],
             ],
             text=text,
             texttemplate="%{text}",
-            textfont=dict(size=10, color="#c0c0c0"),
+            textfont=dict(size=10, color="#d0d0d0"),
             hovertemplate="Pair: %{y}<br>Signal: %{x}<br>Z-Score: %{z:+.2f}<extra></extra>",
             colorbar=dict(
-                title=dict(text="Z-Score", font=dict(color="#808080", size=10)),
-                tickfont=dict(color="#808080", size=9),
+                title=dict(text="Z-Score", font=dict(color="#9a9ab0", size=10)),
+                tickfont=dict(color="#9a9ab0", size=9),
                 len=0.8, thickness=12,
                 outlinewidth=0, bgcolor="rgba(0,0,0,0)",
             ),
@@ -1513,7 +1511,7 @@ def register_callbacks(app):
         # Confluence score annotations on right side
         for i, row in df.iterrows():
             conf = row.get("confluence", 0)
-            color = "#ff3333" if conf >= 4 else ("#ff8800" if conf >= 2 else "#808080")
+            color = "#ff3333" if conf >= 4 else ("#ff8800" if conf >= 2 else "#9a9ab0")
             fig.add_annotation(
                 x=1.02, y=row["pair"],
                 xref="paper", yref="y",
@@ -1535,11 +1533,11 @@ def register_callbacks(app):
             margin=dict(l=80, r=50, t=50, b=30),
             height=max(400, len(pairs) * 28 + 80),
             xaxis=dict(title="", type="category", side="top",
-                       tickfont=dict(size=10, color="#808080")),
+                       tickfont=dict(size=10, color="#9a9ab0")),
             yaxis=dict(title="", type="category", autorange="reversed",
-                       tickfont=dict(size=10, color="#d4d4d4")),
-            hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#222240",
-                            font=dict(color="#d4d4d4", family=_MONO, size=11)),
+                       tickfont=dict(size=10, color="#e0e0e0")),
+            hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#2d2d50",
+                            font=dict(color="#e0e0e0", family=_MONO, size=11)),
         ))
         return fig
 

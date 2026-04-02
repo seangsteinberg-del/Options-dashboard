@@ -1752,10 +1752,10 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
         xaxis=dict(gridcolor="#1a1a30"),
         yaxis=dict(gridcolor="#1a1a30"),
         yaxis2=dict(
-            title=dict(text="Density", font=dict(size=9, color="#808080")),
+            title=dict(text="Density", font=dict(size=9, color="#9a9ab0")),
             overlaying="y", side="right",
             showgrid=False, zeroline=False,
-            tickfont=dict(size=8, color="#808080"),
+            tickfont=dict(size=8, color="#9a9ab0"),
         ),
         height=380,
     )
@@ -2954,7 +2954,7 @@ def register_callbacks(app):
                     for key, label in pct_names.items():
                         val = signal_pcts.get(key, 50)
                         bar_color = ("#1565c0" if val < 25 else "#ff8800"
-                                     if val > 75 else "#333355")
+                                     if val > 75 else "#3a3a5c")
                         regime_items.append(html.Div([
                             html.Span(f"{label} ", style={"color": "#555555",
                                       "fontSize": "8px", "letterSpacing": "0.5px"}),
@@ -2983,7 +2983,7 @@ def register_callbacks(app):
                         html.Button(
                             [html.Span(f"{sg['signal']} ", style={"fontWeight": "700"}),
                              html.Span(f"\u2192 {best_struct or '?'}",
-                                       style={"color": "#d4d4d4"})],
+                                       style={"color": "#e0e0e0"})],
                             id={"type": "stb-suggestion-btn", "index": si},
                             n_clicks=0,
                             style={"color": sg["color"], "fontSize": "9px", "background": "none",

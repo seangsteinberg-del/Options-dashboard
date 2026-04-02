@@ -89,9 +89,9 @@ def _empty_fig(title=""):
                       xref="paper", yref="paper", line=dict(color="#0d0d1a", width=1))
     fig.update_layout(**_chart_layout(
         height=220, margin=dict(l=20, r=10, t=30, b=10),
-        title=dict(text=title, font=dict(size=10, color="#808080")),
+        title=dict(text=title, font=dict(size=10, color="#9a9ab0")),
         annotations=[dict(text="LOADING", x=0.5, y=0.5, showarrow=False,
-                          font=dict(color="#333355", size=10, family="'JetBrains Mono', monospace"),
+                          font=dict(color="#3a3a5c", size=10, family="'JetBrains Mono', monospace"),
                           xref="paper", yref="paper")]))
     return fig
 
@@ -138,7 +138,7 @@ def _build_vol_spread_ts(pair_a, pair_b, tenor, lookback):
         fig.add_trace(go.Scatter(x=x, y=a, mode="lines", line=dict(width=0), showlegend=False),
                       secondary_y=False)
         fig.add_trace(go.Scatter(x=x, y=b, mode="lines", line=dict(width=0),
-                                 fill="tonexty", fillcolor="rgba(255,136,0,0.06)", showlegend=False),
+                                 fill="tonexty", fillcolor="rgba(255,136,0,0.12)", showlegend=False),
                       secondary_y=False)
 
         # Z-score line
@@ -154,7 +154,7 @@ def _build_vol_spread_ts(pair_a, pair_b, tenor, lookback):
         fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=50, t=30, b=20),
                           title=dict(text=f"VOL SPREAD: {pair_a} vs {pair_b} ({tenor})",
-                                     font=dict(size=10, color="#808080")),
+                                     font=dict(size=10, color="#9a9ab0")),
                           legend=dict(x=0.02, y=0.98, font=dict(size=8))))
         fig.update_yaxes(title_text="Vol (%)", secondary_y=False)
         fig.update_yaxes(title_text="Z-Score (\u03c3)", secondary_y=True)
@@ -186,15 +186,15 @@ def _build_zscore_matrix(lookback):
 
         fig = go.Figure(go.Heatmap(
             z=z, x=HEATMAP_TENORS, y=ALL_PAIRS, text=text,
-            texttemplate="%{text}", textfont=dict(size=9, color="#c0c0c0"),
+            texttemplate="%{text}", textfont=dict(size=9, color="#d0d0d0"),
             colorscale=[[0, "#1565c0"], [0.25, "#0a1628"],
-                        [0.50, "#0e0e0e"],
+                        [0.50, "#2a2a40"],
                         [0.75, "#2a1200"], [1.0, "#ff3333"]],
             zmin=-3, zmax=3,
             hovertemplate="<b>%{y}</b> %{x}<br>Z: %{z:+.2f}<extra></extra>",
             colorbar=dict(
-                title=dict(text="Z", font=dict(size=9, color="#808080")),
-                tickfont=dict(size=8, color="#808080"),
+                title=dict(text="Z", font=dict(size=9, color="#9a9ab0")),
+                tickfont=dict(size=8, color="#9a9ab0"),
                 len=0.6, thickness=10, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
             ),
             xgap=2, ygap=2,
@@ -202,12 +202,12 @@ def _build_zscore_matrix(lookback):
         fig.update_layout(**_chart_layout(height=CHART_LG,
                           margin=dict(l=65, r=60, t=30, b=20),
                           title=dict(text=f"ATM Z-SCORE MATRIX ({lookback}D)",
-                                     font=dict(size=10, color="#808080")),
-                          yaxis=dict(autorange="reversed", tickfont=dict(size=8, color="#808080"),
+                                     font=dict(size=10, color="#9a9ab0")),
+                          yaxis=dict(autorange="reversed", tickfont=dict(size=8, color="#9a9ab0"),
                                      showgrid=False),
-                          xaxis=dict(tickfont=dict(size=9, color="#808080"),
+                          xaxis=dict(tickfont=dict(size=9, color="#9a9ab0"),
                                      showgrid=False,
-                                     title=dict(text="Tenor", font=dict(size=9, color="#808080")))))
+                                     title=dict(text="Tenor", font=dict(size=9, color="#9a9ab0")))))
         return fig
     except Exception:
         return _empty_fig("Z-SCORE MATRIX")
@@ -226,18 +226,18 @@ def _build_ivrv_panel(pair, tenor, lookback):
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=x, y=spread, mode="lines",
-                                 line=dict(color="#808080", width=1), name="IV-RV",
+                                 line=dict(color="#9a9ab0", width=1), name="IV-RV",
                                  hovertemplate="Day %{x}<br>IV-RV: %{y:+.2f}v<extra></extra>"))
         fig.add_trace(go.Scatter(x=x, y=[max(0, s) for s in spread], mode="lines",
                                  line=dict(width=0), showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=[0]*len(x), mode="lines", line=dict(width=0),
                                  fill="tonexty", fillcolor="rgba(255,51,51,0.15)", showlegend=False))
-        fig.add_hline(y=0, line=dict(color="#808080", width=0.5, dash="dash"))
+        fig.add_hline(y=0, line=dict(color="#9a9ab0", width=0.5, dash="dash"))
 
         fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"{pair} IV-RV SPREAD ({tenor})",
-                                     font=dict(size=10, color="#808080")),
+                                     font=dict(size=10, color="#9a9ab0")),
                           legend=dict(x=0.02, y=0.98, font=dict(size=8))))
         return fig
     except Exception:
@@ -266,27 +266,27 @@ def _build_vol_beta_heatmap():
 
         fig = go.Figure(data=go.Heatmap(
             x=pairs, y=pairs, z=z,
-            colorscale=[[0, "#1565c0"], [0.5, "#0e0e0e"], [1.0, "#ff8800"]],
+            colorscale=[[0, "#1565c0"], [0.5, "#2a2a40"], [1.0, "#ff8800"]],
             text=text, texttemplate="%{text}",
-            textfont=dict(size=10, color="#c0c0c0"),
+            textfont=dict(size=10, color="#d0d0d0"),
             hovertemplate="Y: %{y}<br>X: %{x}<br>Beta: %{z:.2f}<extra></extra>",
             colorbar=dict(
-                title=dict(text="Vol Beta", font=dict(color="#808080", size=10)),
-                tickfont=dict(color="#808080", size=9),
+                title=dict(text="Vol Beta", font=dict(color="#9a9ab0", size=10)),
+                tickfont=dict(color="#9a9ab0", size=9),
                 len=0.8, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
             ),
             xgap=2, ygap=2,
         ))
         fig.update_layout(
             paper_bgcolor="#000000", plot_bgcolor="#000000",
-            font=dict(family=_MONO, color="#d4d4d4", size=11),
+            font=dict(family=_MONO, color="#e0e0e0", size=11),
             title=dict(text="Vol Beta Matrix (3M ATM, 120d)", font=dict(color="#ffffff", size=13)),
-            xaxis=dict(title="", type="category", tickfont=dict(size=9, color="#808080")),
-            yaxis=dict(title="", type="category", autorange="reversed", tickfont=dict(size=9, color="#d4d4d4")),
+            xaxis=dict(title="", type="category", tickfont=dict(size=9, color="#9a9ab0")),
+            yaxis=dict(title="", type="category", autorange="reversed", tickfont=dict(size=9, color="#e0e0e0")),
             margin=dict(l=70, r=20, t=40, b=40),
             height=380,
-            hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#222240",
-                            font=dict(color="#d4d4d4", family=_MONO, size=11)),
+            hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#2d2d50",
+                            font=dict(color="#e0e0e0", family=_MONO, size=11)),
         )
         return fig
     except Exception:
@@ -324,7 +324,7 @@ def _build_rr_bf_spreads(pair_a, pair_b, tenor="3M"):
             fig.add_trace(go.Scatter(
                 x=days + days[::-1],
                 y=[mean + 2*std]*len(days) + [mean - 2*std]*len(days),
-                fill="toself", fillcolor="rgba(255,136,0,0.05)",
+                fill="toself", fillcolor="rgba(255,136,0,0.12)",
                 line=dict(width=0), showlegend=False, hoverinfo="skip",
             ), row=row_idx, col=1)
 
@@ -337,7 +337,7 @@ def _build_rr_bf_spreads(pair_a, pair_b, tenor="3M"):
             ), row=row_idx, col=1)
 
             # Mean line
-            fig.add_hline(y=mean, line=dict(color="#808080", width=1, dash="dash"), row=row_idx, col=1)
+            fig.add_hline(y=mean, line=dict(color="#9a9ab0", width=1, dash="dash"), row=row_idx, col=1)
 
             # Spread time series
             fig.add_trace(go.Scatter(
@@ -356,15 +356,15 @@ def _build_rr_bf_spreads(pair_a, pair_b, tenor="3M"):
 
         fig.update_layout(
             paper_bgcolor="#000000", plot_bgcolor="#000000",
-            font=dict(family=_MONO, color="#d4d4d4", size=11),
+            font=dict(family=_MONO, color="#e0e0e0", size=11),
             margin=dict(l=50, r=20, t=40, b=30),
             height=450,
             xaxis2=dict(title="Trading Days"),
             yaxis=dict(title="RR Spread", showgrid=True, gridcolor="#1a1a30"),
             yaxis2=dict(title="BF Spread", showgrid=True, gridcolor="#1a1a30"),
-            legend=dict(font=dict(color="#808080", size=9), bgcolor="rgba(0,0,0,0)"),
-            hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#222240",
-                            font=dict(color="#d4d4d4", family=_MONO, size=11)),
+            legend=dict(font=dict(color="#9a9ab0", size=9), bgcolor="rgba(0,0,0,0)"),
+            hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#2d2d50",
+                            font=dict(color="#e0e0e0", family=_MONO, size=11)),
         )
         return fig
     except Exception:
@@ -389,7 +389,7 @@ def _build_skew_scatter(pair_a, pair_b, tenor, lookback):
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=a[:-1], y=b[:-1], mode="markers",
-                                 marker=dict(color="#808080", size=3, opacity=0.5),
+                                 marker=dict(color="#9a9ab0", size=3, opacity=0.5),
                                  name="History",
                                  hovertemplate=pair_a + " RR: %{x:.2f}<br>" + pair_b + " RR: %{y:.2f}<extra>History</extra>"))
         fig.add_trace(go.Scatter(x=[a[-1]], y=[b[-1]], mode="markers",
@@ -406,7 +406,7 @@ def _build_skew_scatter(pair_a, pair_b, tenor, lookback):
         fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=30),
                           title=dict(text=f"SKEW SCATTER: {pair_a} vs {pair_b} ({tenor})",
-                                     font=dict(size=10, color="#808080")),
+                                     font=dict(size=10, color="#9a9ab0")),
                           xaxis=dict(title=dict(text=f"{pair_a} 25D RR", font=dict(size=9))),
                           yaxis=dict(title=dict(text=f"{pair_b} 25D RR", font=dict(size=9))),
                           legend=dict(x=0.02, y=0.98, font=dict(size=8))))
@@ -502,22 +502,22 @@ def _build_corr_heatmap(window):
                 for j in range(n)] for i in range(n)]
     fig = go.Figure(go.Heatmap(
         z=z_data, x=labels, y=labels, text=text,
-        texttemplate="%{text}", textfont=dict(size=8, color="#c0c0c0"),
-        colorscale=[[0, "#ff3333"], [0.35, "#1a0e0e"], [0.50, "#0e0e0e"],
+        texttemplate="%{text}", textfont=dict(size=8, color="#d0d0d0"),
+        colorscale=[[0, "#ff3333"], [0.35, "#1a0e0e"], [0.50, "#2a2a40"],
                     [0.65, "#0a1628"], [1.0, "#00cc66"]],
         zmin=-1, zmax=1,
         xgap=2, ygap=2,
         hovertemplate="<b>%{x} vs %{y}</b><br>ρ = %{z:.3f}<extra></extra>",
         colorbar=dict(
-            title=dict(text="ρ", font=dict(size=9, color="#808080")),
-            tickfont=dict(size=8, color="#808080"),
+            title=dict(text="ρ", font=dict(size=9, color="#9a9ab0")),
+            tickfont=dict(size=8, color="#9a9ab0"),
             len=0.6, thickness=10, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
         ),
     ))
     fig.update_layout(**_chart_layout(height=CHART_LG,
                       margin=dict(l=60, r=50, t=30, b=50),
                       title=dict(text=f"SPOT CORRELATION ({window}D)",
-                                 font=dict(size=10, color="#808080")),
+                                 font=dict(size=10, color="#9a9ab0")),
                       yaxis=dict(autorange="reversed", tickfont=dict(size=8)),
                       xaxis=dict(tickfont=dict(size=8), tickangle=45)))
     return fig
@@ -536,21 +536,21 @@ def _build_regime_badges():
             if vol_regime_detect:
                 info = vol_regime_detect(pair)
                 regime = info.get("regime", "NORMAL") if isinstance(info, dict) else "NORMAL"
-                color = info.get("color", "#d4d4d4") if isinstance(info, dict) else "#d4d4d4"
+                color = info.get("color", "#e0e0e0") if isinstance(info, dict) else "#e0e0e0"
             else:
                 regime = "NORMAL"
-                color = "#d4d4d4"
+                color = "#e0e0e0"
         except Exception:
             regime = "NORMAL"
-            color = "#d4d4d4"
+            color = "#e0e0e0"
 
-        regime_colors = {"LOW": "#00cc66", "NORMAL": "#d4d4d4", "ELEVATED": "#ff8800",
+        regime_colors = {"LOW": "#00cc66", "NORMAL": "#e0e0e0", "ELEVATED": "#ff8800",
                          "HIGH": "#ff3333", "CRISIS": "#ff3333"}
         color = regime_colors.get(regime, color)
 
         badges.append(html.Div([
             html.Div(f"{pair[:3]}/{pair[3:]}", style={
-                "fontSize": "9px", "fontWeight": "700", "color": "#d4d4d4", "fontFamily": _MONO,
+                "fontSize": "9px", "fontWeight": "700", "color": "#e0e0e0", "fontFamily": _MONO,
             }),
             html.Div(regime, style={
                 "fontSize": "8px", "fontWeight": "600", "color": color, "fontFamily": _MONO,
@@ -569,7 +569,7 @@ def _build_breakdown_table(window_short=20, window_long=120):
     corr_l = _safe_corr_matrix(window_long)
     if corr_s is None or corr_l is None:
         return html.Div("NO CORRELATION DATA",
-                        style={"color": "#808080", "fontSize": "10px", "padding": "8px"})
+                        style={"color": "#9a9ab0", "fontSize": "10px", "padding": "8px"})
     n = len(MONITOR_PAIRS)
     # Ensure matrices match expected dimensions
     corr_s = np.array(corr_s, dtype=float)
@@ -577,7 +577,7 @@ def _build_breakdown_table(window_short=20, window_long=120):
     for arr_name, arr in [("corr_s", corr_s), ("corr_l", corr_l)]:
         if arr.ndim != 2 or arr.shape[0] < n or arr.shape[1] < n:
             return html.Div("CORRELATION DATA DIMENSION MISMATCH",
-                            style={"color": "#808080", "fontSize": "10px", "padding": "8px"})
+                            style={"color": "#9a9ab0", "fontSize": "10px", "padding": "8px"})
     corr_s, corr_l = corr_s[:n, :n], corr_l[:n, :n]
     divergences = []
     for i in range(n):
@@ -597,7 +597,7 @@ def _build_breakdown_table(window_short=20, window_long=120):
 
     if not divergences:
         return html.Div("No significant divergences (|gap| > 0.3)",
-                        style={"color": "#808080", "fontSize": "10px", "padding": "8px"})
+                        style={"color": "#9a9ab0", "fontSize": "10px", "padding": "8px"})
 
     header = html.Tr([html.Th(h, style={**TABLE_HEADER_STYLE, "fontSize": "8px"})
                        for h in ["PAIR A", "PAIR B", "20D", "120D", "GAP", "SIGNAL"]])
@@ -662,14 +662,14 @@ def _build_rolling_chart(pair_a, pair_b):
                                      name=f"{w}d",
                                      hovertemplate="Day %{x}<br>\u03c1: %{y:.3f}<extra>" + f"{w}d" + "</extra>"))
 
-        fig.add_hline(y=0, line=dict(color="#808080", width=0.5, dash="dot"))
+        fig.add_hline(y=0, line=dict(color="#9a9ab0", width=0.5, dash="dot"))
         fig.add_hline(y=0.7, line=dict(color="#00cc66", width=0.5, dash="dash"))
         fig.add_hline(y=-0.7, line=dict(color="#00cc66", width=0.5, dash="dash"))
 
         fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"ROLLING CORRELATION: {pair_a} vs {pair_b}",
-                                     font=dict(size=10, color="#808080")),
+                                     font=dict(size=10, color="#9a9ab0")),
                           yaxis=dict(range=[-1.05, 1.05]),
                           legend=dict(x=0.02, y=0.98, font=dict(size=8), orientation="h"),
                           xaxis_title="Trading Days", yaxis_title="Correlation (\u03c1)"))
@@ -693,7 +693,7 @@ def _build_corr_cone(pair_a, pair_b):
         fig.add_trace(go.Scatter(
             x=windows + windows[::-1],
             y=df["p90"].tolist() + df["p10"].tolist()[::-1],
-            fill="toself", fillcolor="rgba(255,136,0,0.08)",
+            fill="toself", fillcolor="rgba(255,136,0,0.14)",
             line=dict(width=0), showlegend=True, name="10th-90th %ile",
             hoverinfo="skip",
         ))
@@ -710,7 +710,7 @@ def _build_corr_cone(pair_a, pair_b):
         # Median line
         fig.add_trace(go.Scatter(
             x=windows, y=df["median"], mode="lines",
-            name="Median", line=dict(color="#808080", width=1.5, dash="dash"),
+            name="Median", line=dict(color="#9a9ab0", width=1.5, dash="dash"),
         ))
 
         # Current values
@@ -725,18 +725,18 @@ def _build_corr_cone(pair_a, pair_b):
         # Apply theme
         fig.update_layout(
             paper_bgcolor="#000000", plot_bgcolor="#000000",
-            font=dict(family=_MONO, color="#d4d4d4", size=11),
+            font=dict(family=_MONO, color="#e0e0e0", size=11),
             title=dict(text=f"Correlation Cone -- {pair_a} vs {pair_b}",
                        font=dict(color="#ffffff", size=13)),
             xaxis=dict(title="Rolling Window (days)", showgrid=True, gridcolor="#1a1a30",
-                       tickfont=dict(size=9, color="#808080")),
+                       tickfont=dict(size=9, color="#9a9ab0")),
             yaxis=dict(title="Correlation", showgrid=True, gridcolor="#1a1a30",
-                       tickfont=dict(size=9, color="#808080"), range=[-1, 1]),
+                       tickfont=dict(size=9, color="#9a9ab0"), range=[-1, 1]),
             margin=dict(l=50, r=20, t=40, b=40),
             height=320,
-            legend=dict(font=dict(color="#808080", size=10), bgcolor="rgba(0,0,0,0)"),
-            hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#222240",
-                            font=dict(color="#d4d4d4", family=_MONO, size=11)),
+            legend=dict(font=dict(color="#9a9ab0", size=10), bgcolor="rgba(0,0,0,0)"),
+            hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#2d2d50",
+                            font=dict(color="#e0e0e0", family=_MONO, size=11)),
         )
         return fig
     except Exception:
@@ -763,7 +763,7 @@ def _build_rate_table():
         fgn = _sf(r.get("r_for", 0)) * 100
         diff = dom - fgn
         carry = "RECEIVE" if diff > 0.5 else "PAY" if diff < -0.5 else "FLAT"
-        carry_color = "#00cc66" if carry == "RECEIVE" else "#ff3333" if carry == "PAY" else "#808080"
+        carry_color = "#00cc66" if carry == "RECEIVE" else "#ff3333" if carry == "PAY" else "#9a9ab0"
         body.append(html.Tr([
             html.Td(pair, style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
             html.Td(f"{dom:.2f}%", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
@@ -823,7 +823,7 @@ def _build_dxy_chart(lookback):
         fig.update_layout(**_chart_layout(height=CHART_SM,
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"DXY PROXY ({lookback}D)",
-                                     font=dict(size=10, color="#808080")),
+                                     font=dict(size=10, color="#9a9ab0")),
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           xaxis_title="Trading Days", yaxis_title="Index Level"))
         return fig
@@ -864,18 +864,18 @@ def _build_risk_sentiment():
             html.Div(label, style={"fontSize": "16px", "fontWeight": "700",
                                    "color": color, "fontFamily": _MONO}),
             html.Div(f"COMPOSITE: {composite:.0f}" if np.isfinite(composite) else "COMPOSITE: —", style={
-                "fontSize": "9px", "color": "#808080", "fontFamily": _MONO}),
+                "fontSize": "9px", "color": "#9a9ab0", "fontFamily": _MONO}),
         ], style={**STAT_BOX_STYLE, "borderTop": f"2px solid {color}"})]
 
         for name, val, score in factors:
             items.append(html.Div([
-                html.Div(val, style={"fontSize": "11px", "color": "#d4d4d4", "fontFamily": _MONO}),
-                html.Div(name, style={"fontSize": "8px", "color": "#808080", "fontFamily": _MONO}),
+                html.Div(val, style={"fontSize": "11px", "color": "#e0e0e0", "fontFamily": _MONO}),
+                html.Div(name, style={"fontSize": "8px", "color": "#9a9ab0", "fontFamily": _MONO}),
             ], style={**STAT_BOX_STYLE}))
 
         return items
     except Exception:
-        return [html.Div("Error", style={"color": "#808080"})]
+        return [html.Div("Error", style={"color": "#9a9ab0"})]
 
 
 def _build_cb_chart():
@@ -924,9 +924,9 @@ def _build_cb_chart():
     fig.update_layout(**_chart_layout(height=CHART_SM,
                       margin=dict(l=40, r=80, t=30, b=10), showlegend=False,
                       title=dict(text="CENTRAL BANK POLICY RATES",
-                                 font=dict(size=10, color="#808080")),
+                                 font=dict(size=10, color="#9a9ab0")),
                       xaxis=dict(tickfont=dict(size=8),
-                                 title=dict(text="Policy Rate (%)", font=dict(size=9, color="#808080"))),
+                                 title=dict(text="Policy Rate (%)", font=dict(size=9, color="#9a9ab0"))),
                       yaxis=dict(tickfont=dict(size=9))))
     return fig
 
@@ -1005,7 +1005,7 @@ def _build_term_chart(pair, comp_pair=None):
         fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"TERM STRUCTURE: {pair}",
-                                     font=dict(size=10, color="#808080")),
+                                     font=dict(size=10, color="#9a9ab0")),
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           xaxis_title="Tenor", yaxis_title="ATM Vol (%)"))
         return fig
@@ -1051,7 +1051,7 @@ def _build_fwd_vol(pair):
         fig.update_layout(**_chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"FORWARD VOL: {pair}",
-                                     font=dict(size=10, color="#808080")),
+                                     font=dict(size=10, color="#9a9ab0")),
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           xaxis_title="Tenor", yaxis_title="Vol (%)"))
         return fig
@@ -1094,7 +1094,7 @@ def _build_calendar_spread(pair):
                           margin=dict(l=50, r=20, t=30, b=20),
                           barmode="overlay",
                           title=dict(text=f"CALENDAR SPREAD (1M-3M): {pair}",
-                                     font=dict(size=10, color="#808080")),
+                                     font=dict(size=10, color="#9a9ab0")),
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           xaxis_title="Trading Days", yaxis_title="Spread (vol pts)"))
         return fig
@@ -1134,7 +1134,7 @@ def layout():
             ], style={"display": "flex", "gap": GAP}),
         ], style={"display": "flex", "justifyContent": "space-between",
                   "alignItems": "center", "padding": f"{GAP} 0",
-                  "borderBottom": "1px solid #222240"}),
+                  "borderBottom": "1px solid #2d2d50"}),
 
         # ── Sub-Tabs ──
         dcc.Tabs(id=f"{_P}-tabs", value="cross-pair", children=[
@@ -1193,7 +1193,7 @@ def layout():
                 ], style={"flex": "3"}),
                 html.Div([
                     html.Div("VOL REGIME", style={
-                        "color": "#808080", "fontSize": "9px", "fontWeight": "700",
+                        "color": "#9a9ab0", "fontSize": "9px", "fontWeight": "700",
                         "letterSpacing": "1.5px", "marginBottom": GAP, "fontFamily": _MONO,
                     }),
                     html.Div(id=f"{_P}-regime-badges", style={
@@ -1214,11 +1214,11 @@ def layout():
             html.Div([
                 html.Div([
                     html.Div("RATE DIFFERENTIALS", style={
-                        "color": "#808080", "fontSize": "9px", "fontWeight": "700",
+                        "color": "#9a9ab0", "fontSize": "9px", "fontWeight": "700",
                         "letterSpacing": "1.5px", "marginBottom": GAP, "fontFamily": _MONO,
                     }),
                     html.Div(id=f"{_P}-rate-table", style={"overflowY": "auto", "maxHeight": "350px"}),
-                ], style={"flex": "1", "border": "1px solid #222240", "padding": GAP}),
+                ], style={"flex": "1", "border": "1px solid #2d2d50", "padding": GAP}),
                 html.Div([
                     html.Div(id=f"{_P}-risk-sentiment", style={"marginBottom": GAP}),
                     html.Button("CSV", id=f"{_P}-csv-cb", n_clicks=0, style=CSV_BTN_STYLE),
@@ -1241,7 +1241,7 @@ def layout():
         # ══════════ CARRY TAB ══════════
         html.Div(id=f"{_P}-carry-container", style={"display": "none"}, children=[
             html.Div(id=f"{_P}-carry-table-wrapper", style={
-                "overflowY": "auto", "maxHeight": "350px", "border": "1px solid #222240",
+                "overflowY": "auto", "maxHeight": "350px", "border": "1px solid #2d2d50",
             }),
             html.Div([
                 html.Div([
@@ -1340,7 +1340,7 @@ def register_callbacks(app):
     def update_signal_table(lookback):
         rows = _build_signal_table(lookback or 252)
         if not rows:
-            return html.Div("No signal data", style={"color": "#808080", "fontSize": "10px"})
+            return html.Div("No signal data", style={"color": "#9a9ab0", "fontSize": "10px"})
 
         columns = [
             {"name": "PAIR", "id": "pair"},
@@ -1354,14 +1354,14 @@ def register_callbacks(app):
             columns=columns, data=rows, sort_action="native", page_size=30,
             style_table={"overflowX": "auto", "maxHeight": "400px"},
             style_header={
-                "backgroundColor": "#000000", "color": "#808080",
+                "backgroundColor": "#000000", "color": "#9a9ab0",
                 "fontWeight": "700", "fontSize": "9px", "textTransform": "uppercase",
-                "border": "1px solid #222240", "fontFamily": _MONO,
+                "border": "1px solid #2d2d50", "fontFamily": _MONO,
             },
             style_cell={
-                "backgroundColor": "#000000", "color": "#d4d4d4",
+                "backgroundColor": "#000000", "color": "#e0e0e0",
                 "fontSize": "11px", "fontFamily": _MONO,
-                "border": "1px solid #222240", "padding": "4px 6px",
+                "border": "1px solid #2d2d50", "padding": "4px 6px",
                 "textAlign": "right",
             },
             style_cell_conditional=[
@@ -1519,20 +1519,20 @@ def register_callbacks(app):
         try:
             rows = _build_carry_data()
             if not rows:
-                return html.Div("No carry data", style={"color": "#808080"})
+                return html.Div("No carry data", style={"color": "#9a9ab0"})
 
             header = html.Tr([html.Th(h, style={**TABLE_HEADER_STYLE, "fontSize": "8px"})
                                for h in ["PAIR", "ATM 1M", "ATM 3M", "ATM 1Y", "TERM", "FWD 3×3",
                                          "CARRY/D", "CARRY/VOL", "SIGNAL"]])
             body = []
             for r in rows:
-                sig_color = "#00cc66" if "SELL" in r.get("signal", "") else "#ff3333" if "BUY" in r.get("signal", "") else "#808080"
+                sig_color = "#00cc66" if "SELL" in r.get("signal", "") else "#ff3333" if "BUY" in r.get("signal", "") else "#9a9ab0"
                 def _rv_fmt(v, fmt=".1f", suffix=""):
                     return f"{v:{fmt}}{suffix}" if np.isfinite(v) else "—"
                 ts = r['term_spread']
                 cv = r['carry_vol']
-                ts_color = "#ff3333" if np.isfinite(ts) and ts > 0.5 else "#00cc66" if np.isfinite(ts) and ts < -0.5 else "#d4d4d4"
-                cv_color = "#00cc66" if np.isfinite(cv) and cv > 2 else "#ff3333" if np.isfinite(cv) and cv < -1 else "#d4d4d4"
+                ts_color = "#ff3333" if np.isfinite(ts) and ts > 0.5 else "#00cc66" if np.isfinite(ts) and ts < -0.5 else "#e0e0e0"
+                cv_color = "#00cc66" if np.isfinite(cv) and cv > 2 else "#ff3333" if np.isfinite(cv) and cv < -1 else "#e0e0e0"
                 body.append(html.Tr([
                     html.Td(r["pair"], style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
                     html.Td(_rv_fmt(r['atm_1m'], ".1f", "v"), style={**TABLE_CELL_STYLE, "textAlign": "right"}),

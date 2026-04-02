@@ -20,15 +20,15 @@ COLORS = {
     "bg_stat":          "#06060f",
 
     # Borders — visible blue-gray, thin, structural
-    "border":           "#222240",
+    "border":           "#2d2d50",
     "border_focus":     "#ff8800",
-    "border_subtle":    "#222240",
-    "border_glow":      "rgba(255, 136, 0, 0.25)",
+    "border_subtle":    "#2d2d50",
+    "border_glow":      "rgba(255, 136, 0, 0.30)",
 
     # Text — clear hierarchy, monospace only
-    "text_primary":     "#d4d4d4",   # crisp silver — all data
-    "text_secondary":   "#808080",   # muted — labels, column headers
-    "text_muted":       "#808080",   # dimmed labels
+    "text_primary":     "#e0e0e0",   # bright silver — all data (high legibility on black)
+    "text_secondary":   "#9a9ab0",   # muted blue-gray — labels, column headers
+    "text_muted":       "#9a9ab0",   # dimmed labels
     "text_bright":      "#ffffff",   # pure white — section headers
 
     # Bloomberg orange — primary accent for selections, highlights
@@ -85,7 +85,7 @@ CHART_TEMPLATE = {
         "plot_bgcolor": "#000000",
         "font": {
             "family": "'JetBrains Mono', monospace",
-            "color": "#d4d4d4",
+            "color": "#e0e0e0",
             "size": 11,
         },
         "colorway": [
@@ -100,9 +100,9 @@ CHART_TEMPLATE = {
         ],
         "hovermode": "closest",
         "hoverlabel": {
-            "bgcolor": "#0a0a14",
-            "bordercolor": "#222240",
-            "font": {"color": "#d4d4d4", "family": "'JetBrains Mono', monospace", "size": 11},
+            "bgcolor": "#0a0a1a",
+            "bordercolor": "#ff8800",
+            "font": {"color": "#e0e0e0", "family": "'JetBrains Mono', monospace", "size": 11},
         },
     }
 }
@@ -120,11 +120,11 @@ CHART_LG = 400    # hero charts, heatmaps, 3D surfaces
 # Default axis styling — apply separately via xaxis=AXIS_DEFAULTS etc.
 AXIS_DEFAULTS = {
     "showgrid": True,
-    "gridcolor": "#1a1a30",
-    "zerolinecolor": "#333355",
+    "gridcolor": "#1e1e38",
+    "zerolinecolor": "#3a3a5c",
     "zerolinewidth": 1,
-    "tickfont": {"size": 9, "color": "#808080"},
-    "linecolor": "#333355",
+    "tickfont": {"size": 9, "color": "#9a9ab0"},
+    "linecolor": "#3a3a5c",
 }
 
 TITLE_DEFAULTS = {"font": {"color": "#ffffff", "size": 13}}
@@ -138,7 +138,7 @@ def no_data_fig(height=300, msg="NO DATA"):
     for y in [0.2, 0.4, 0.6, 0.8]:
         fig.add_shape(type="line", x0=0, x1=1, y0=y, y1=y,
                       xref="paper", yref="paper",
-                      line=dict(color="#0d0d1a", width=1))
+                      line=dict(color="#1a1a30", width=1))
     fig.update_layout(
         paper_bgcolor="#000000", plot_bgcolor="#000000",
         xaxis=dict(visible=False), yaxis=dict(visible=False),
@@ -146,7 +146,7 @@ def no_data_fig(height=300, msg="NO DATA"):
         margin=dict(l=20, r=20, t=20, b=20),
         annotations=[dict(
             text=msg, xref="paper", yref="paper", x=0.5, y=0.5,
-            showarrow=False, font=dict(size=11, color="#333355",
+            showarrow=False, font=dict(size=12, color="#4a4a6a",
                                         family="'JetBrains Mono', monospace"),
         )],
     )
@@ -201,7 +201,7 @@ def chart_layout(**overrides):
 # Grid cell — no card, no rounded corners, no shadows, no blur
 CARD_STYLE = {
     "backgroundColor": "#000000",
-    "border": "1px solid #222240",
+    "border": "1px solid #2d2d50",
     "borderRadius": "0px",
     "padding": "14px",
     "marginBottom": "0px",
@@ -221,9 +221,9 @@ CARD_HEADER_STYLE = {
 
 INPUT_STYLE = {
     "backgroundColor": "#000000",
-    "border": "1px solid #222240",
+    "border": "1px solid #2d2d50",
     "borderRadius": "0px",
-    "color": "#d4d4d4",
+    "color": "#e0e0e0",
     "fontFamily": "'JetBrains Mono', monospace",
     "fontSize": "11px",
     "padding": "6px 8px",
@@ -231,7 +231,7 @@ INPUT_STYLE = {
 }
 
 LABEL_STYLE = {
-    "color": "#808080",
+    "color": "#9a9ab0",
     "fontSize": "9px",
     "fontWeight": "600",
     "fontFamily": "'JetBrains Mono', monospace",
@@ -243,8 +243,8 @@ LABEL_STYLE = {
 
 DROPDOWN_STYLE = {
     "backgroundColor": "#000000",
-    "color": "#d4d4d4",
-    "border": "1px solid #222240",
+    "color": "#e0e0e0",
+    "border": "1px solid #2d2d50",
     "borderRadius": "0px",
     "fontFamily": "'JetBrains Mono', monospace",
     "fontSize": "11px",
@@ -252,7 +252,7 @@ DROPDOWN_STYLE = {
 
 STAT_BOX_STYLE = {
     "backgroundColor": "#06060f",
-    "border": "1px solid #222240",
+    "border": "1px solid #2d2d50",
     "borderRadius": "0px",
     "padding": "14px",
     "textAlign": "center",
@@ -278,7 +278,7 @@ BUTTON_SUCCESS_STYLE = {**BUTTON_STYLE, "backgroundColor": "#00cc66", "color": "
 
 CSV_BTN_STYLE = {
     "backgroundColor": "transparent",
-    "color": "#808080",
+    "color": "#9a9ab0",
     "border": "1px solid #333",
     "borderRadius": "0px",
     "padding": "1px 6px",
@@ -291,10 +291,10 @@ CSV_BTN_STYLE = {
 
 TAB_STYLE = {
     "backgroundColor": "transparent",
-    "border": "1px solid #222240",
+    "border": "1px solid #2d2d50",
     "borderBottom": "none",
     "borderRadius": "0px",
-    "color": "#808080",
+    "color": "#9a9ab0",
     "fontFamily": "'JetBrains Mono', monospace",
     "fontSize": "10px",
     "fontWeight": "600",
@@ -318,17 +318,17 @@ TABLE_HEADER_STYLE = {
     "fontSize": "10px",
     "textTransform": "uppercase",
     "letterSpacing": "1.2px",
-    "border": "1px solid #222240",
-    "padding": "8px 10px",
+    "border": "1px solid #2d2d50",
+    "padding": "6px 8px",
 }
 
 TABLE_CELL_STYLE = {
     "backgroundColor": "#000000",
-    "color": "#d4d4d4",
+    "color": "#e0e0e0",
     "fontSize": "11px",
     "fontFamily": "'JetBrains Mono', monospace",
-    "border": "1px solid #222240",
-    "padding": "6px 10px",
+    "border": "1px solid #2d2d50",
+    "padding": "5px 8px",
 }
 
 
@@ -350,7 +350,7 @@ def clickable_stat(value, label, pair, metric, tenor, color=None):
             "fontFamily": "'JetBrains Mono', monospace",
         }, id={"type": "clickable-metric", "pair": pair, "metric": metric, "tenor": tenor}),
         html.Div(label, className="stat-label", style={
-            "fontSize": "10px", "color": "#808080", "textTransform": "uppercase",
+            "fontSize": "10px", "color": "#9a9ab0", "textTransform": "uppercase",
             "letterSpacing": "1px", "fontFamily": "'JetBrains Mono', monospace",
             "marginTop": "4px",
         }),
@@ -363,7 +363,7 @@ def grid_cell(children, **kwargs):
     from dash import html
     style = {
         "backgroundColor": "#000000",
-        "border": "1px solid #222240",
+        "border": "1px solid #2d2d50",
         "padding": "14px",
         **kwargs.pop("style", {}),
     }
@@ -383,5 +383,5 @@ def section_header(text):
         "textTransform": "uppercase",
         "marginBottom": "8px",
         "paddingBottom": "6px",
-        "borderBottom": "1px solid #333355",
+        "borderBottom": "1px solid #3a3a5c",
     })

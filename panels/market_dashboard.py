@@ -544,14 +544,14 @@ def _build_vol_index_chart(pairs):
         fig = go.Figure()
         # ±1σ band
         fig.add_trace(go.Scatter(x=x, y=[mean_v + std_v]*len(x),
-                                 mode="lines", line=dict(color="#333355", width=1, dash="dot"),
+                                 mode="lines", line=dict(color="#3a3a5c", width=1, dash="dot"),
                                  showlegend=False))
         fig.add_trace(go.Scatter(x=x, y=[mean_v - std_v]*len(x),
-                                 mode="lines", line=dict(color="#333355", width=1, dash="dot"),
+                                 mode="lines", line=dict(color="#3a3a5c", width=1, dash="dot"),
                                  fill="tonexty", fillcolor="rgba(34,34,64,0.15)", showlegend=False))
         # Mean
         fig.add_trace(go.Scatter(x=x, y=[mean_v]*len(x),
-                                 mode="lines", line=dict(color="#808080", width=1, dash="dash"),
+                                 mode="lines", line=dict(color="#9a9ab0", width=1, dash="dash"),
                                  showlegend=False))
         # Index line
         fig.add_trace(go.Scatter(x=x, y=index.tolist(),
@@ -568,7 +568,7 @@ def _build_vol_index_chart(pairs):
                                  showlegend=False))
         fig.update_layout(**_chart_layout( height=_CHART_H,
                           margin=dict(l=50, r=15, t=35, b=28), showlegend=False,
-                          title=dict(text="G10 VOL INDEX (60D)", font=dict(size=10, color="#808080")),
+                          title=dict(text="G10 VOL INDEX (60D)", font=dict(size=10, color="#9a9ab0")),
                           xaxis_title="Trading Days", yaxis_title="Vol (%)"))
         return fig
     except Exception:
@@ -596,19 +596,19 @@ def _build_skew_chart(pairs):
         pairs_l = [d["pair"] for d in data]
         rrs = [d["rr"] for d in data]
         colors = [COLORS["accent_red"] if r < -0.3 else COLORS["accent_green"] if r > 0.3
-                  else "#808080" for r in rrs]
+                  else "#9a9ab0" for r in rrs]
 
         fig = go.Figure(go.Bar(y=pairs_l, x=rrs, orientation="h",
                                 marker_color=colors, text=[f"{r:+.1f}" for r in rrs],
-                                textposition="outside", textfont=dict(size=8, color="#d4d4d4"),
+                                textposition="outside", textfont=dict(size=8, color="#e0e0e0"),
                                 hovertemplate="%{y}: %{x:+.2f}v<br>Skew: %{text}<extra></extra>"))
         fig.update_layout(**_chart_layout( height=_SMALL_H,
                           margin=dict(l=55, r=10, t=25, b=10), showlegend=False,
-                          title=dict(text="25D RR (SKEW)", font=dict(size=10, color="#808080")),
-                          xaxis=dict(zeroline=True, zerolinecolor="#808080", zerolinewidth=1,
+                          title=dict(text="25D RR (SKEW)", font=dict(size=10, color="#9a9ab0")),
+                          xaxis=dict(zeroline=True, zerolinecolor="#9a9ab0", zerolinewidth=1,
                                      gridcolor="#111111", tickfont=dict(size=8),
-                                     title=dict(text="Risk Reversal (vol pts)", font=dict(size=9, color="#808080"))),
-                          yaxis=dict(tickfont=dict(size=8, color="#d4d4d4"))))
+                                     title=dict(text="Risk Reversal (vol pts)", font=dict(size=9, color="#9a9ab0"))),
+                          yaxis=dict(tickfont=dict(size=8, color="#e0e0e0"))))
         return fig
     except Exception:
         return _empty_fig("SKEW MONITOR", _SMALL_H, "No RR data available")
@@ -637,21 +637,21 @@ def _build_term_chart(pairs):
         pairs_l = [d["pair"] for d in data]
         spreads = [d["spread"] for d in data]
         colors = [COLORS["accent_red"] if s > 0.5 else COLORS["accent_green"] if s < -0.5
-                  else "#808080" for s in spreads]
+                  else "#9a9ab0" for s in spreads]
 
         fig = go.Figure(go.Bar(y=pairs_l, x=spreads, orientation="h",
                                 marker_color=colors,
                                 text=[f"{s:+.1f}" for s in spreads],
-                                textposition="outside", textfont=dict(size=8, color="#d4d4d4"),
+                                textposition="outside", textfont=dict(size=8, color="#e0e0e0"),
                                 customdata=[[d["spread"]] for d in data],
                                 hovertemplate="%{y}: %{x:+.2f}v<br>%{text}<extra>1M-1Y Spread</extra>"))
         fig.update_layout(**_chart_layout( height=_SMALL_H,
                           margin=dict(l=55, r=10, t=25, b=10), showlegend=False,
-                          title=dict(text="1M-1Y SPREAD", font=dict(size=10, color="#808080")),
-                          xaxis=dict(zeroline=True, zerolinecolor="#808080", zerolinewidth=1,
+                          title=dict(text="1M-1Y SPREAD", font=dict(size=10, color="#9a9ab0")),
+                          xaxis=dict(zeroline=True, zerolinecolor="#9a9ab0", zerolinewidth=1,
                                      gridcolor="#111111", tickfont=dict(size=8),
-                                     title=dict(text="Spread (vol pts)", font=dict(size=9, color="#808080"))),
-                          yaxis=dict(tickfont=dict(size=8, color="#d4d4d4"))))
+                                     title=dict(text="Spread (vol pts)", font=dict(size=9, color="#9a9ab0"))),
+                          yaxis=dict(tickfont=dict(size=8, color="#e0e0e0"))))
         return fig
     except Exception:
         return _empty_fig("TERM SHAPE", _SMALL_H, "No term structure data")
@@ -691,7 +691,7 @@ def _build_vol_richness_heatmap(pairs):
 
         fig = go.Figure(go.Heatmap(
             z=z_vals, x=tenors, y=pair_list, text=text_vals,
-            texttemplate="%{text}", textfont=dict(size=9, color="#d4d4d4"),
+            texttemplate="%{text}", textfont=dict(size=9, color="#e0e0e0"),
             colorscale=[[0, "#1565c0"], [0.2, "#1565c0"], [0.4, "#1a1a2e"],
                         [0.5, "#1a1a2e"], [0.6, "#1a1a2e"], [0.8, "#ff3333"], [1, "#ff3333"]],
             zmin=0, zmax=100, showscale=False,
@@ -701,10 +701,10 @@ def _build_vol_richness_heatmap(pairs):
         fig.update_layout(**_chart_layout(
             height=CHART_SM,
             margin=dict(l=65, r=10, t=30, b=25), showlegend=False,
-            title=dict(text="VOL RICHNESS (% ILE)", font=dict(size=10, color="#808080")),
-            xaxis=dict(tickfont=dict(size=9, color="#808080"),
-                       title=dict(text="Tenor", font=dict(size=9, color="#808080"))),
-            yaxis=dict(tickfont=dict(size=9, color="#d4d4d4"), autorange="reversed"),
+            title=dict(text="VOL RICHNESS (% ILE)", font=dict(size=10, color="#9a9ab0")),
+            xaxis=dict(tickfont=dict(size=9, color="#9a9ab0"),
+                       title=dict(text="Tenor", font=dict(size=9, color="#9a9ab0"))),
+            yaxis=dict(tickfont=dict(size=9, color="#e0e0e0"), autorange="reversed"),
         ))
         return fig
     except Exception:
@@ -724,9 +724,9 @@ def _empty_fig(title="", height=_CHART_H, msg="LOADING"):
                       xref="paper", yref="paper", line=dict(color="#0d0d1a", width=1))
     fig.update_layout(**_chart_layout(
         height=height, margin=dict(l=20, r=10, t=30, b=10),
-        title=dict(text=title, font=dict(size=10, color="#808080")),
+        title=dict(text=title, font=dict(size=10, color="#9a9ab0")),
         annotations=[dict(text=msg, x=0.5, y=0.5, showarrow=False,
-                          font=dict(color="#333355", size=10, family="'JetBrains Mono', monospace"),
+                          font=dict(color="#3a3a5c", size=10, family="'JetBrains Mono', monospace"),
                           xref="paper", yref="paper")]))
     return fig
 
@@ -747,7 +747,7 @@ def layout():
                     "letterSpacing": "2px", "fontFamily": _MONO,
                 }),
                 html.Span(id=f"{_P}-timestamp", style={
-                    "color": "#808080", "fontSize": "9px", "marginLeft": "16px",
+                    "color": "#9a9ab0", "fontSize": "9px", "marginLeft": "16px",
                     "fontFamily": _MONO,
                 }),
             ]),
@@ -762,7 +762,7 @@ def layout():
                              clearable=False, style={**DROPDOWN_STYLE, "width": "100px"}),
             ], style={"display": "flex", "alignItems": "center", "gap": GAP}),
         ], style={"display": "flex", "justifyContent": "space-between",
-                  "alignItems": "center", "padding": "8px 0", "borderBottom": "1px solid #222240"}),
+                  "alignItems": "center", "padding": "8px 0", "borderBottom": "1px solid #2d2d50"}),
 
         # ── KPI Row ──
         html.Div(id=f"{_P}-kpis", className="stat-row", style={
@@ -784,7 +784,7 @@ def layout():
             # Left column: movers table
             html.Div([
                 html.Div(id=f"{_P}-movers", style={"overflowY": "auto", "maxHeight": "520px"}),
-            ], style={"flex": "1", "minWidth": "400px", "border": "1px solid #222240",
+            ], style={"flex": "1", "minWidth": "400px", "border": "1px solid #2d2d50",
                        "padding": GAP}),
 
             # Right column: charts stacked
@@ -810,24 +810,24 @@ def layout():
             # Left: vol richness heatmap
             html.Div([
                 html.Div("VOL RICHNESS", style={
-                    "color": "#808080", "fontSize": "10px", "fontWeight": "700",
+                    "color": "#9a9ab0", "fontSize": "10px", "fontWeight": "700",
                     "letterSpacing": "1.5px", "padding": f"{GAP} 10px",
-                    "fontFamily": _MONO, "borderBottom": "1px solid #222240",
+                    "fontFamily": _MONO, "borderBottom": "1px solid #2d2d50",
                 }),
                 dcc.Graph(id=f"{_P}-vol-richness", config={"displayModeBar": False, "responsive": True},
                           style={"height": f"{CHART_SM}px"}),
-            ], style={"flex": "1", "border": "1px solid #222240"}),
+            ], style={"flex": "1", "border": "1px solid #2d2d50"}),
 
             # Right: events + positioning
             html.Div([
                 html.Div("EVENTS & POSITIONING", style={
-                    "color": "#808080", "fontSize": "10px", "fontWeight": "700",
+                    "color": "#9a9ab0", "fontSize": "10px", "fontWeight": "700",
                     "letterSpacing": "1.5px", "padding": f"{GAP} 10px",
-                    "fontFamily": _MONO, "borderBottom": "1px solid #222240",
+                    "fontFamily": _MONO, "borderBottom": "1px solid #2d2d50",
                 }),
                 html.Div(id=f"{_P}-events", style={"padding": f"{GAP}"}),
                 html.Div(id=f"{_P}-positioning", style={"padding": f"{GAP}"}),
-            ], style={"flex": "1", "border": "1px solid #222240"}),
+            ], style={"flex": "1", "border": "1px solid #2d2d50"}),
         ], style={"display": "flex", "gap": GAP, "marginTop": SECTION_GAP}),
 
     ], style={"fontFamily": _MONO})
@@ -844,17 +844,17 @@ def _render_kpis(kpis):
         ("G10 AVG VOL",    f"{kpis.get('g10_vol', 0):.1f}v",   "#ff8800"),
         ("EM AVG VOL",     f"{kpis.get('em_vol', 0):.1f}v",    "#ff8800"),
         ("G10 %ILE",       _ordinal(g10_pctile),              _pct_color(g10_pctile)),
-        ("BIGGEST MOVER",  kpis.get("biggest", "—"),            "#d4d4d4"),
-        ("IV-RV AGG",      f"{ivrv_agg:+.1f}v",                "#00cc66" if ivrv_agg > 0 else "#ff3333" if ivrv_agg < 0 else "#808080"),
+        ("BIGGEST MOVER",  kpis.get("biggest", "—"),            "#e0e0e0"),
+        ("IV-RV AGG",      f"{ivrv_agg:+.1f}v",                "#00cc66" if ivrv_agg > 0 else "#ff3333" if ivrv_agg < 0 else "#9a9ab0"),
         ("BOOK VEGA",      kpis.get("book_vega", "—"),          "#ff8800"),
-        ("EVENTS 48H",     str(kpis.get("events_48h", 0)),      "#ff8800" if kpis.get("events_48h", 0) > 0 else "#808080"),
+        ("EVENTS 48H",     str(kpis.get("events_48h", 0)),      "#ff8800" if kpis.get("events_48h", 0) > 0 else "#9a9ab0"),
     ]
     boxes = []
     for label, value, color in items:
         boxes.append(html.Div([
             html.Div(value, style={"fontSize": "16px", "fontWeight": "700",
                                    "color": color, "fontFamily": _MONO}),
-            html.Div(label, style={"fontSize": "10px", "color": "#808080",
+            html.Div(label, style={"fontSize": "10px", "color": "#9a9ab0",
                                    "letterSpacing": "1px", "fontFamily": _MONO,
                                    "marginTop": "4px"}),
         ], style={**STAT_BOX_STYLE, "borderLeft": f"3px solid {color}",
@@ -897,7 +897,7 @@ def _render_movers_table(rows, sort_key):
         elif term_spread < -0.5:
             term_color = COLORS["accent_green"]
         else:
-            term_color = "#808080"
+            term_color = "#9a9ab0"
 
         # IV-RV color: green if sell vol (>1), red if buy vol (<-1)
         if iv_rv > 1:
@@ -905,7 +905,7 @@ def _render_movers_table(rows, sort_key):
         elif iv_rv < -1:
             ivrv_color = COLORS["accent_red"]
         else:
-            ivrv_color = "#808080"
+            ivrv_color = "#9a9ab0"
 
         # Sparkline colors: green if up, red if down, muted if flat
         spot_spark = r.get("spot_spark", "\u2014")
@@ -913,7 +913,7 @@ def _render_movers_table(rows, sort_key):
 
         body_rows.append(html.Tr([
             html.Td(r["pair"], style={**TABLE_CELL_STYLE, "fontWeight": "700",
-                                       "color": "#d4d4d4", "cursor": "pointer"},
+                                       "color": "#e0e0e0", "cursor": "pointer"},
                     id={"type": f"{_P}-row-click", "index": r["pair"]}),
             html.Td(_fmt_spot(r['pair'], r['spot']), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r['chg_pct'], "+.2f", "%"), style={**TABLE_CELL_STYLE, "color": chg_color}),
@@ -926,7 +926,7 @@ def _render_movers_table(rows, sort_key):
                      "fontSize": "10px", "letterSpacing": "1px"}),
             html.Td(_sf_display(r.get('vol_mom', 0), "+.1f", "%"), style={**TABLE_CELL_STYLE,
                      "color": COLORS["accent_red"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) > 2 else
-                              COLORS["accent_green"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) < -2 else "#808080"}),
+                              COLORS["accent_green"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) < -2 else "#9a9ab0"}),
             html.Td(_sf_display(r['rr25'], "+.1f", "v"), style=TABLE_CELL_STYLE),
             html.Td(_ordinal(pctile), style={**TABLE_CELL_STYLE, "color": _pct_color(pctile)}),
             html.Td(_sf_display(term_spread, "+.1f", "v"), style={**TABLE_CELL_STYLE, "color": term_color}),
@@ -942,18 +942,18 @@ def _render_movers_table(rows, sort_key):
 def _render_events(events):
     """Render events table."""
     if not events:
-        return html.Div("No upcoming events", style={"color": "#808080", "fontSize": "10px"})
+        return html.Div("No upcoming events", style={"color": "#9a9ab0", "fontSize": "10px"})
 
     header = html.Tr([html.Th(h, style={**TABLE_HEADER_STYLE, "fontSize": "8px"})
                        for h in ["BANK", "DATE", "DAYS", "RATE", "IMPACT"]])
     body = []
     for e in events[:5]:
-        imp_color = {"HIGH": "#ff3333", "MED": "#ff8800", "LOW": "#808080"}.get(e["impact"], "#808080")
+        imp_color = {"HIGH": "#ff3333", "MED": "#ff8800", "LOW": "#9a9ab0"}.get(e["impact"], "#9a9ab0")
         body.append(html.Tr([
             html.Td(e["bank"], style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
             html.Td(e["date"], style=TABLE_CELL_STYLE),
             html.Td(f"{e['days_away']}d", style={**TABLE_CELL_STYLE,
-                     "color": "#ff3333" if e["days_away"] <= 2 else "#d4d4d4"}),
+                     "color": "#ff3333" if e["days_away"] <= 2 else "#e0e0e0"}),
             html.Td(e["rate"], style=TABLE_CELL_STYLE),
             html.Td(e["impact"], style={**TABLE_CELL_STYLE, "color": imp_color, "fontWeight": "600"}),
         ]))
@@ -966,7 +966,7 @@ def _render_positioning(extremes):
     """Render positioning extremes with severity distinction."""
     if not extremes:
         return html.Div("No positioning extremes",
-                        style={"color": "#808080", "fontSize": "10px"})
+                        style={"color": "#9a9ab0", "fontSize": "10px"})
 
     items = []
     for e in extremes:
@@ -974,7 +974,7 @@ def _render_positioning(extremes):
         severity = e.get("severity", "NOTABLE")
         opacity = "1.0" if severity == "EXTREME" else "0.6"
         items.append(html.Div([
-            html.Span(e["pair"], style={"color": "#d4d4d4", "fontWeight": "700",
+            html.Span(e["pair"], style={"color": "#e0e0e0", "fontWeight": "700",
                                          "marginRight": "8px", "fontSize": "10px"}),
             html.Span(f"z={e['z']:+.1f}", style={"color": color, "fontWeight": "600",
                                                     "fontSize": "10px", "marginRight": "6px",
@@ -1025,7 +1025,7 @@ def register_callbacks(app):
                 }))
         else:
             alert_children = [html.Div("No threshold crossings detected",
-                                       style={"color": "#808080", "fontSize": "10px",
+                                       style={"color": "#9a9ab0", "fontSize": "10px",
                                               "fontFamily": "'JetBrains Mono', monospace"})]
 
         return ts, _render_kpis(kpis), _render_movers_table(rows, sort_key or "spot"), alert_children
@@ -1068,7 +1068,7 @@ def register_callbacks(app):
         except Exception as e:
             import logging
             logging.getLogger(__name__).error("Book/events update failed: %s", e)
-            empty = html.Div("Data unavailable", style={"color": "#808080", "fontSize": "11px"})
+            empty = html.Div("Data unavailable", style={"color": "#9a9ab0", "fontSize": "11px"})
             return empty, empty
 
     # ── Row click → update store (which app.py propagates to global-pair) ──

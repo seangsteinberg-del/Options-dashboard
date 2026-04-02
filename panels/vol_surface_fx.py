@@ -437,8 +437,8 @@ def chart_surface_3d(pair, sd, spot, r_dom, r_for, **kw):
         x=delta_pos * 100,
         y=sd["T_years"],
         z=sd["vol_grid"],
-        colorscale=[[0, "#0e0e0e"], [0.25, "#1a1a2e"], [0.5, "#bf5b00"],
-                    [0.75, "#ff8800"], [1.0, "#ffbb55"]],
+        colorscale=[[0, "#1a1a3e"], [0.2, "#2a2a5e"], [0.4, "#6b4400"],
+                    [0.6, "#bf6b00"], [0.8, "#ff8800"], [1.0, "#ffcc66"]],
         opacity=0.92,
         colorbar=dict(
             title=dict(text="Vol %", font=dict(color=COLORS["text_muted"], size=10)),
@@ -478,11 +478,11 @@ def chart_heatmap(pair, sd, spot, r_dom, r_for, **kw):
         x=sd["delta_labels"],
         y=sd["tenors"],
         z=sd["vol_grid"],
-        colorscale=[[0, "#0e0e0e"], [0.25, "#1a1a2e"], [0.5, "#bf5b00"],
-                    [0.75, "#ff8800"], [1.0, "#ffbb55"]],
+        colorscale=[[0, "#1a1a3e"], [0.2, "#2a2a5e"], [0.4, "#6b4400"],
+                    [0.6, "#bf6b00"], [0.8, "#ff8800"], [1.0, "#ffcc66"]],
         text=text_vals,
         texttemplate="%{text}",
-        textfont=dict(size=10, color="#c0c0c0"),
+        textfont=dict(size=10, color="#d0d0d0"),
         hovertemplate="Delta: %{x}<br>Tenor: %{y}<br>Vol: %{z:.2f}%<extra></extra>",
         colorbar=dict(
             title=dict(text="Vol %", font=dict(color=COLORS["text_muted"], size=10)),
@@ -511,7 +511,7 @@ def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
         x=tenors, y=sd["atm"], mode="lines+markers",
         name="ATM (current)", line=dict(color=COLORS["accent_cyan"], width=3),
         marker=dict(size=6, color=COLORS["accent_cyan"]),
-        hovertemplate="%{x}: %{y:.2f}%<extra>ATM</extra>",
+        hovertemplate="<b>%{x}</b><br>ATM: %{y:.2f}%<extra></extra>",
     ))
 
     # 1W ago overlay (dashed)
@@ -613,7 +613,7 @@ def chart_skew_rr(pair, sd, spot, r_dom, r_for, **kw):
                 line=dict(color=COLORS["text_muted"], width=1, dash="dot"),
                 xref="x", yref="y")
 
-    fig.add_hline(y=0, line=dict(color=COLORS["border"], width=1))
+    fig.add_hline(y=0, line=dict(color="#3a3a5c", width=0.8))
     _apply_chart_template(fig, f"25D Risk Reversal -- {pair}")
     fig.update_layout(xaxis=dict(title="Tenor", type="category"),
                       yaxis=dict(title="25D RR (vol pts)"))
@@ -693,12 +693,12 @@ def chart_rich_cheap(pair, sd, spot, r_dom, r_for, **kw):
         x=metric_labels,
         y=tenors,
         z=z_data,
-        colorscale=[[0, "#1565c0"], [0.15, "#0d47a1"], [0.30, "#0a1628"],
-                    [0.50, "#0e0e0e"], [0.70, "#2a1200"], [0.85, "#bf5b00"],
+        colorscale=[[0, "#1565c0"], [0.20, "#0d5a9e"], [0.35, "#1a2a4a"],
+                    [0.50, "#2a2a40"], [0.65, "#4a2a1a"], [0.80, "#bf5b00"],
                     [1.0, "#ff8800"]],
         text=text_data,
         texttemplate="%{text}",
-        textfont=dict(size=11, color="#c0c0c0"),
+        textfont=dict(size=11, color="#d0d0d0"),
         hovertemplate="Metric: %{x}<br>Tenor: %{y}<br>Percentile: %{z:.0f}<extra></extra>",
         colorbar=dict(
             title=dict(text="%ile", font=dict(color=COLORS["text_muted"], size=10)),
@@ -865,7 +865,7 @@ def chart_vol_ts(pair, sd, spot, r_dom, r_for, **kw):
     fig.add_trace(go.Scatter(
         x=np.concatenate([days, days[::-1]]),
         y=np.concatenate([upper.values, lower.values[::-1]]),
-        fill="toself", fillcolor="rgba(255,136,0,0.06)",
+        fill="toself", fillcolor="rgba(255,136,0,0.12)",
         line=dict(width=0), showlegend=False, hoverinfo="skip",
     ))
 
@@ -885,7 +885,7 @@ def chart_vol_ts(pair, sd, spot, r_dom, r_for, **kw):
     # ATM vol line
     fig.add_trace(go.Scatter(x=days, y=hist, mode="lines", name=f"ATM {sel_tenor}",
         line=dict(color=COLORS["accent_cyan"], width=2),
-        hovertemplate="Day %{x}: %{y:.2f}%<extra>ATM</extra>"))
+        hovertemplate="<b>%{y:.2f}%</b><br>%{x}<extra>ATM</extra>"))
 
     # Current level marker
     current_vol = float(hist.iloc[-1]) if hasattr(hist, 'iloc') else float(hist[-1])
@@ -948,7 +948,7 @@ def chart_iv_rv(pair, sd, spot, r_dom, r_for, **kw):
         x=np.concatenate([days, days[::-1]]),
         y=np.concatenate([iv_arr, rv_arr[::-1]]),
         fill="toself",
-        fillcolor="rgba(255,51,51,0.08)",
+        fillcolor="rgba(255,80,80,0.15)",
         line=dict(width=0), showlegend=False, hoverinfo="skip",
     ))
 
@@ -982,7 +982,7 @@ def chart_iv_rv(pair, sd, spot, r_dom, r_for, **kw):
     fig.add_shape(
         type="line", x0=0, x1=1, y0=0, y1=0,
         xref="paper", yref="y2",
-        line=dict(color=COLORS["border"], width=0.5),
+        line=dict(color="#3a3a5c", width=0.8),
     )
 
     # Current spread annotation
@@ -1017,8 +1017,8 @@ def chart_vol_cone_chart(pair, sd, spot, r_dom, r_for, **kw):
 
     # Percentile bands (symmetric fill)
     bands = [
-        ("p10", "p90", "rgba(255,136,0,0.04)", "10-90%ile"),
-        ("p25", "p75", "rgba(255,136,0,0.08)", "25-75%ile"),
+        ("p10", "p90", "rgba(255,136,0,0.08)", "10-90%ile"),
+        ("p25", "p75", "rgba(255,136,0,0.12)", "25-75%ile"),
     ]
     for lo, hi, color, name in bands:
         fig.add_trace(go.Scatter(
@@ -1114,12 +1114,12 @@ def chart_surface_change(pair, sd, spot, r_dom, r_for, **kw):
         x=deltas,
         y=tenors,
         z=z,
-        colorscale=[[0, "#00cc66"], [0.35, "#0a2618"], [0.50, "#0e0e0e"],
-                    [0.65, "#2a1200"], [1.0, "#ff3333"]],
+        colorscale=[[0, "#00cc66"], [0.25, "#1a4a2e"], [0.50, "#2a2a40"],
+                    [0.75, "#4a1a1a"], [1.0, "#ff3333"]],
         zmid=0,
         text=text_vals,
         texttemplate="%{text}",
-        textfont=dict(size=10, color="#c0c0c0"),
+        textfont=dict(size=10, color="#d0d0d0"),
         hovertemplate="Delta: %{x}<br>Tenor: %{y}<br>Change: %{z:+.2f}<extra></extra>",
         colorbar=dict(
             title=dict(text="Vol Chg", font=dict(color=COLORS["text_muted"], size=10)),
@@ -1229,7 +1229,7 @@ def chart_implied_dist(pair, sd, spot, r_dom, r_for, **kw):
 # ═══════════════════════════════════════════════════════════════════════════
 
 _CW = CHART_TEMPLATE["layout"].get("colorway") or [
-    "#ff8800", "#00cc66", "#1565c0", "#d4d4d4", "#ff3333", "#808080", "#ffaa33", "#ffffff"]
+    "#ff8800", "#00cc66", "#1565c0", "#e0e0e0", "#ff3333", "#9a9ab0", "#ffaa33", "#ffffff"]
 _FONT = "'JetBrains Mono', monospace"
 
 
@@ -1366,7 +1366,7 @@ def _lab_build_ts_chart(chart_type, pair, sd, spot, r_dom, r_for, **kw):
 
     # Overlay (secondary Y)
     if has_overlay:
-        ov_colors = ["#ffffff", "#00cc66", "#ff3333", "#d4d4d4", "#ffaa33"]
+        ov_colors = ["#ffffff", "#00cc66", "#ff3333", "#e0e0e0", "#ffaa33"]
         for idx, p in enumerate(lab_pairs):
             series, label = _lab_fetch_series(p, overlay, tenor, window)
             if series is None or len(series) == 0:
@@ -1424,11 +1424,11 @@ def _lab_study_vol_cone(pair, sd, spot, r_dom, r_for, **kw):
                       ("p25", "25th"), ("p10", "10th")]:
         if col in df.columns:
             fig.add_trace(go.Scatter(x=w, y=df[col].tolist(), mode="lines",
-                          name=name, line=dict(color="#808080", width=1, dash="dot"),
+                          name=name, line=dict(color="#9a9ab0", width=1, dash="dot"),
                           hovertemplate="%{x}d: %{y:.2f}%<extra>" + name + "</extra>"))
     if "median" in df.columns:
         fig.add_trace(go.Scatter(x=w, y=df["median"].tolist(), mode="lines",
-                      name="Median", line=dict(color="#d4d4d4", width=1.5, dash="dash"),
+                      name="Median", line=dict(color="#e0e0e0", width=1.5, dash="dash"),
                       hovertemplate="%{x}d: %{y:.2f}%<extra>Median</extra>"))
     if "current_c2c" in df.columns:
         fig.add_trace(go.Scatter(x=w, y=df["current_c2c"].tolist(),
@@ -1480,7 +1480,7 @@ def _lab_study_implied_pdf(pair, sd, spot, r_dom, r_for, **kw):
     spots = get_fx_spots([pair]) or {}
     s = spots.get(pair, {}).get("mid")
     if s:
-        fig.add_vline(x=s, line_dash="dash", line_color="#d4d4d4",
+        fig.add_vline(x=s, line_dash="dash", line_color="#e0e0e0",
                       annotation_text=f"Spot {s:.4f}")
     _apply_chart_template(fig, f"{pair} {tenor} Implied PDF")
     fig.update_layout(xaxis_title="Strike", yaxis_title="Density",
@@ -1499,7 +1499,7 @@ def _lab_study_vol_regime(pair, sd, spot, r_dom, r_for, **kw):
                   line=dict(color="#ff8800", width=2),
                   hovertemplate="Day %{x}<br>Vol: %{y:.2f}%<extra></extra>"))
     for level, color, lbl in [(20, "#ff3333", "CRISIS"), (14, "#ff8800", "HIGH"),
-                               (10, "#ffaa33", "ELEVATED"), (6, "#808080", "NORMAL")]:
+                               (10, "#ffaa33", "ELEVATED"), (6, "#9a9ab0", "NORMAL")]:
         fig.add_hline(y=level, line_dash="dot", line_color=color,
                       annotation_text=lbl, annotation_font_size=8,
                       annotation_font_color=color)
@@ -1521,7 +1521,7 @@ def _lab_study_fwd_vol_curve(pair, sd, spot, r_dom, r_for, **kw):
     if "spot_vol" in df.columns:
         fig.add_trace(go.Scatter(x=df["end_tenor"].tolist(),
                       y=df["spot_vol"].tolist(), mode="lines+markers",
-                      name="Spot Vol", line=dict(color="#d4d4d4", width=1.5),
+                      name="Spot Vol", line=dict(color="#e0e0e0", width=1.5),
                       hovertemplate="%{x}: %{y:.2f}%<extra>Spot</extra>"))
     fig.add_trace(go.Scatter(x=df["end_tenor"].tolist(),
                   y=df["forward_vol"].tolist(), mode="lines+markers",
@@ -1540,10 +1540,10 @@ def _lab_study_pctile_surface(pair, sd, spot, r_dom, r_for, **kw):
         return _empty_fig("No percentile surface data")
     fig = go.Figure(data=go.Heatmap(
         z=df.values, x=df.columns.tolist(), y=df.index.tolist(),
-        colorscale=[[0, "#00cc66"], [0.25, "#222240"], [0.5, "#808080"],
-                    [0.75, "#222240"], [1, "#ff3333"]],
+        colorscale=[[0, "#00cc66"], [0.25, "#2d2d50"], [0.5, "#9a9ab0"],
+                    [0.75, "#2d2d50"], [1, "#ff3333"]],
         text=np.round(df.values, 1).astype(str), texttemplate="%{text}",
-        textfont=dict(size=10, color="#d4d4d4"),
+        textfont=dict(size=10, color="#e0e0e0"),
         hovertemplate="Tenor: %{y}<br>Delta: %{x}<br>Percentile: %{z:.1f}%<extra></extra>",
         xgap=2, ygap=2))
     _apply_chart_template(fig, f"{pair} Percentile Surface")
@@ -1559,7 +1559,7 @@ def _lab_study_zscore_surface(pair, sd, spot, r_dom, r_for, **kw):
         z=df.values, x=df.columns.tolist(), y=df.index.tolist(),
         colorscale=[[0, "#00cc66"], [0.5, "#000000"], [1, "#ff3333"]],
         text=np.round(df.values, 1).astype(str), texttemplate="%{text}",
-        textfont=dict(size=10, color="#d4d4d4"),
+        textfont=dict(size=10, color="#e0e0e0"),
         hovertemplate="Tenor: %{y}<br>Delta: %{x}<br>Z-Score: %{z:.2f}<extra></extra>",
         xgap=2, ygap=2))
     _apply_chart_template(fig, f"{pair} Z-Score Surface")
@@ -1597,11 +1597,11 @@ def _lab_study_breakeven(pair, sd, spot, r_dom, r_for, **kw):
     labels = ["ATM IV", "Breakeven RV", "Cushion"]
     vals = [info.get("atm_iv", 0), info.get("breakeven_rv", 0),
             info.get("iv_rv_cushion", 0)]
-    colors = ["#ff8800", "#d4d4d4",
+    colors = ["#ff8800", "#e0e0e0",
               "#00cc66" if info.get("iv_rv_cushion", 0) > 0 else "#ff3333"]
     fig.add_trace(go.Bar(x=labels, y=vals, marker_color=colors,
                   text=[f"{v:.2f}" if np.isfinite(v) else "—" for v in vals], textposition="outside",
-                  textfont=dict(color="#d4d4d4", size=11)))
+                  textfont=dict(color="#e0e0e0", size=11)))
     _apply_chart_template(fig, f"{pair} {tenor} Breakeven Analysis")
     fig.update_layout(yaxis_title="Vol (%)")
     return fig
@@ -1622,7 +1622,7 @@ def _lab_study_carry_landscape(pair, sd, spot, r_dom, r_for, **kw):
                   marker_color=colors,
                   text=[f"{v:.2f}" if np.isfinite(v) else "—" for v in df["sharpe_proxy"]],
                   textposition="outside",
-                  textfont=dict(color="#d4d4d4", size=10)))
+                  textfont=dict(color="#e0e0e0", size=10)))
     _apply_chart_template(fig, "Carry / Vol Ranking (Sharpe Proxy)")
     fig.update_layout(yaxis_title="Sharpe Proxy")
     return fig
@@ -1661,7 +1661,7 @@ def chart_skew_term(pair, sd, spot, r_dom, r_for, **kw):
         ), row=1, col=1)
 
     # Zero line
-    fig.add_hline(y=0, line=dict(color=COLORS["border"], width=1), row=1, col=1)
+    fig.add_hline(y=0, line=dict(color="#3a3a5c", width=0.8), row=1, col=1)
 
     # Slope subplot (bar chart)
     slope_colors = [COLORS["accent_green"] if s > 0 else COLORS["accent_red"] for s in df["slope"]]
@@ -1672,7 +1672,7 @@ def chart_skew_term(pair, sd, spot, r_dom, r_for, **kw):
         textposition="outside", textfont=dict(size=9, color=COLORS["text_secondary"]),
         hovertemplate="%{x}: %{y:+.4f}<extra>Slope</extra>",
     ), row=2, col=1)
-    fig.add_hline(y=0, line=dict(color=COLORS["border"], width=1), row=2, col=1)
+    fig.add_hline(y=0, line=dict(color="#3a3a5c", width=0.8), row=2, col=1)
 
     _apply_chart_template(fig, f"Skew Term Structure -- {pair}")
     fig.update_layout(
@@ -1977,11 +1977,11 @@ def chart_fwd_vol_surface(pair, sd, spot, r_dom, r_for, **kw):
 
     fig = go.Figure(data=go.Heatmap(
         x=tenors, y=tenors, z=z_vals,
-        colorscale=[[0, "#0e0e0e"], [0.25, "#1a1a2e"], [0.5, "#bf5b00"],
-                    [0.75, "#ff8800"], [1.0, "#ffbb55"]],
+        colorscale=[[0, "#1a1a3e"], [0.2, "#2a2a5e"], [0.4, "#6b4400"],
+                    [0.6, "#bf6b00"], [0.8, "#ff8800"], [1.0, "#ffcc66"]],
         text=text_vals,
         texttemplate="%{text}",
-        textfont=dict(size=10, color="#c0c0c0"),
+        textfont=dict(size=10, color="#d0d0d0"),
         hovertemplate="Start: %{y}<br>End: %{x}<br>Fwd Vol: %{z:.2f}%<extra></extra>",
         colorbar=dict(
             title=dict(text="Fwd Vol %", font=dict(color=COLORS["text_muted"], size=10)),
@@ -2604,7 +2604,7 @@ def layout():
                 ], style=SIDEBAR_SECTION),
 
                 # ── Group divider: core selection → comparison settings ──
-                html.Div(style={"borderBottom": "1px solid #333355", "margin": "8px 0 12px 0"}),
+                html.Div(style={"borderBottom": "1px solid #3a3a5c", "margin": "8px 0 12px 0"}),
 
                 # Comparison toggle
                 html.Div([
@@ -2637,7 +2637,7 @@ def layout():
                 ], style=SIDEBAR_SECTION),
 
                 # ── Group divider: comparison settings → view settings ──
-                html.Div(style={"borderBottom": "1px solid #333355", "margin": "8px 0 12px 0"}),
+                html.Div(style={"borderBottom": "1px solid #3a3a5c", "margin": "8px 0 12px 0"}),
 
                 # Tenor checklist
                 html.Div([
@@ -2718,7 +2718,7 @@ def layout():
                 ], style=SIDEBAR_SECTION),
 
                 # ── Group divider: view → lab controls ──
-                html.Div(style={"borderBottom": "1px solid #333355", "margin": "8px 0 12px 0"}),
+                html.Div(style={"borderBottom": "1px solid #3a3a5c", "margin": "8px 0 12px 0"}),
 
                 html.Div("LAB CONTROLS", style={
                     "color": COLORS["accent_cyan"], "fontSize": "9px",
@@ -3192,7 +3192,7 @@ def register_callbacks(app):
                     if "median" in vc.columns:
                         fig.add_trace(go.Scatter(x=w, y=vc["median"].tolist(),
                                       mode="lines", name="Median",
-                                      line=dict(color="#808080", dash="dash")), row=1, col=2)
+                                      line=dict(color="#9a9ab0", dash="dash")), row=1, col=2)
                     if "current_c2c" in vc.columns:
                         fig.add_trace(go.Scatter(x=w, y=vc["current_c2c"].tolist(),
                                       mode="lines+markers", name="Current RV",
@@ -3206,7 +3206,7 @@ def register_callbacks(app):
                     if "rv" in ivr.columns:
                         fig.add_trace(go.Scatter(x=list(range(len(ivr))),
                                       y=ivr["rv"].tolist(), mode="lines", name="RV",
-                                      line=dict(color="#d4d4d4", dash="dash")), row=2, col=1)
+                                      line=dict(color="#e0e0e0", dash="dash")), row=2, col=1)
                 r = vol_regime_detect(pair) or {}
                 z = vol_zscore(pair, tenor, "ATM") or {}
                 _atm_iv = r.get('atm_iv', 0)
@@ -3220,7 +3220,7 @@ def register_callbacks(app):
                              f"Percentile: {_ordinal(z.get('percentile', 50))}")
                 fig.add_annotation(text=stats_text, xref="x4", yref="y4",
                                    x=0.5, y=0.5, showarrow=False,
-                                   font=dict(color="#d4d4d4", size=11),
+                                   font=dict(color="#e0e0e0", size=11),
                                    align="left", row=2, col=2)
 
             elif study_type == "smile_deep_dive":
@@ -3335,7 +3335,7 @@ def register_callbacks(app):
                         fig.add_trace(go.Scatter(x=fc["end_tenor"].tolist(),
                                       y=fc["spot_vol"].tolist(),
                                       mode="lines+markers", name="Spot Vol",
-                                      line=dict(color="#d4d4d4")), row=1, col=1)
+                                      line=dict(color="#e0e0e0")), row=1, col=1)
                     fig.add_trace(go.Scatter(x=fc["end_tenor"].tolist(),
                                   y=fc["forward_vol"].tolist(),
                                   mode="lines+markers", name="Fwd Vol",
@@ -3479,7 +3479,7 @@ def register_callbacks(app):
                         zmin=-1, zmax=1,
                         text=np.round(corr.values, 2).astype(str),
                         texttemplate="%{text}",
-                        textfont=dict(size=11, color="#d4d4d4"),
+                        textfont=dict(size=11, color="#e0e0e0"),
                         hovertemplate="<b>%{x} vs %{y}</b><br>\u03c1 = %{z:.3f}<extra></extra>",
                         xgap=2, ygap=2))
                 _apply_chart_template(fig, "60D Spot Correlation")
@@ -3494,7 +3494,7 @@ def register_callbacks(app):
                         zmin=-1, zmax=1,
                         text=np.round(corr.values, 2).astype(str),
                         texttemplate="%{text}",
-                        textfont=dict(size=11, color="#d4d4d4"),
+                        textfont=dict(size=11, color="#e0e0e0"),
                         hovertemplate="<b>%{x} vs %{y}</b><br>\u03c1 = %{z:.3f}<extra></extra>",
                         xgap=2, ygap=2))
                 _apply_chart_template(fig, f"60D Vol Change Correlation ({tenor})")
@@ -3511,7 +3511,7 @@ def register_callbacks(app):
                             colorscale=[[0,"#00cc66"],[0.5,"#000000"],[1,"#ff3333"]],
                             zmid=0, text=np.round(pvt.values, 2).astype(str),
                             texttemplate="%{text}",
-                            textfont=dict(size=11, color="#d4d4d4")))
+                            textfont=dict(size=11, color="#e0e0e0")))
                 _apply_chart_template(fig, "Vol Z-Score Heatmap (cheap=green, rich=red)")
 
             elif comp_type == "carry_ranking":
@@ -3525,7 +3525,7 @@ def register_callbacks(app):
                         marker_color=colors,
                         text=[f"{v:.2f}" if np.isfinite(v) else "—" for v in df["sharpe_proxy"]],
                         textposition="outside",
-                        textfont=dict(color="#d4d4d4", size=10)))
+                        textfont=dict(color="#e0e0e0", size=10)))
                 _apply_chart_template(fig, "Carry / Vol Ranking")
                 fig.update_layout(yaxis_title="Sharpe Proxy")
 
