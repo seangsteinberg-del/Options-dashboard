@@ -1182,35 +1182,41 @@ def layout():
 
         # ══════════ CORRELATION TAB ══════════
         html.Div(id=f"{_P}-corr-container", style={"display": "none"}, children=[
+            # Controls + regime badges row
             html.Div([
                 html.Div([
-                    html.Div([
-                        html.Span("WINDOW", style=LABEL_STYLE),
-                        dcc.Dropdown(id=f"{_P}-corr-window",
-                                     options=[{"label": f"{w}D", "value": w} for w in [20, 60, 120]],
-                                     value=60, clearable=False,
-                                     style={**DROPDOWN_STYLE, "width": "80px"}),
-                    ], style={"display": "flex", "alignItems": "center", "gap": GAP, "marginBottom": GAP}),
-                    html.Button("CSV", id=f"{_P}-csv-corr", n_clicks=0, style=CSV_BTN_STYLE),
-                    dcc.Graph(id=f"{_P}-corr-heatmap", config={"displayModeBar": False, "responsive": True},
-                              style={"height": "600px"}),
-                ], style={"flex": "3"}),
+                    html.Span("WINDOW", style=LABEL_STYLE),
+                    dcc.Dropdown(id=f"{_P}-corr-window",
+                                 options=[{"label": f"{w}D", "value": w} for w in [20, 60, 120]],
+                                 value=60, clearable=False,
+                                 style={**DROPDOWN_STYLE, "width": "80px"}),
+                ], style={"display": "flex", "alignItems": "center", "gap": GAP}),
                 html.Div([
-                    html.Div("VOL REGIME", style={
-                        "color": "#9a9ab0", "fontSize": "9px", "fontWeight": "700",
-                        "letterSpacing": "1.5px", "marginBottom": GAP, "fontFamily": _MONO,
-                    }),
+                    html.Span("VOL REGIME", style={**LABEL_STYLE, "marginBottom": "0", "marginRight": GAP}),
                     html.Div(id=f"{_P}-regime-badges", style={
-                        "display": "flex", "flexWrap": "wrap", "gap": GAP,
+                        "display": "flex", "flexWrap": "wrap", "gap": "4px",
                     }),
-                ], style={"flex": "2", "padding": GAP}),
-            ], style={"display": "flex", "gap": GAP}),
+                ], style={"display": "flex", "alignItems": "center", "flex": "1"}),
+                html.Button("CSV", id=f"{_P}-csv-corr", n_clicks=0, style=CSV_BTN_STYLE),
+            ], style={"display": "flex", "gap": SECTION_GAP, "alignItems": "center",
+                      "marginBottom": GAP}),
+            # Full-width correlation heatmap
+            dcc.Graph(id=f"{_P}-corr-heatmap", config={"displayModeBar": False, "responsive": True},
+                      style={"height": "600px"}),
+            # Breakdown table
             html.Div(id=f"{_P}-corr-breakdown", style={"marginTop": SECTION_GAP}),
-            html.Button("CSV", id=f"{_P}-csv-rolling", n_clicks=0, style=CSV_BTN_STYLE),
-            dcc.Graph(id=f"{_P}-rolling-chart", config={"displayModeBar": False, "responsive": True},
-                      style={"height": f"{CHART_SM}px", "marginTop": GAP}),
-            dcc.Graph(id=f"{_P}-corr-cone", config={"displayModeBar": False, "responsive": True},
-                      style={"height": f"{CHART_MD}px", "marginTop": GAP}),
+            # Rolling chart + Correlation cone side by side
+            html.Div([
+                html.Div([
+                    html.Button("CSV", id=f"{_P}-csv-rolling", n_clicks=0, style=CSV_BTN_STYLE),
+                    dcc.Graph(id=f"{_P}-rolling-chart", config={"displayModeBar": False, "responsive": True},
+                              style={"height": "280px"}),
+                ], style={"flex": "1"}),
+                html.Div([
+                    dcc.Graph(id=f"{_P}-corr-cone", config={"displayModeBar": False, "responsive": True},
+                              style={"height": "280px"}),
+                ], style={"flex": "1"}),
+            ], style={"display": "flex", "gap": GAP, "marginTop": GAP}),
         ]),
 
         # ══════════ MACRO TAB ══════════
