@@ -24,19 +24,16 @@ from core.theme import (
     LABEL_STYLE, DROPDOWN_STYLE, TAB_STYLE, TAB_SELECTED_STYLE,
     TABLE_HEADER_STYLE, TABLE_CELL_STYLE, clickable_stat, make_stat_style,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG, CSV_BTN_STYLE,
-    no_data_fig, skeleton_chart,
+    no_data_fig, skeleton_chart, chart_layout, CS_RICHNESS, CS_SKEW,
 )
 from core.csv_export import export_csv
-from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days
+from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days, safe_float as _sf, ALL_PAIRS, G10_PAIRS, EM_PAIRS
+from core.fx_analytics import extract_surface_atm as _extract_atm, extract_surface_rr25 as _extract_rr, extract_surface_bf25 as _extract_bf
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
 _P = "vsu"  # prefix
 _MONO = "'JetBrains Mono', monospace"
-
-ALL_PAIRS = sorted(FX_PAIR_REGISTRY.keys())
-G10_PAIRS = [p for p in ALL_PAIRS if FX_PAIR_REGISTRY[p].group == "G10"]
-EM_PAIRS  = [p for p in ALL_PAIRS if p not in G10_PAIRS]
 
 HEATMAP_TENORS = ["1M", "2M", "3M", "6M", "1Y", "2Y"]
 SURFACE_TENORS = ["1M", "2M", "3M", "6M", "1Y", "2Y"]
@@ -75,35 +72,12 @@ METRIC_OPTIONS = [
 
 TAIL_MOVES = [1, 2, 3, 5]
 
-# Dark-midpoint scales: extremes glow, averages recede into the bg
-RICHNESS_COLORSCALE = [
-    [0.00, "#1565c0"],
-    [0.20, "#0d5a9e"],
-    [0.35, "#1a2a4a"],
-    [0.50, "#2a2a40"],   # visible dark gray midpoint (NOT black)
-    [0.65, "#4a2a1a"],
-    [0.80, "#bf5b00"],
-    [1.00, "#ff8800"],
-]
-
-SKEW_COLORSCALE = [
-    [0.00, "#c62828"],
-    [0.25, "#6d2020"],
-    [0.50, "#2a2a40"],   # visible dark gray midpoint (NOT black)
-    [0.75, "#1a3a6d"],
-    [1.00, "#1e88e5"],
-]
+# Dark-midpoint scales: imported from core.theme, aliased for local use
+RICHNESS_COLORSCALE = CS_RICHNESS
+SKEW_COLORSCALE = CS_SKEW
 
 
 # ── Safe helpers ─────────────────────────────────────────────────────────────
-
-def _sf(v, d=0.0):
-    try:
-        f = float(v)
-        return d if (np.isnan(f) or np.isinf(f)) else f
-    except Exception:
-        return d
-
 
 def _pairs_for(group):
     if group == "G10_MAJOR":
@@ -117,33 +91,12 @@ def _pairs_for(group):
     return ALL_PAIRS
 
 
-def _extract_atm(surface, tenor):
-    t = surface.get(tenor, {})
-    return _sf(t.get("atm", 0))
-
-
-def _extract_rr(surface, tenor):
-    t = surface.get(tenor, {})
-    return _sf(t.get("rr25", t.get("25D_RR", 0)))
-
-
-def _extract_bf(surface, tenor):
-    t = surface.get(tenor, {})
-    return _sf(t.get("bf25", t.get("25D_BF", 0)))
-
-
-def _chart_layout(**overrides):
-    """Merge CHART_TEMPLATE with overrides including deep-merged axes."""
-    from core.theme import chart_layout
-    return chart_layout(**overrides)
-
-
 def _empty_fig(title="", msg=None):
     """Return a skeleton loading figure, or a clear 'no data' message if msg is provided."""
     fig = go.Figure()
     if msg:
         # Data genuinely unavailable — show clear explanation
-        fig.update_layout(**_chart_layout(
+        fig.update_layout(**chart_layout(
             height=CHART_SM, margin=dict(l=20, r=10, t=30, b=10),
             title=dict(text=title, font=dict(size=10, color="#9a9ab0")),
             annotations=[dict(text=msg, x=0.5, y=0.5, showarrow=False,
@@ -154,7 +107,7 @@ def _empty_fig(title="", msg=None):
         for y in [0.2, 0.4, 0.6, 0.8]:
             fig.add_shape(type="line", x0=0, x1=1, y0=y, y1=y,
                           xref="paper", yref="paper", line=dict(color="#0d0d1a", width=1))
-        fig.update_layout(**_chart_layout(
+        fig.update_layout(**chart_layout(
             height=CHART_SM, margin=dict(l=20, r=10, t=30, b=10),
             title=dict(text=title, font=dict(size=10, color="#9a9ab0")),
             annotations=[dict(text="LOADING", x=0.5, y=0.5, showarrow=False,
@@ -392,7 +345,7 @@ def _build_heatmap(metric, lookback):
             ),
             xgap=2, ygap=2,
         ))
-        fig.update_layout(**_chart_layout(height=CHART_LG,
+        fig.update_layout(**chart_layout(height=CHART_LG,
                           margin=dict(l=65, r=60, t=30, b=20),
                           title=dict(text=f"VOL RICHNESS — {metric} ({lookback}D)",
                                      font=dict(size=10, color="#9a9ab0")),
@@ -430,7 +383,7 @@ def _build_cross_bar(metric, lookback):
                                 marker_color=colors,
                                 text=[f"{p:.0f}%" for p in pcts],
                                 textposition="outside", textfont=dict(size=7, color="#9a9ab0")))
-        fig.update_layout(**_chart_layout(height=CHART_MD,
+        fig.update_layout(**chart_layout(height=CHART_MD,
                           margin=dict(l=55, r=20, t=25, b=10), showlegend=False,
                           title=dict(text=f"3M {metric} PERCENTILE RANK",
                                      font=dict(size=10, color="#9a9ab0")),
@@ -477,7 +430,7 @@ def _build_atm_history(pair, tenor, lookback):
                                  mode="markers", marker=dict(color="#ff8800", size=7),
                                  showlegend=False,
                                  hovertemplate="Current: %{y:.2f}%<extra></extra>"))
-        fig.update_layout(**_chart_layout(height=CHART_SM,
+        fig.update_layout(**chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=False,
                           title=dict(text=f"{pair} ATM {tenor} HISTORY",
                                      font=dict(size=9, color="#9a9ab0")),
@@ -506,7 +459,7 @@ def _build_ivrv_chart(pair, tenor, lookback):
                                  line=dict(color="#ff8800", width=2.5), name="IV"))
         fig.add_trace(go.Scatter(x=x, y=rv, mode="lines",
                                  line=dict(color="#00cc66", width=1.5), name="RV"))
-        fig.update_layout(**_chart_layout(height=CHART_SM,
+        fig.update_layout(**chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} IV vs RV ({tenor})",
@@ -561,7 +514,7 @@ def _build_volcone_chart(pair, lookback):
         if not fig.data:
             return _empty_fig(f"{pair} VOL CONE", msg="No cone data columns available")
 
-        fig.update_layout(**_chart_layout(height=CHART_SM,
+        fig.update_layout(**chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} VOL CONE",
@@ -664,7 +617,7 @@ def _build_skew_surface():
             ),
             xgap=2, ygap=2,
         ))
-        fig.update_layout(**_chart_layout(height=CHART_LG,
+        fig.update_layout(**chart_layout(height=CHART_LG,
                           margin=dict(l=65, r=60, t=30, b=20),
                           title=dict(text="25D RISK REVERSAL SURFACE",
                                      font=dict(size=10, color="#9a9ab0")),
@@ -718,7 +671,7 @@ def _build_rr_spot_chart(pair, tenor):
                                  line=dict(color="#ffffff", width=1, dash="dot"), name="Spot",
                                  hovertemplate="Day %{x}<br>Spot: %{y:.4f}<extra></extra>"),
                       secondary_y=True)
-        fig.update_layout(**_chart_layout(height=CHART_SM,
+        fig.update_layout(**chart_layout(height=CHART_SM,
                           margin=dict(l=50, r=50, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} RR vs SPOT ({tenor})",
@@ -766,7 +719,7 @@ def _build_smile_comparison(pair):
         if not fig.data:
             return no_data_fig(msg="NO SMILE DATA")
 
-        fig.update_layout(**_chart_layout(height=CHART_SM,
+        fig.update_layout(**chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
                           title=dict(text=f"{pair} SMILE COMPARISON",
@@ -805,7 +758,7 @@ def _build_bf_map():
                                 text=[f"{b:.2f}" for b in bfs],
                                 textposition="outside", textfont=dict(size=7),
                                 hovertemplate="%{y}: %{x:.2f}v<extra>25D BF</extra>"))
-        fig.update_layout(**_chart_layout(height=CHART_MD,
+        fig.update_layout(**chart_layout(height=CHART_MD,
                           margin=dict(l=55, r=20, t=25, b=10), showlegend=False,
                           title=dict(text="25D BUTTERFLY (3M)",
                                      font=dict(size=10, color="#9a9ab0")),
@@ -880,7 +833,7 @@ def _spark_term_structure(pair):
                                     line=dict(color="#ff8800", width=2.5),
                                     marker=dict(size=5),
                                     hovertemplate="%{x}: %{y:.2f}%<extra></extra>"))
-        fig.update_layout(**_chart_layout(height=CHART_SM,
+        fig.update_layout(**chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=20, b=15), showlegend=False,
                           title=dict(text=f"{pair} TERM STRUCTURE",
                                      font=dict(size=9, color="#9a9ab0"))))
@@ -1445,7 +1398,7 @@ def register_callbacks(app):
             xgap=2, ygap=2,
         ))
 
-        fig.update_layout(**_chart_layout(
+        fig.update_layout(**chart_layout(
             title=dict(text="SKEW SLOPE HEATMAP (Norm. RR change across tenors)",
                        font=dict(color="#ffffff", size=13)),
             margin=dict(l=80, r=30, t=50, b=30),
@@ -1527,7 +1480,7 @@ def register_callbacks(app):
             font=dict(color="#ffffff", size=10, family=_MONO),
         )
 
-        fig.update_layout(**_chart_layout(
+        fig.update_layout(**chart_layout(
             title=dict(text="SIGNAL CONFLUENCE MATRIX",
                        font=dict(color="#ffffff", size=13)),
             margin=dict(l=80, r=50, t=50, b=30),

@@ -27,13 +27,15 @@ from core.theme import (
     make_stat_style, TAB_STYLE, LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE,
     clickable_stat, section_header,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
-    CSV_BTN_STYLE, no_data_fig,
+    CSV_BTN_STYLE, no_data_fig, chart_layout,
+    CS_VOL_SURFACE, CS_DIVERGING_GR, CS_DIVERGING_RG,
 )
 from core.csv_export import export_csv
 from core.bloomberg_fx import (
     get_fx_vol_surface, get_fx_spots, get_fx_rates,
     get_fx_historical_vol, get_fx_realized_vol, get_all_pairs,
     get_fx_historical_spot, get_fx_term_structure,
+    cache_inject_surface, cache_restore_surface,
 )
 from core.fx_analytics import (
     vol_percentile, vol_zscore, vol_regime_detect, vol_cone,
@@ -88,7 +90,7 @@ CHART_OPTIONS = [
     {"label": "Implied Distribution", "value": "implied_dist"},
     {"label": "── ADVANCED ─────", "value": "_adv_header", "disabled": True},
     {"label": "Skew Term Structure", "value": "skew_term"},
-    {"label": "RV Estimators", "value": "rv_estimators"},
+    {"label": "RV Term Structure", "value": "rv_estimators"},
     {"label": "Vol-of-Vol", "value": "vol_of_vol"},
     {"label": "PDF Comparison", "value": "pdf_comparison"},
     {"label": "Smile PCA", "value": "smile_pca_chart"},
@@ -107,7 +109,7 @@ CHART_OPTIONS = [
     {"label": "TS: Realized Vol",  "value": "lab_rv"},
     {"label": "TS: Forward Vol",   "value": "lab_fwd_vol"},
     {"label": "TS: Term Spread",   "value": "lab_term_spread"},
-    {"label": "TS: Carry (bps)",   "value": "lab_carry"},
+    {"label": "TS: Carry (bps)",   "value": "lab_carry"},  # Rate diff TS (steps infrequently)
     {"label": "── LAB: STUDIES ────", "value": "_st_header", "disabled": True},
     {"label": "Vol Cone Study",         "value": "lab_study_vol_cone"},
     {"label": "Vol Smile Study",        "value": "lab_study_smile"},
@@ -164,22 +166,23 @@ LAB_NORMALIZE_OPTIONS = [
 ]
 
 VIEW_PRESETS = {
+    # ── Core views ──
     "Trader":     ["surface_3d", "atm_term", "skew_rr", "iv_rv"],
-    "Skew":       ["smile_curve", "skew_rr", "smile_bf", "rich_cheap"],
-    "Term":       ["atm_term", "fwd_vol", "heatmap", "vol_cone_chart"],
-    "Rich-Cheap": ["rich_cheap", "surface_change", "vol_ts", "implied_dist"],
-    "Lab: Vol Monitor": ["lab_atm", "lab_25d_rr", "lab_iv_rv", "lab_study_vol_regime"],
-    "Lab: Smile":       ["lab_study_smile", "lab_study_implied_pdf", "lab_study_tail_probs", "lab_25d_rr"],
-    "Lab: RV":          ["lab_study_vol_cone", "lab_iv_rv", "lab_study_breakeven", "lab_rv"],
-    "Lab: Carry":       ["lab_carry", "lab_study_carry_landscape", "lab_term_spread", "lab_fwd_vol"],
-    "Strategist: Skew":    ["skew_term", "skew_rr", "smile_curve", "smile_bf"],
-    "Strategist: RV":      ["rv_estimators", "iv_rv", "vol_cone_chart", "vol_ts"],
-    "Strategist: Vol-of-Vol": ["vol_of_vol", "atm_term", "fwd_vol", "implied_dist"],
-    "Strategist: Full":    ["skew_term", "rv_estimators", "vol_of_vol", "pdf_comparison"],
-    "Strategist: Smile Deep": ["smile_pca_chart", "wing_richness_chart", "smile_curve", "pdf_comparison"],
-    "Strategist: Surface":    ["fwd_vol_surface", "surface_3d", "heatmap", "rich_cheap"],
-    "Strategist: Tail Risk":  ["tail_risk_chart", "implied_dist", "vol_cone_chart", "rv_estimators"],
-    "Strategist: Regime":  ["iv_rv_scatter", "radar_profile", "vol_timelapse", "vol_ts"],
+    "Skew":       ["skew_term", "smile_curve", "skew_rr", "smile_bf"],
+    "Term":       ["atm_term", "fwd_vol", "fwd_vol_surface", "vol_cone_chart"],
+    "Rich-Cheap": ["rich_cheap", "surface_change", "wing_richness_chart", "implied_dist"],
+    # ── Deep analysis ──
+    "RV Analysis":   ["rv_estimators", "iv_rv_scatter", "vol_cone_chart", "iv_rv"],
+    "Smile Deep":    ["smile_pca_chart", "wing_richness_chart", "pdf_comparison", "smile_curve"],
+    "Surface":       ["fwd_vol_surface", "surface_3d", "heatmap", "surface_change"],
+    "Tail Risk":     ["tail_risk_chart", "implied_dist", "vol_cone_chart", "rv_estimators"],
+    # ── Strategist views ──
+    "Regime":        ["iv_rv_scatter", "radar_profile", "vol_of_vol", "vol_ts"],
+    "Vol-of-Vol":    ["vol_of_vol", "vol_timelapse", "atm_term", "fwd_vol"],
+    "Full Scan":     ["skew_term", "rv_estimators", "vol_of_vol", "pdf_comparison"],
+    "Carry":         ["lab_study_carry_landscape", "fwd_vol", "lab_term_spread", "atm_term"],
+    # ── History mode optimized ──
+    "History":       ["surface_3d", "heatmap", "atm_term", "smile_curve"],
 }
 
 _PAIR_GROUPS = {
@@ -337,7 +340,7 @@ def _get_spot_and_rates(pair):
     return spot, fwd_1m, r_dom, r_for
 
 
-def _apply_chart_template(fig, title=""):
+def _apply_chart_template(fig, title="", height=CHART_LG):
     """Apply the standard theme template to a figure."""
     tpl = CHART_TEMPLATE["layout"]
     fig.update_layout(
@@ -347,6 +350,7 @@ def _apply_chart_template(fig, title=""):
         plot_bgcolor=tpl["plot_bgcolor"],
         font=tpl["font"],
         margin=dict(l=50, r=20, t=40, b=40),
+        height=height,
         hoverlabel=tpl["hoverlabel"],
         legend=dict(font=dict(color=COLORS["text_secondary"], size=10),
                     bgcolor="rgba(0,0,0,0)"),
@@ -412,6 +416,216 @@ def _fmt_vol(v):
 def _fmt_pctile(p):
     """Format percentile with ordinal suffix (e.g., '23rd', '45th')."""
     return _ordinal(int(round(p)))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# History Mode: prefetch & frame helpers
+# ═══════════════════════════════════════════════════════════════════════════
+
+_HISTORY_METRICS = ["ATM", "25D_RR", "25D_BF", "10D_RR", "10D_BF"]
+_METRIC_TO_KEY = {
+    "ATM": "atm", "25D_RR": "rr25", "25D_BF": "bf25",
+    "10D_RR": "rr10", "10D_BF": "bf10",
+}
+
+# Charts fully supported in history mode (use sd dict directly or via cache injection)
+_HISTORY_SUPPORTED = {
+    "surface_3d", "heatmap", "atm_term", "smile_curve", "sabr_params",
+    "skew_rr", "smile_bf",
+    # Tier 2: work via cache injection
+    "fwd_vol", "fwd_vol_surface", "implied_dist", "wing_richness_chart",
+    "surface_change",
+}
+
+
+def _prefetch_history_frames(pair, lookback_days):
+    """Build a list of historical vol surface snapshots for animated playback.
+
+    For each trading day in the lookback window, reconstructs the full vol
+    surface by cross-sectioning cached BDH time series at that date.
+
+    Returns list[dict] — one JSON-serializable frame per trading day,
+    ordered oldest → newest, with the final frame being "today" (live data).
+    """
+    # 1. Fetch all (tenor, metric) time series
+    all_series = {}
+    fetch_days = lookback_days + 15  # buffer for alignment
+    for tenor in TENORS_LIST:
+        for metric in _HISTORY_METRICS:
+            try:
+                s = get_fx_historical_vol(pair, tenor, metric, fetch_days)
+                if s is not None and len(s) > 0:
+                    all_series[(tenor, metric)] = s
+            except Exception:
+                pass
+
+    if not all_series:
+        logger.warning("History mode: no historical vol data for %s", pair)
+        return []
+
+    # 2. Fetch historical spot
+    spot_series = None
+    try:
+        spot_df = get_fx_historical_spot(pair, fetch_days)
+        if spot_df is not None and not spot_df.empty:
+            for c in ("close", "Close"):
+                if c in spot_df.columns:
+                    spot_series = spot_df[c]
+                    break
+            if spot_series is None and len(spot_df.columns) > 0:
+                spot_series = spot_df.iloc[:, -1]
+    except Exception:
+        pass
+
+    # 3. Find common date index (intersection of all ATM series dates)
+    atm_series = {k: v for k, v in all_series.items() if k[1] == "ATM"}
+    if not atm_series:
+        return []
+
+    # Use the ATM series with the most coverage as the date backbone
+    backbone = max(atm_series.values(), key=len)
+    if not hasattr(backbone, 'index'):
+        return []
+
+    dates = backbone.index[-lookback_days:] if len(backbone) >= lookback_days else backbone.index
+
+    # 4. Build one frame per date
+    frames = []
+    for i, dt in enumerate(dates):
+        dt_label = dt.strftime("%Y-%m-%d") if hasattr(dt, 'strftime') else str(dt)
+        days_ago = len(dates) - i  # oldest frame = lookback_days, newest = 1
+
+        # Extract surface values at this date
+        surface_raw = {}
+        tenors_avail = []
+        atm_vals, rr25_vals, bf25_vals, rr10_vals, bf10_vals = [], [], [], [], []
+
+        for tenor in TENORS_LIST:
+            row = {}
+            has_atm = False
+            for metric in _HISTORY_METRICS:
+                key = (tenor, metric)
+                s = all_series.get(key)
+                if s is None:
+                    continue
+                # Find this date in the series (nearest business day)
+                if dt in s.index:
+                    val = float(s.loc[dt])
+                elif hasattr(s.index, 'get_indexer'):
+                    idx = s.index.get_indexer([dt], method="ffill")
+                    if idx[0] >= 0:
+                        val = float(s.iloc[idx[0]])
+                    else:
+                        continue
+                else:
+                    continue
+
+                if np.isnan(val) or val == 0:
+                    continue
+                row[_METRIC_TO_KEY[metric]] = val
+                if metric == "ATM":
+                    has_atm = True
+
+            if has_atm and "atm" in row:
+                surface_raw[tenor] = row
+                tenors_avail.append(tenor)
+                atm_vals.append(row.get("atm", 0))
+                rr25_vals.append(row.get("rr25", 0))
+                bf25_vals.append(row.get("bf25", 0))
+                rr10_vals.append(row.get("rr10", 0))
+                bf10_vals.append(row.get("bf10", 0))
+
+        if not tenors_avail:
+            continue  # skip dates with no data
+
+        # Build vol_grid via bf_rr_to_smile
+        n = len(tenors_avail)
+        vol_grid = []
+        for j in range(n):
+            smile = bf_rr_to_smile(atm_vals[j], rr25_vals[j], bf25_vals[j],
+                                   rr10_vals[j], bf10_vals[j])
+            vol_grid.append([
+                smile.get("p10", smile["p25"]),
+                smile["p25"], smile["atm"],
+                smile["c25"], smile.get("c10", smile["c25"]),
+            ])
+
+        T_years = [tenor_to_years(t) for t in tenors_avail]
+
+        # Historical spot at this date
+        hist_spot = 1.0
+        if spot_series is not None and len(spot_series) > 0:
+            if dt in spot_series.index:
+                hist_spot = float(spot_series.loc[dt])
+            elif hasattr(spot_series.index, 'get_indexer'):
+                idx = spot_series.index.get_indexer([dt], method="ffill")
+                if idx[0] >= 0:
+                    hist_spot = float(spot_series.iloc[idx[0]])
+
+        frames.append({
+            "date_label": dt_label,
+            "days_ago": days_ago,
+            "tenors": tenors_avail,
+            "T_years": T_years,
+            "atm": atm_vals,
+            "rr25": rr25_vals,
+            "bf25": bf25_vals,
+            "rr10": rr10_vals,
+            "bf10": bf10_vals,
+            "vol_grid": vol_grid,
+            "delta_labels": list(DELTA_LABELS),
+            "delta_numeric": list(DELTA_NUMERIC),
+            "surface_raw": surface_raw,
+            "spot": hist_spot,
+        })
+
+    # 5. Append "today" frame from live data
+    try:
+        live_sd = _get_surface_data(pair)
+        if live_sd is not None:
+            spots = get_fx_spots([pair]) or {}
+            live_spot = spots.get(pair, {}).get("mid", 1.0)
+            frames.append({
+                "date_label": "Today",
+                "days_ago": 0,
+                "tenors": live_sd["tenors"],
+                "T_years": live_sd["T_years"].tolist(),
+                "atm": live_sd["atm"].tolist(),
+                "rr25": live_sd["rr25"].tolist(),
+                "bf25": live_sd["bf25"].tolist(),
+                "rr10": live_sd["rr10"].tolist(),
+                "bf10": live_sd["bf10"].tolist(),
+                "vol_grid": live_sd["vol_grid"].tolist(),
+                "delta_labels": list(live_sd["delta_labels"]),
+                "delta_numeric": list(live_sd["delta_numeric"])
+                                 if isinstance(live_sd["delta_numeric"], np.ndarray)
+                                 else list(live_sd["delta_numeric"]),
+                "surface_raw": live_sd["surface_raw"],
+                "spot": live_spot,
+            })
+    except Exception:
+        pass
+
+    logger.info("History mode: built %d frames for %s (%d-day lookback)",
+                len(frames), pair, lookback_days)
+    return frames
+
+
+def _frame_to_sd(frame):
+    """Convert a JSON-serializable frame dict back to an sd dict with numpy arrays."""
+    return {
+        "tenors": frame["tenors"],
+        "T_years": np.array(frame["T_years"]),
+        "atm": np.array(frame["atm"]),
+        "rr25": np.array(frame["rr25"]),
+        "bf25": np.array(frame["bf25"]),
+        "rr10": np.array(frame["rr10"]),
+        "bf10": np.array(frame["bf10"]),
+        "vol_grid": np.array(frame["vol_grid"]),
+        "delta_labels": frame["delta_labels"],
+        "delta_numeric": np.array(frame["delta_numeric"]),
+        "surface_raw": frame["surface_raw"],
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -509,6 +723,7 @@ def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
     fig = go.Figure()
     tenors = sd["tenors"]
     T_years = sd["T_years"]
+    in_history = kw.get("history_mode", False)
 
     # Current ATM line (bold cyan)
     fig.add_trace(go.Scatter(
@@ -518,33 +733,36 @@ def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
         hovertemplate="<b>%{x}</b><br>ATM: %{y:.2f}%<extra></extra>",
     ))
 
-    # 1W ago overlay (dashed)
-    try:
-        hist_1w = []
-        for t in tenors:
-            ch = vol_change(pair, t, "ATM", days_ago=5)
-            hist_1w.append(ch.get("previous") if ch else None)
-        fig.add_trace(go.Scatter(
-            x=tenors, y=hist_1w, mode="lines",
-            name="1W ago", line=dict(color=COLORS["accent_blue"], width=1.5, dash="dash"),
-            hovertemplate="%{x}: %{y:.2f}%<extra>1W ago</extra>",
-        ))
-    except Exception:
-        pass
+    # History overlays — suppressed in history playback mode (they'd be
+    # relative to today, not the snapshot date)
+    if not in_history:
+        # 1W ago overlay (dashed)
+        try:
+            hist_1w = []
+            for t in tenors:
+                ch = vol_change(pair, t, "ATM", days_ago=5)
+                hist_1w.append(ch.get("previous") if ch else None)
+            fig.add_trace(go.Scatter(
+                x=tenors, y=hist_1w, mode="lines",
+                name="1W ago", line=dict(color=COLORS["accent_blue"], width=1.5, dash="dash"),
+                hovertemplate="%{x}: %{y:.2f}%<extra>1W ago</extra>",
+            ))
+        except Exception:
+            pass
 
-    # 1M ago overlay (dotted)
-    try:
-        hist_1m = []
-        for t in tenors:
-            ch = vol_change(pair, t, "ATM", days_ago=22)
-            hist_1m.append(ch.get("previous") if ch else None)
-        fig.add_trace(go.Scatter(
-            x=tenors, y=hist_1m, mode="lines",
-            name="1M ago", line=dict(color=COLORS["accent_purple"], width=1.5, dash="dot"),
-            hovertemplate="%{x}: %{y:.2f}%<extra>1M ago</extra>",
-        ))
-    except Exception:
-        pass
+        # 1M ago overlay (dotted)
+        try:
+            hist_1m = []
+            for t in tenors:
+                ch = vol_change(pair, t, "ATM", days_ago=22)
+                hist_1m.append(ch.get("previous") if ch else None)
+            fig.add_trace(go.Scatter(
+                x=tenors, y=hist_1m, mode="lines",
+                name="1M ago", line=dict(color=COLORS["accent_purple"], width=1.5, dash="dot"),
+                hovertemplate="%{x}: %{y:.2f}%<extra>1M ago</extra>",
+            ))
+        except Exception:
+            pass
 
     _apply_chart_template(fig, f"ATM Term Structure -- {pair}")
     fig.update_layout(
@@ -559,20 +777,29 @@ def chart_skew_rr(pair, sd, spot, r_dom, r_for, **kw):
     """4. Skew Profile (25D RR) -- line chart with 1Y range ribbon."""
     tenors = sd["tenors"]
     rr_vals = sd["rr25"]
+    in_history = kw.get("history_mode", False)
 
     pctiles = []
     p_mins = []
     p_maxs = []
-    for t in tenors:
-        p = vol_percentile(pair, t, "25D_RR")
-        if isinstance(p, dict):
-            pctiles.append(p.get("percentile", 50.0))
-            p_mins.append(p.get("min", 0))
-            p_maxs.append(p.get("max", 0))
-        else:
+    if in_history:
+        # Skip expensive vol_percentile calls in history mode
+        for i, t in enumerate(tenors):
             pctiles.append(50.0)
-            p_mins.append(rr_vals[tenors.index(t)] if t in tenors else 0)
-            p_maxs.append(rr_vals[tenors.index(t)] if t in tenors else 0)
+            v = rr_vals[i] if i < len(rr_vals) else 0
+            p_mins.append(v)
+            p_maxs.append(v)
+    else:
+        for t in tenors:
+            p = vol_percentile(pair, t, "25D_RR")
+            if isinstance(p, dict):
+                pctiles.append(p.get("percentile", 50.0))
+                p_mins.append(p.get("min", 0))
+                p_maxs.append(p.get("max", 0))
+            else:
+                pctiles.append(50.0)
+                p_mins.append(rr_vals[tenors.index(t)] if t in tenors else 0)
+                p_maxs.append(rr_vals[tenors.index(t)] if t in tenors else 0)
 
     # Percentile-based marker colors
     colors = []
@@ -593,11 +820,12 @@ def chart_skew_rr(pair, sd, spot, r_dom, r_for, **kw):
             array=[p_maxs[i] - rr_vals[i] for i in range(len(rr_vals))],
             arrayminus=[rr_vals[i] - p_mins[i] for i in range(len(rr_vals))],
             color=COLORS["text_muted"], thickness=1, width=6,
-        ),
+        ) if not in_history else None,
         text=[f"{v:+.2f}" if np.isfinite(v) else "" for v in rr_vals],
         textposition="top center",
         textfont=dict(size=10, color=COLORS["text_secondary"]),
-        hovertemplate="<b>%{x}</b><br>25D RR: %{y:+.2f}<br>%ile: %{customdata[0]:.0f}<br>1Y Range: %{customdata[1]:+.2f} / %{customdata[2]:+.2f}<extra></extra>",
+        hovertemplate="<b>%{x}</b><br>25D RR: %{y:+.2f}<extra></extra>" if in_history else
+                      "<b>%{x}</b><br>25D RR: %{y:+.2f}<br>%ile: %{customdata[0]:.0f}<br>1Y Range: %{customdata[1]:+.2f} / %{customdata[2]:+.2f}<extra></extra>",
         customdata=list(zip(pctiles, p_mins, p_maxs)),
     ))
 
@@ -613,20 +841,28 @@ def chart_smile_bf(pair, sd, spot, r_dom, r_for, **kw):
     """5. Smile Curvature (25D BF) -- line chart with 1Y range ribbon."""
     tenors = sd["tenors"]
     bf_vals = sd["bf25"]
+    in_history = kw.get("history_mode", False)
 
     pctiles = []
     p_mins = []
     p_maxs = []
-    for t in tenors:
-        p = vol_percentile(pair, t, "25D_BF")
-        if isinstance(p, dict):
-            pctiles.append(p.get("percentile", 50.0))
-            p_mins.append(p.get("min", 0))
-            p_maxs.append(p.get("max", 0))
-        else:
+    if in_history:
+        for i, t in enumerate(tenors):
             pctiles.append(50.0)
-            p_mins.append(bf_vals[tenors.index(t)] if t in tenors else 0)
-            p_maxs.append(bf_vals[tenors.index(t)] if t in tenors else 0)
+            v = bf_vals[i] if i < len(bf_vals) else 0
+            p_mins.append(v)
+            p_maxs.append(v)
+    else:
+        for t in tenors:
+            p = vol_percentile(pair, t, "25D_BF")
+            if isinstance(p, dict):
+                pctiles.append(p.get("percentile", 50.0))
+                p_mins.append(p.get("min", 0))
+                p_maxs.append(p.get("max", 0))
+            else:
+                pctiles.append(50.0)
+                p_mins.append(bf_vals[tenors.index(t)] if t in tenors else 0)
+                p_maxs.append(bf_vals[tenors.index(t)] if t in tenors else 0)
 
     colors = []
     for pct in pctiles:
@@ -646,11 +882,12 @@ def chart_smile_bf(pair, sd, spot, r_dom, r_for, **kw):
             array=[p_maxs[i] - bf_vals[i] for i in range(len(bf_vals))],
             arrayminus=[bf_vals[i] - p_mins[i] for i in range(len(bf_vals))],
             color=COLORS["text_muted"], thickness=1, width=6,
-        ),
+        ) if not in_history else None,
         text=[f"{v:.2f}" if np.isfinite(v) else "" for v in bf_vals],
         textposition="top center",
         textfont=dict(size=10, color=COLORS["text_secondary"]),
-        hovertemplate="<b>%{x}</b><br>25D BF: %{y:.2f}<br>%ile: %{customdata[0]:.0f}<br>1Y Range: %{customdata[1]:.2f} / %{customdata[2]:.2f}<extra></extra>",
+        hovertemplate="<b>%{x}</b><br>25D BF: %{y:.2f}<extra></extra>" if in_history else
+                      "<b>%{x}</b><br>25D BF: %{y:.2f}<br>%ile: %{customdata[0]:.0f}<br>1Y Range: %{customdata[1]:.2f} / %{customdata[2]:.2f}<extra></extra>",
         customdata=list(zip(pctiles, p_mins, p_maxs)),
     ))
 
@@ -1103,23 +1340,28 @@ def chart_surface_change(pair, sd, spot, r_dom, r_for, **kw):
     deltas = diff_df.columns.tolist()
     z = diff_df.values
 
-    text_vals = [[f"{v:+.2f}" if np.isfinite(v) else "" for v in row] for row in z]
+    # Only show text for meaningful changes (abs > 0.04), suppress near-zero noise
+    text_vals = [[f"{v:+.2f}" if np.isfinite(v) and abs(v) > 0.04 else ""
+                  for v in row] for row in z]
 
     fig = go.Figure()
     fig.add_trace(go.Heatmap(
         x=deltas,
         y=tenors,
         z=z,
-        colorscale=[[0, "#00cc66"], [0.25, "#1a4a2e"], [0.50, "#2a2a40"],
-                    [0.75, "#4a1a1a"], [1.0, "#ff3333"]],
+        # Vol up = warm orange (attention), vol down = cool blue (cheap)
+        colorscale=[[0, "#1565c0"], [0.2, "#0d4a8e"], [0.4, "#1a2a4a"],
+                    [0.5, "#0e0e0e"],
+                    [0.6, "#4a2a0a"], [0.8, "#bf6b00"], [1.0, "#ff8800"]],
         zmid=0,
         text=text_vals,
         texttemplate="%{text}",
-        textfont=dict(size=10, color="#d0d0d0"),
-        hovertemplate="Delta: %{x}<br>Tenor: %{y}<br>Change: %{z:+.2f}<extra></extra>",
+        textfont=dict(size=11, color="#e0e0e0"),
+        hovertemplate="Delta: %{x}<br>Tenor: %{y}<br>Change: %{z:+.2f}v<extra></extra>",
         colorbar=dict(
-            title=dict(text="Vol Chg", font=dict(color=COLORS["text_muted"], size=10)),
+            title=dict(text="\u0394Vol", font=dict(color=COLORS["text_muted"], size=10)),
             tickfont=dict(color=COLORS["text_muted"], size=9),
+            tickformat="+.1f",
             len=0.8, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
         ),
         xgap=2, ygap=2,
@@ -1553,7 +1795,7 @@ def _lab_study_zscore_surface(pair, sd, spot, r_dom, r_for, **kw):
         return _empty_fig("No z-score surface data")
     fig = go.Figure(data=go.Heatmap(
         z=df.values, x=df.columns.tolist(), y=df.index.tolist(),
-        colorscale=[[0, "#00cc66"], [0.5, "#000000"], [1, "#ff3333"]],
+        colorscale=CS_DIVERGING_GR,
         text=np.round(df.values, 1).astype(str), texttemplate="%{text}",
         textfont=dict(size=10, color="#e0e0e0"),
         hovertemplate="Tenor: %{y}<br>Delta: %{x}<br>Z-Score: %{z:.2f}<extra></extra>",
@@ -1596,8 +1838,8 @@ def _lab_study_breakeven(pair, sd, spot, r_dom, r_for, **kw):
     colors = ["#ff8800", "#e0e0e0",
               "#00cc66" if info.get("iv_rv_cushion", 0) > 0 else "#ff3333"]
     fig.add_trace(go.Bar(x=labels, y=vals, marker_color=colors,
-                  text=[f"{v:.2f}" if np.isfinite(v) else "—" for v in vals], textposition="outside",
-                  textfont=dict(color="#e0e0e0", size=11)))
+                  text=[f"{v:.2f}" if np.isfinite(v) else "—" for v in vals], textposition="inside",
+                  textfont=dict(color="#e0e0e0", size=10), insidetextanchor="end", constraintext="both"))
     _apply_chart_template(fig, f"{pair} {tenor} Breakeven Analysis")
     fig.update_layout(yaxis_title="Vol (%)")
     return fig
@@ -1617,8 +1859,8 @@ def _lab_study_carry_landscape(pair, sd, spot, r_dom, r_for, **kw):
     fig.add_trace(go.Bar(x=df["pair"].tolist(), y=df["sharpe_proxy"].tolist(),
                   marker_color=colors,
                   text=[f"{v:.2f}" if np.isfinite(v) else "—" for v in df["sharpe_proxy"]],
-                  textposition="outside",
-                  textfont=dict(color="#e0e0e0", size=10)))
+                  textposition="inside",
+                  textfont=dict(color="#e0e0e0", size=9), insidetextanchor="end", constraintext="both"))
     _apply_chart_template(fig, "Carry / Vol Ranking (Sharpe Proxy)")
     fig.update_layout(yaxis_title="Sharpe Proxy")
     return fig
@@ -1665,7 +1907,8 @@ def chart_skew_term(pair, sd, spot, r_dom, r_for, **kw):
         x=df["tenor"], y=df["slope"], name="Slope",
         marker=dict(color=slope_colors, line=dict(width=1, color=COLORS["border"])),
         text=[f"{s:+.3f}" for s in df["slope"]],
-        textposition="outside", textfont=dict(size=9, color=COLORS["text_secondary"]),
+        textposition="inside", textfont=dict(size=8, color="#e0e0e0"),
+        insidetextanchor="middle", constraintext="both",
         hovertemplate="%{x}: %{y:+.4f}<extra>Slope</extra>",
     ), row=2, col=1)
     fig.add_hline(y=0, line=dict(color="#3a3a5c", width=0.8), row=2, col=1)
@@ -1674,55 +1917,103 @@ def chart_skew_term(pair, sd, spot, r_dom, r_for, **kw):
     fig.update_layout(
         xaxis=dict(type="category"), xaxis2=dict(title="Tenor", type="category"),
         yaxis=dict(title="25D RR (vol pts)"), yaxis2=dict(title="Slope"),
-        height=CHART_LG + 60,
+        height=CHART_LG,
     )
     return fig
 
 
 @_safe_chart
 def chart_rv_estimators(pair, sd, spot, r_dom, r_for, **kw):
-    """RV Estimator Comparison: 4 estimators side-by-side with IV overlay."""
-    from core.fx_analytics import rv_estimator_comparison
-    df = rv_estimator_comparison(pair, lookback=504)
-    if df is None or df.empty:
-        return _empty_fig("No RV estimator data")
+    """RV Term Structure: realized vol across lookback windows vs IV term structure.
+    Shows where IV sits relative to RV at each horizon — the core sell/buy vol signal."""
+    from core.bloomberg_fx import get_fx_historical_spot
+
+    spot_hist_raw = get_fx_historical_spot(pair, 300)
+    if spot_hist_raw is None:
+        return _empty_fig("No spot history for RV term structure")
+
+    if isinstance(spot_hist_raw, pd.DataFrame):
+        for c in ("close", "Close"):
+            if c in spot_hist_raw.columns:
+                closes = spot_hist_raw[c].values.astype(float)
+                break
+        else:
+            closes = spot_hist_raw.iloc[:, -1].values.astype(float)
+    elif isinstance(spot_hist_raw, pd.Series):
+        closes = spot_hist_raw.values.astype(float)
+    else:
+        closes = np.asarray(spot_hist_raw, dtype=float)
+
+    if len(closes) < 30:
+        return _empty_fig("Insufficient data for RV term structure")
+
+    log_ret = np.diff(np.log(closes))
+    ann = np.sqrt(252) * 100
+
+    # RV at multiple lookback windows (Yang-Zhang proxy)
+    windows = [10, 20, 40, 60, 90, 120]
+    window_labels = ["10D", "20D", "40D", "60D", "90D", "120D"]
+    rv_vals = []
+    for w in windows:
+        if len(log_ret) >= w:
+            rv = np.std(log_ret[-w:]) * ann
+            rv_vals.append(rv)
+        else:
+            rv_vals.append(None)
+
+    # IV term structure for comparison
+    iv_tenors = ["1W", "1M", "2M", "3M", "6M", "1Y"]
+    iv_vals = []
+    surface = sd.get("surface_raw", {})
+    for t in iv_tenors:
+        row = surface.get(t, {})
+        atm = row.get("atm", row.get("ATM"))
+        iv_vals.append(atm if atm else None)
 
     fig = go.Figure()
 
-    estimators = [
-        ("close_to_close", "Close-to-Close", COLORS["accent_cyan"], 2.5),
-        ("parkinson", "Parkinson", COLORS["accent_orange"], 1.5),
-        ("garman_klass", "Garman-Klass", COLORS["accent_green"], 1.5),
-        ("yang_zhang", "Yang-Zhang", COLORS["accent_purple"], 1.5),
-    ]
+    # RV line
+    fig.add_trace(go.Scatter(
+        x=window_labels, y=rv_vals, mode="lines+markers", name="Realized Vol",
+        line=dict(color=COLORS["accent_orange"], width=2.5),
+        marker=dict(size=8, color=COLORS["accent_orange"],
+                    line=dict(width=2, color="#000000")),
+        hovertemplate="%{x}: %{y:.2f}%<extra>RV</extra>",
+    ))
 
-    for col, name, color, width in estimators:
-        if col in df.columns:
-            fig.add_trace(go.Scatter(
-                x=df["date"], y=df[col], mode="lines", name=name,
-                line=dict(color=color, width=width),
-                hovertemplate=f"{name}: " + "%{y:.2f}%<extra></extra>",
-            ))
+    # IV line overlaid (mapped to approximate RV windows)
+    iv_map = {"1W": "10D", "1M": "20D", "2M": "40D", "3M": "60D", "6M": "90D", "1Y": "120D"}
+    iv_x, iv_y = [], []
+    for tenor, label in iv_map.items():
+        row = surface.get(tenor, {})
+        atm = row.get("atm", row.get("ATM"))
+        if atm:
+            iv_x.append(label)
+            iv_y.append(atm)
 
-    # IV overlay (ATM 3M)
-    try:
-        iv_hist = get_fx_historical_vol(pair, "3M", "ATM", len(df) + 10)
-        if iv_hist is not None and len(iv_hist) >= len(df):
-            iv_aligned = iv_hist[-len(df):]
-            iv_dates = df["date"]
-            fig.add_trace(go.Scatter(
-                x=iv_dates, y=iv_aligned, mode="lines", name="ATM 3M IV",
-                line=dict(color="#ffffff", width=2, dash="dot"),
-                hovertemplate="IV: %{y:.2f}%<extra></extra>",
-            ))
-    except Exception:
-        pass
+    if iv_x:
+        fig.add_trace(go.Scatter(
+            x=iv_x, y=iv_y, mode="lines+markers", name="ATM IV",
+            line=dict(color=COLORS["accent_cyan"], width=2.5),
+            marker=dict(size=8, color=COLORS["accent_cyan"],
+                        line=dict(width=2, color="#000000")),
+            # Fill between IV and RV — green where IV>RV, shows the spread visually
+            fill="tonexty", fillcolor="rgba(0,204,102,0.08)",
+            hovertemplate="%{x}: %{y:.2f}%<extra>IV</extra>",
+        ))
 
-    _apply_chart_template(fig, f"Realized Vol Estimators -- {pair}")
+    # Compute y-axis range from data (tight, no wasted space)
+    all_vals = [v for v in (rv_vals + iv_y) if v is not None]
+    if all_vals:
+        y_min = min(all_vals) - 0.5
+        y_max = max(all_vals) + 0.5
+    else:
+        y_min, y_max = 0, 15
+
+    _apply_chart_template(fig, f"RV Term Structure -- {pair}")
     fig.update_layout(
-        xaxis=dict(title="Date"),
-        yaxis=dict(title="Vol (%)"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        xaxis=dict(title="Lookback / Tenor", type="category"),
+        yaxis=dict(title="Vol (%)", range=[y_min, y_max]),
     )
     return fig
 
@@ -1737,13 +2028,11 @@ def chart_vol_of_vol(pair, sd, spot, r_dom, r_for, **kw):
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-    # VoV 20d bars
-    fig.add_trace(go.Bar(
-        x=df["tenor"], y=df["vov_20d"], name="VoV 20d",
-        marker=dict(color=COLORS["accent_orange"], opacity=0.85,
-                    line=dict(width=1, color=COLORS["border"])),
-        text=[f"{v:.2f}" if v and np.isfinite(v) else "\u2014" for v in df["vov_20d"]],
-        textposition="outside", textfont=dict(size=10, color=COLORS["text_secondary"]),
+    # VoV 20d line
+    fig.add_trace(go.Scatter(
+        x=df["tenor"], y=df["vov_20d"], mode="lines+markers", name="VoV 20d",
+        line=dict(color=COLORS["accent_orange"], width=2.5),
+        marker=dict(size=7, color=COLORS["accent_orange"]),
         hovertemplate="%{x}: %{y:.3f}<extra>VoV 20d</extra>",
     ), secondary_y=False)
 
@@ -1823,7 +2112,8 @@ def chart_pdf_comparison(pair, sd, spot, r_dom, r_for, **kw):
     fig.update_layout(
         xaxis=dict(title="Log Moneyness (ln K/F)"),
         yaxis=dict(title="Probability Density"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        legend=dict(orientation="h", yanchor="top", y=0.98, xanchor="right", x=0.99,
+                    bgcolor="rgba(0,0,0,0.6)"),
     )
     return fig
 
@@ -1839,45 +2129,58 @@ def chart_smile_pca(pair, sd, spot, r_dom, r_for, **kw):
     components = result.get("components", {})
     cum_explained = result.get("cumulative_explained", [])
 
-    fig = make_subplots(rows=1, cols=2, column_widths=[0.6, 0.4],
-                        subplot_titles=["PC Loadings (ATM, 25D_RR, 25D_BF, 10D_RR, 10D_BF)",
-                                        "Variance Explained"])
+    fig = make_subplots(rows=1, cols=2, column_widths=[0.55, 0.45],
+                        subplot_titles=["PC Loadings", "Variance Explained"],
+                        horizontal_spacing=0.12)
 
+    # Shortened metric labels for x-axis
     metrics = ["ATM", "25D_RR", "25D_BF", "10D_RR", "10D_BF"]
+    metric_labels = ["ATM", "25R", "25B", "10R", "10B"]
     pc_colors = [COLORS["accent_orange"], COLORS["accent_cyan"],
                  COLORS["accent_green"], COLORS["accent_purple"], COLORS["text_muted"]]
     pc_names = list(components.keys())
+
+    # Shortened PC display names
+    pc_labels = {"Level": "Lvl", "Skew": "Skew", "Curvature": "Curv",
+                 "Wings": "Wing", "Residual": "Res"}
 
     # Left panel: loading bars grouped by PC
     for pi, pc_name in enumerate(pc_names[:3]):
         pc = components[pc_name]
         loadings = [pc["loadings"].get(m, 0) for m in metrics]
         fig.add_trace(go.Bar(
-            x=metrics, y=loadings, name=f"{pc_name} ({pc['explained_pct']:.1f}%)",
+            x=metric_labels, y=loadings, name=f"{pc_name} ({pc['explained_pct']:.0f}%)",
             marker=dict(color=pc_colors[pi], opacity=0.85,
                         line=dict(width=1, color=COLORS["border"])),
             hovertemplate=f"{pc_name}<br>" + "%{x}: %{y:.3f}<extra></extra>",
         ), row=1, col=1)
 
     # Right panel: cumulative variance explained
+    short_names = [pc_labels.get(n, n[:4]) for n in pc_names[:len(cum_explained)]]
     fig.add_trace(go.Bar(
-        x=pc_names[:len(cum_explained)], y=cum_explained,
+        x=short_names, y=cum_explained,
         marker=dict(color=[pc_colors[i] if i < len(pc_colors) else COLORS["text_muted"]
                            for i in range(len(cum_explained))],
                     line=dict(width=1, color=COLORS["border"])),
-        text=[f"{v:.1f}%" for v in cum_explained],
-        textposition="outside", textfont=dict(size=9, color=COLORS["text_secondary"]),
+        text=[f"{v:.0f}%" for v in cum_explained],
+        textposition="inside", textfont=dict(size=9, color="#e0e0e0"),
+        insidetextanchor="end", constraintext="both",
         hovertemplate="%{x}: %{y:.1f}% cumulative<extra></extra>",
         showlegend=False,
     ), row=1, col=2)
 
-    _apply_chart_template(fig, f"Smile PCA Decomposition -- {pair}")
+    _apply_chart_template(fig, f"Smile PCA -- {pair}")
     fig.update_layout(
-        xaxis=dict(type="category"), xaxis2=dict(type="category"),
-        yaxis=dict(title="Loading"), yaxis2=dict(title="Cumulative %", range=[0, 105]),
+        xaxis=dict(type="category", tickangle=0),
+        xaxis2=dict(type="category", tickangle=0),
+        yaxis=dict(title="Loading"), yaxis2=dict(title="Cum %", range=[0, 108]),
         barmode="group",
+        margin=dict(l=50, r=20, t=55, b=40),
         height=CHART_LG,
     )
+    # Style subplot titles to not overlap main title
+    for ann in fig.layout.annotations:
+        ann.update(font=dict(size=10, color="#9a9ab0"), y=0.98)
     return fig
 
 
@@ -1905,54 +2208,60 @@ def chart_wing_richness(pair, sd, spot, r_dom, r_for, **kw):
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-    # BF bars
-    fig.add_trace(go.Bar(
-        x=tenors, y=bf25_vals, name="25D BF",
-        marker=dict(color=COLORS["accent_cyan"], opacity=0.7,
-                    line=dict(width=1, color=COLORS["border"])),
+    # BF lines — no fill, clean lines
+    fig.add_trace(go.Scatter(
+        x=tenors, y=bf25_vals, mode="lines+markers", name="25D BF",
+        line=dict(color=COLORS["accent_cyan"], width=2.5),
+        marker=dict(size=7, color=COLORS["accent_cyan"]),
         hovertemplate="%{x}: %{y:.2f}<extra>25D BF</extra>",
     ), secondary_y=False)
-    fig.add_trace(go.Bar(
-        x=tenors, y=bf10_vals, name="10D BF",
-        marker=dict(color=COLORS["accent_orange"], opacity=0.7,
-                    line=dict(width=1, color=COLORS["border"])),
+    fig.add_trace(go.Scatter(
+        x=tenors, y=bf10_vals, mode="lines+markers", name="10D BF",
+        line=dict(color=COLORS["accent_orange"], width=2.5),
+        marker=dict(size=7, color=COLORS["accent_orange"]),
         hovertemplate="%{x}: %{y:.2f}<extra>10D BF</extra>",
     ), secondary_y=False)
 
-    # Ratio line on secondary axis
-    ratio_colors = [COLORS["accent_red"] if r and r > 3.5
-                    else (COLORS["accent_green"] if r and r < 2.0 else COLORS["text_muted"])
-                    for r in ratios]
-    fig.add_trace(go.Scatter(
-        x=tenors, y=ratios, mode="lines+markers+text",
-        name="Wing Ratio (10D/25D)",
-        line=dict(color=COLORS["accent_purple"], width=2.5),
-        marker=dict(size=10, color=ratio_colors, symbol="diamond",
-                    line=dict(width=1, color=COLORS["text_secondary"])),
-        text=[f"{r:.1f}x" if r and np.isfinite(r) else "" for r in ratios],
-        textposition="top center", textfont=dict(size=9, color=COLORS["text_secondary"]),
-        hovertemplate="%{x}: %{y:.2f}x<extra>Wing Ratio</extra>",
-    ), secondary_y=True)
+    # Wing ratio as annotations per tenor instead of secondary axis
+    for i, t in enumerate(tenors):
+        r = ratios[i]
+        if r is None or not np.isfinite(r):
+            continue
+        color = COLORS["accent_red"] if r > 3.5 else (
+            COLORS["accent_green"] if r < 2.0 else COLORS["accent_purple"])
+        # Place ratio label above the 10D BF line
+        y_pos = bf10_vals[i] if bf10_vals[i] is not None else 0
+        fig.add_annotation(
+            x=t, y=y_pos, yshift=16, text=f"{r:.1f}x",
+            showarrow=False,
+            font=dict(size=10, color=color, family="'JetBrains Mono', monospace"),
+        )
 
-    # Threshold lines
-    fig.add_hline(y=3.5, line=dict(color=COLORS["accent_red"], width=1, dash="dot"),
-                  annotation_text="EXPENSIVE", annotation_position="top right",
-                  annotation_font=dict(size=8, color=COLORS["accent_red"]),
-                  secondary_y=True)
-    fig.add_hline(y=2.0, line=dict(color=COLORS["accent_green"], width=1, dash="dot"),
-                  annotation_text="CHEAP", annotation_position="bottom right",
-                  annotation_font=dict(size=8, color=COLORS["accent_green"]),
-                  secondary_y=True)
+    # Average ratio as a summary stat
+    valid_ratios = [r for r in ratios if r is not None and np.isfinite(r)]
+    if valid_ratios:
+        avg_ratio = np.mean(valid_ratios)
+        ratio_color = COLORS["accent_red"] if avg_ratio > 3.5 else (
+            COLORS["accent_green"] if avg_ratio < 2.0 else COLORS["accent_purple"])
+        signal = "EXPENSIVE" if avg_ratio > 3.5 else ("CHEAP" if avg_ratio < 2.0 else "FAIR")
+        fig.add_annotation(
+            x=0.99, y=0.98, xref="paper", yref="paper", xanchor="right", yanchor="top",
+            text=f"Avg Ratio: {avg_ratio:.1f}x  {signal}",
+            showarrow=False,
+            font=dict(size=11, color=ratio_color, family="'JetBrains Mono', monospace"),
+            bgcolor="rgba(0,0,0,0.7)", bordercolor=ratio_color, borderwidth=1, borderpad=5,
+        )
+
+    # Tight y-axis
+    all_bf = [v for v in (bf25_vals + bf10_vals) if v is not None]
+    y_min = min(all_bf) * 0.8 if all_bf else 0
+    y_max = max(all_bf) * 1.3 if all_bf else 2
 
     _apply_chart_template(fig, f"Wing Richness -- {pair}")
     fig.update_layout(
         xaxis=dict(title="Tenor", type="category"),
-        yaxis=dict(title="Butterfly (vol pts)"),
-        yaxis2=dict(title="Wing Ratio (10D/25D)", overlaying="y", side="right",
-                    gridcolor="#1a1a30",
-                    tickfont=dict(size=10, color=COLORS["accent_purple"]),
-                    title_font=dict(color=COLORS["accent_purple"], size=11)),
-        barmode="group",
+        yaxis=dict(title="Butterfly (vol pts)", range=[y_min, y_max]),
+        showlegend=True,
     )
     return fig
 
@@ -2023,16 +2332,15 @@ def chart_tail_risk(pair, sd, spot, r_dom, r_for, **kw):
     log_ret = np.diff(np.log(closes))
     metrics = tail_risk_metrics(log_ret)
 
-    fig = make_subplots(rows=1, cols=2, column_widths=[0.55, 0.45],
-                        subplot_titles=["Return Distribution vs Normal", "Tail Metrics"])
+    fig = go.Figure()
 
-    # Left: histogram of returns with normal overlay
+    # Full-width histogram of returns
     fig.add_trace(go.Histogram(
         x=log_ret * 100, nbinsx=60, name="Actual Returns",
         marker=dict(color=COLORS["accent_orange"], opacity=0.7,
                     line=dict(width=1, color=COLORS["border"])),
         hovertemplate="Return: %{x:.2f}%<br>Count: %{y}<extra></extra>",
-    ), row=1, col=1)
+    ))
 
     # Normal overlay
     from scipy.stats import norm as norm_dist
@@ -2042,45 +2350,63 @@ def chart_tail_risk(pair, sd, spot, r_dom, r_for, **kw):
     fig.add_trace(go.Scatter(
         x=x_norm, y=y_norm, mode="lines", name="Normal",
         line=dict(color=COLORS["text_muted"], width=2, dash="dash"),
-    ), row=1, col=1)
+    ))
 
-    # Right: metrics bar chart
-    metric_names = ["Skewness", "Excess Kurt.", "Hill Index"]
-    metric_vals = [metrics["skewness"], metrics["excess_kurtosis"], metrics["hill_tail_index"]]
-    metric_colors = []
-    for nm, v in zip(metric_names, metric_vals):
-        if nm == "Skewness":
-            metric_colors.append(COLORS["accent_red"] if abs(v) > 0.5 else COLORS["accent_green"])
-        elif nm == "Excess Kurt.":
-            metric_colors.append(COLORS["accent_red"] if v > 1.0 else COLORS["accent_green"])
-        else:
-            metric_colors.append(COLORS["accent_red"] if v < 3 else COLORS["accent_green"])
-
-    fig.add_trace(go.Bar(
-        x=metric_names, y=metric_vals, name="Metrics",
-        marker=dict(color=metric_colors, line=dict(width=1, color=COLORS["border"])),
-        text=[f"{v:.2f}" for v in metric_vals],
-        textposition="outside", textfont=dict(size=11, color=COLORS["text_primary"]),
-        hovertemplate="%{x}: %{y:.3f}<extra></extra>",
-        showlegend=False,
-    ), row=1, col=2)
-
-    # Normality badge annotation
+    # Tail metrics as stat annotations (right side) — no bars needed
+    skew_v = metrics["skewness"]
+    kurt_v = metrics["excess_kurtosis"]
+    hill_v = metrics["hill_tail_index"]
     normality = metrics.get("normality", "UNKNOWN")
+    tail_assess = metrics.get("tail_assessment", "")
+
+    def _mc(label, val):
+        """Metric color based on thresholds."""
+        if label == "SKEW":
+            return COLORS["accent_red"] if abs(val) > 0.5 else COLORS["accent_green"]
+        elif label == "EX.KURT":
+            return COLORS["accent_red"] if val > 1.0 else COLORS["accent_green"]
+        else:  # HILL
+            return COLORS["accent_red"] if val < 3 else COLORS["accent_green"]
+
+    # Stat boxes as annotations (stacked on right)
+    stat_items = [
+        ("SKEW", skew_v, 0.88),
+        ("EX.KURT", kurt_v, 0.72),
+        ("HILL", hill_v, 0.56),
+    ]
+    for label, val, y_pos in stat_items:
+        color = _mc(label, val)
+        fig.add_annotation(
+            x=0.99, y=y_pos, xref="paper", yref="paper", xanchor="right",
+            text=f"<b>{val:+.2f}</b>", showarrow=False,
+            font=dict(color=color, size=18, family="'JetBrains Mono', monospace"),
+        )
+        fig.add_annotation(
+            x=0.99, y=y_pos - 0.06, xref="paper", yref="paper", xanchor="right",
+            text=label, showarrow=False,
+            font=dict(color="#9a9ab0", size=9, family="'JetBrains Mono', monospace"),
+        )
+
+    # Normality badge (bottom right)
     badge_color = COLORS["accent_red"] if normality == "REJECTED" else (
         COLORS["accent_orange"] if normality == "BORDERLINE" else COLORS["accent_green"])
-    tail_assess = metrics.get("tail_assessment", "")
     fig.add_annotation(
-        x=0.78, y=0.95, xref="paper", yref="paper",
-        text=f"Normality: {normality} | Tails: {tail_assess}",
-        showarrow=False, font=dict(color=badge_color, size=10, family="'JetBrains Mono', monospace"),
+        x=0.99, y=0.38, xref="paper", yref="paper", xanchor="right",
+        text=f"{normality.replace('_', ' ')}",
+        showarrow=False, font=dict(color=badge_color, size=11, family="'JetBrains Mono', monospace"),
         bgcolor="rgba(0,0,0,0.8)", bordercolor=badge_color, borderwidth=1, borderpad=4,
+    )
+    fig.add_annotation(
+        x=0.99, y=0.30, xref="paper", yref="paper", xanchor="right",
+        text=f"Tails: {tail_assess.replace('_', ' ')}",
+        showarrow=False, font=dict(color="#9a9ab0", size=9, family="'JetBrains Mono', monospace"),
     )
 
     _apply_chart_template(fig, f"Tail Risk -- {pair}")
     fig.update_layout(
-        xaxis=dict(title="Daily Return (%)"), xaxis2=dict(type="category"),
-        yaxis=dict(title="Frequency"), yaxis2=dict(title="Value"),
+        xaxis=dict(title="Daily Return (%)"),
+        yaxis=dict(title="Frequency"),
+        margin=dict(l=50, r=140, t=40, b=40),
         height=CHART_LG,
     )
     return fig
@@ -2126,7 +2452,8 @@ def chart_radar_profile(pair, sd, spot, r_dom, r_for, **kw):
 
     profile = _get_profile(pair)
     categories = list(profile.keys())
-    values = list(profile.values())
+    # Clamp all values to 0-100
+    values = [max(0, min(100, v)) for v in profile.values()]
     # Close the polygon
     categories_closed = categories + [categories[0]]
     values_closed = values + [values[0]]
@@ -2145,7 +2472,7 @@ def chart_radar_profile(pair, sd, spot, r_dom, r_for, **kw):
     cross = kw.get("cross_pair", "USDJPY")
     if cross and cross != pair:
         profile2 = _get_profile(cross)
-        values2 = [profile2[c] for c in categories]
+        values2 = [max(0, min(100, profile2[c])) for c in categories]
         values2_closed = values2 + [values2[0]]
         fig.add_trace(go.Scatterpolar(
             r=values2_closed, theta=categories_closed,
@@ -2178,7 +2505,7 @@ def chart_radar_profile(pair, sd, spot, r_dom, r_for, **kw):
         title=dict(text=f"Vol Profile Radar -- {pair}" + (f" vs {cross}" if cross and cross != pair else ""),
                    font=dict(color="#ffffff", size=13)),
         legend=dict(font=dict(color=COLORS["text_secondary"], size=10), bgcolor="rgba(0,0,0,0)"),
-        margin=dict(l=60, r=60, t=50, b=40),
+        margin=dict(l=80, r=80, t=50, b=60),
         height=420,
     )
     return fig
@@ -2232,7 +2559,8 @@ def chart_vol_timelapse(pair, sd, spot, r_dom, r_for, **kw):
                                       tickfont=dict(color=COLORS["text_muted"], size=9),
                                       len=0.6, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)")),
             text=[f"{v:.2f}" for v in frames[-1]],
-            textposition="outside", textfont=dict(size=11, color=COLORS["text_primary"]),
+            textposition="inside", textfont=dict(size=10, color="#e0e0e0"),
+            insidetextanchor="end", constraintext="both",
             hovertemplate="<b>%{x}</b><br>ATM: %{y:.2f}%<extra></extra>",
         )],
         frames=[
@@ -2244,7 +2572,8 @@ def chart_vol_timelapse(pair, sd, spot, r_dom, r_for, **kw):
                                             [0.7, "#bf6b00"], [0.85, "#ff8800"], [1.0, "#ffcc66"]],
                                 cmin=z_min, cmax=z_max),
                     text=[f"{v:.2f}" for v in f],
-                    textposition="outside", textfont=dict(size=11, color=COLORS["text_primary"]),
+                    textposition="inside", textfont=dict(size=10, color="#e0e0e0"),
+                    insidetextanchor="end", constraintext="both",
                 )],
                 name=label,
             )
@@ -2347,25 +2676,40 @@ def chart_iv_rv_scatter(pair, sd, spot, r_dom, r_for, **kw):
             hovertemplate="IV: %{x:.1f}%<br>RV: %{y:.1f}%<extra>" + regime + "</extra>",
         ))
 
-    # Highlight current point
+    # Highlight current point with direct label
     if len(iv_vals) > 0 and len(rv_vals) > 0:
+        cur_iv, cur_rv = iv_vals[-1], rv_vals[-1]
+        spread = cur_iv - cur_rv
+        spread_color = COLORS["accent_green"] if spread > 0 else COLORS["accent_red"]
         fig.add_trace(go.Scatter(
-            x=[iv_vals[-1]], y=[rv_vals[-1]], mode="markers",
+            x=[cur_iv], y=[cur_rv], mode="markers",
             marker=dict(size=14, color=COLORS["accent_orange"], symbol="diamond",
                         line=dict(width=2, color="#ffffff")),
-            name=f"Current ({iv_vals[-1]:.1f} / {rv_vals[-1]:.1f})",
-            hovertemplate=f"<b>Current</b><br>IV: {iv_vals[-1]:.2f}%<br>RV: {rv_vals[-1]:.2f}%<extra></extra>",
+            name="Current", showlegend=False,
+            hovertemplate=f"<b>NOW</b><br>IV: {cur_iv:.2f}%<br>RV: {cur_rv:.2f}%<br>Spread: {spread:+.1f}<extra></extra>",
         ))
+        # Direct annotation on the current point
+        fig.add_annotation(
+            x=cur_iv, y=cur_rv, xshift=12, yshift=-14,
+            text=f"<b>IV {cur_iv:.1f} | RV {cur_rv:.1f}</b><br>{spread:+.1f}v {'RICH' if spread > 0 else 'CHEAP'}",
+            showarrow=False, xanchor="left",
+            font=dict(size=10, color=spread_color, family="'JetBrains Mono', monospace"),
+            bgcolor="rgba(0,0,0,0.7)", bordercolor=spread_color, borderwidth=1, borderpad=4,
+        )
 
-    # Label the quadrants
-    for text, x, y in [
-        ("IV RICH\n(sell vol)", v_max * 0.95, v_min * 1.05),
-        ("IV CHEAP\n(buy vol)", v_min * 1.05, v_max * 0.92),
-    ]:
-        fig.add_annotation(x=x, y=y, text=text, showarrow=False,
-                           font=dict(color=COLORS["text_muted"], size=9,
-                                     family="'JetBrains Mono', monospace"),
-                           opacity=0.6)
+    # Quadrant labels — bigger, more visible
+    fig.add_annotation(
+        x=0.95, y=0.05, xref="paper", yref="paper", xanchor="right", yanchor="bottom",
+        text="IV RICH  \u2192  SELL VOL", showarrow=False,
+        font=dict(size=11, color=COLORS["accent_green"], family="'JetBrains Mono', monospace"),
+        opacity=0.7,
+    )
+    fig.add_annotation(
+        x=0.05, y=0.95, xref="paper", yref="paper", xanchor="left", yanchor="top",
+        text="IV CHEAP  \u2192  BUY VOL", showarrow=False,
+        font=dict(size=11, color=COLORS["accent_red"], family="'JetBrains Mono', monospace"),
+        opacity=0.7,
+    )
 
     _apply_chart_template(fig, f"IV vs Realized Vol -- {pair} 3M")
     fig.update_layout(
@@ -2427,22 +2771,66 @@ def _render_chart(chart_type, pair, sd, spot, r_dom, r_for, **kw):
     Lab time-series metrics (lab_atm, lab_25d_rr, etc.) are handled
     by _lab_build_ts_chart.  Lab study metrics and surface charts go
     through the dispatch table.
+
+    In history mode, adds date annotation to supported charts and
+    a "LIVE DATA" badge to unsupported charts.
     """
+    history_mode = kw.get("history_mode", False)
+    history_date = kw.get("history_date", "")
+
     # Lab time-series metrics → multi-pair TS builder
     if chart_type in _LAB_METRIC_MAP:
         try:
-            return _lab_build_ts_chart(chart_type, pair, sd, spot, r_dom, r_for, **kw)
+            fig = _lab_build_ts_chart(chart_type, pair, sd, spot, r_dom, r_for, **kw)
         except Exception as exc:
             return _empty_fig(f"Lab TS error: {exc}")
+        if history_mode:
+            _add_live_data_badge(fig)
+        return fig
 
     # Surface + study dispatch
     fn = CHART_DISPATCH.get(chart_type)
     if fn is None:
         return _empty_fig(f"Unknown chart: {chart_type}")
     try:
-        return fn(pair, sd, spot, r_dom, r_for, **kw)
+        fig = fn(pair, sd, spot, r_dom, r_for, **kw)
     except Exception as exc:
         return _empty_fig(f"Error: {exc}")
+
+    # History mode annotations
+    if history_mode:
+        if chart_type in _HISTORY_SUPPORTED:
+            _add_history_date_badge(fig, history_date)
+        else:
+            _add_live_data_badge(fig)
+
+    return fig
+
+
+def _add_history_date_badge(fig, date_label):
+    """Add a small date badge to a chart in history mode."""
+    fig.add_annotation(
+        text=date_label, xref="paper", yref="paper",
+        x=0.01, y=0.98, xanchor="left", yanchor="top",
+        showarrow=False,
+        font=dict(color=COLORS["accent_orange"], size=10,
+                  family="'JetBrains Mono', monospace"),
+        bgcolor="rgba(0,0,0,0.7)", bordercolor=COLORS["accent_orange"],
+        borderwidth=1, borderpad=3,
+    )
+
+
+def _add_live_data_badge(fig):
+    """Add a 'LIVE DATA' warning badge to unsupported charts in history mode."""
+    fig.add_annotation(
+        text="LIVE DATA", xref="paper", yref="paper",
+        x=0.01, y=0.98, xanchor="left", yanchor="top",
+        showarrow=False,
+        font=dict(color=COLORS["accent_red"], size=9,
+                  family="'JetBrains Mono', monospace"),
+        bgcolor="rgba(0,0,0,0.7)", bordercolor=COLORS["accent_red"],
+        borderwidth=1, borderpad=3,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2611,6 +2999,68 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
         ], style={
             **make_stat_style(regime_color), "flex": "1", "minWidth": "110px",
             "borderLeft": f"3px solid {regime_color}",
+        }),
+    ]
+    return boxes
+
+
+def _build_stat_boxes_history(pair, sd, spot, date_label):
+    """Build simplified stat boxes for history mode (no Bloomberg calls)."""
+    def _tenor_val(tenors, arr, label):
+        try:
+            idx = tenors.index(label)
+            return float(arr[idx])
+        except (ValueError, IndexError):
+            return 0.0
+
+    def _box(label, value_str, color):
+        return html.Div([
+            html.Div(str(value_str), style={
+                "fontFamily": "'JetBrains Mono', monospace",
+                "fontSize": "20px", "fontWeight": "700",
+                "color": color, "lineHeight": "1.1",
+            }),
+            html.Div(label, style={
+                "fontFamily": "'JetBrains Mono', monospace",
+                "fontSize": "9px", "fontWeight": "600",
+                "color": COLORS["text_muted"], "textTransform": "uppercase",
+                "letterSpacing": "1px", "marginTop": "4px",
+            }),
+        ], style={**make_stat_style(color), "flex": "1", "minWidth": "110px"})
+
+    tenors = sd["tenors"]
+    atm_1m = _tenor_val(tenors, sd["atm"], "1M")
+    atm_1y = _tenor_val(tenors, sd["atm"], "1Y")
+    rr_3m = _tenor_val(tenors, sd["rr25"], "3M")
+    bf_3m = _tenor_val(tenors, sd["bf25"], "3M")
+    term_spread = atm_1y - atm_1m if atm_1m and atm_1y else 0.0
+
+    spot_str = _fmt_spot(spot, pair)
+
+    boxes = [
+        _box("SPOT", spot_str, COLORS["text_primary"]),
+        _box("ATM 1M", _fmt_vol(atm_1m), COLORS["accent_cyan"]),
+        _box("ATM 1Y", _fmt_vol(atm_1y), COLORS["accent_purple"]),
+        _box("TERM 1Y-1M", f"{term_spread:+.2f}v",
+             COLORS["accent_green"] if term_spread > 0 else COLORS["accent_red"]),
+        _box("25D RR 3M", f"{rr_3m:+.2f}v", COLORS["accent_orange"]),
+        _box("25D BF 3M", _fmt_vol(bf_3m), COLORS["accent_pink"]),
+        _box("DATE", date_label, COLORS["accent_orange"]),
+        html.Div([
+            html.Div("HISTORY", style={
+                "fontFamily": "'JetBrains Mono', monospace",
+                "fontSize": "16px", "fontWeight": "700",
+                "color": COLORS["accent_orange"], "lineHeight": "1.1",
+            }),
+            html.Div("MODE", style={
+                "fontFamily": "'JetBrains Mono', monospace",
+                "fontSize": "9px", "fontWeight": "600",
+                "color": COLORS["text_muted"], "textTransform": "uppercase",
+                "letterSpacing": "1px", "marginTop": "4px",
+            }),
+        ], style={
+            **make_stat_style(COLORS["accent_orange"]), "flex": "1", "minWidth": "110px",
+            "borderLeft": f"3px solid {COLORS['accent_orange']}",
         }),
     ]
     return boxes
@@ -2836,6 +3286,11 @@ def layout():
         dcc.Interval(id="vsfx-interval", interval=30000, n_intervals=0, disabled=True),
         dcc.Store(id="vsfx-preset-store", data="Trader"),
         dcc.Download(id="vsfx-csv-download"),
+        # History mode stores
+        dcc.Store(id="vsfx-history-frames", data=None),
+        dcc.Store(id="vsfx-history-idx", data=0),
+        dcc.Store(id="vsfx-history-playing", data=False),
+        dcc.Interval(id="vsfx-history-tick", interval=400, n_intervals=0, disabled=True),
 
         # ── Outer flex container ──────────────────────────────────
         html.Div([
@@ -2885,19 +3340,66 @@ def layout():
                     ], style={"display": "flex", "flexWrap": "wrap"}),
                     html.Div(style={"height": "4px"}),
                     html.Div([
-                        html.Button("Lab: Vol", id="vsfx-preset-lab-vol", n_clicks=0,
+                        html.Button("RV Analysis", id="vsfx-preset-rv", n_clicks=0,
                                     style={**PRESET_BTN, "color": COLORS["accent_cyan"]}),
-                        html.Button("Lab: Smile", id="vsfx-preset-lab-smile", n_clicks=0,
+                        html.Button("Smile Deep", id="vsfx-preset-smile", n_clicks=0,
                                     style={**PRESET_BTN, "color": COLORS["accent_cyan"]}),
-                        html.Button("Lab: RV", id="vsfx-preset-lab-rv", n_clicks=0,
+                        html.Button("Surface", id="vsfx-preset-surface", n_clicks=0,
                                     style={**PRESET_BTN, "color": COLORS["accent_cyan"]}),
-                        html.Button("Lab: Carry", id="vsfx-preset-lab-carry", n_clicks=0,
+                        html.Button("Tail Risk", id="vsfx-preset-tail", n_clicks=0,
                                     style={**PRESET_BTN, "color": COLORS["accent_cyan"]}),
+                    ], style={"display": "flex", "flexWrap": "wrap"}),
+                    html.Div(style={"height": "4px"}),
+                    html.Div([
+                        html.Button("Regime", id="vsfx-preset-regime", n_clicks=0,
+                                    style={**PRESET_BTN, "color": "#9a9ab0"}),
+                        html.Button("Vol-of-Vol", id="vsfx-preset-vov", n_clicks=0,
+                                    style={**PRESET_BTN, "color": "#9a9ab0"}),
+                        html.Button("Full Scan", id="vsfx-preset-full", n_clicks=0,
+                                    style={**PRESET_BTN, "color": "#9a9ab0"}),
+                        html.Button("Carry", id="vsfx-preset-carry", n_clicks=0,
+                                    style={**PRESET_BTN, "color": "#9a9ab0"}),
+                        html.Button("History", id="vsfx-preset-history", n_clicks=0,
+                                    style={**PRESET_BTN, "color": COLORS["accent_orange"]}),
                     ], style={"display": "flex", "flexWrap": "wrap"}),
                 ], style=SIDEBAR_SECTION),
 
                 # ── Group divider: core selection → comparison settings ──
                 html.Div(style={"borderBottom": "1px solid #3a3a5c", "margin": "8px 0 12px 0"}),
+
+                # ── History Mode ──
+                html.Div([
+                    html.Label("HISTORY MODE", style=SIDEBAR_LABEL),
+                    dcc.RadioItems(id="vsfx-history-mode", options=[
+                        {"label": " Live", "value": "live"},
+                        {"label": " Playback", "value": "playback"},
+                    ], value="live",
+                    style={"color": COLORS["text_secondary"], "fontSize": "10px",
+                           "fontFamily": "'JetBrains Mono', monospace"},
+                    inputStyle={"marginRight": "4px"},
+                    labelStyle={"display": "inline-block", "marginRight": "10px",
+                                "marginBottom": "3px", "cursor": "pointer"}),
+                    html.Div([
+                        html.Label("LOOKBACK", style={**SIDEBAR_LABEL, "marginTop": "6px"}),
+                        dcc.Dropdown(id="vsfx-history-lookback", options=[
+                            {"label": "5D", "value": 5},
+                            {"label": "10D", "value": 10},
+                            {"label": "20D", "value": 20},
+                            {"label": "44D (2M)", "value": 44},
+                            {"label": "66D (3M)", "value": 66},
+                        ], value=20, clearable=False,
+                        style={"fontSize": "10px", "marginBottom": "4px"}),
+                        html.Label("SPEED", style=SIDEBAR_LABEL),
+                        dcc.Dropdown(id="vsfx-history-speed", options=[
+                            {"label": "Slow", "value": 1200},
+                            {"label": "Normal", "value": 600},
+                            {"label": "Fast", "value": 400},
+                            {"label": "Fastest", "value": 200},
+                        ], value=600, clearable=False,
+                        style={"fontSize": "10px"}),
+                    ], id="vsfx-history-options",
+                       style={"display": "none"}),  # hidden until playback mode
+                ], style=SIDEBAR_SECTION),
 
                 # Comparison toggle
                 html.Div([
@@ -2912,14 +3414,10 @@ def layout():
                            "fontFamily": "'JetBrains Mono', monospace"},
                     inputStyle={"marginRight": "4px"},
                     labelStyle={"display": "block", "marginBottom": "3px", "cursor": "pointer"}),
-                ], style=SIDEBAR_SECTION),
-
-                # History offset
-                html.Div([
-                    html.Label("HISTORY OFFSET", style=SIDEBAR_LABEL),
+                    # History offset (used for "vs History" comparison mode)
                     dcc.Dropdown(id="vsfx-hist-offset", options=HISTORY_OFFSETS,
                                  value=1, clearable=False,
-                                 style={"fontSize": "10px"}),
+                                 style={"fontSize": "10px", "marginTop": "4px"}),
                 ], style=SIDEBAR_SECTION),
 
                 # Cross-pair picker
@@ -3072,6 +3570,51 @@ def layout():
             # ──── Main Content Area ────────────────────────────────
             html.Div([
 
+                # ── History Playback Control Strip ──
+                html.Div([
+                    html.Div([
+                        html.Button("\u25c0", id="vsfx-history-prev", n_clicks=0,
+                                    style={"background": "none", "border": f"1px solid {COLORS['border']}",
+                                           "color": COLORS["text_secondary"], "padding": "4px 10px",
+                                           "fontFamily": "'JetBrains Mono', monospace", "fontSize": "12px",
+                                           "cursor": "pointer", "marginRight": "4px"}),
+                        html.Button("\u25b6 PLAY", id="vsfx-history-play", n_clicks=0,
+                                    style={"background": COLORS["accent_orange"], "border": "none",
+                                           "color": "#000", "padding": "4px 14px",
+                                           "fontFamily": "'JetBrains Mono', monospace", "fontSize": "10px",
+                                           "fontWeight": "700", "cursor": "pointer", "marginRight": "4px",
+                                           "letterSpacing": "0.5px"}),
+                        html.Button("\u25b6", id="vsfx-history-next", n_clicks=0,
+                                    style={"background": "none", "border": f"1px solid {COLORS['border']}",
+                                           "color": COLORS["text_secondary"], "padding": "4px 10px",
+                                           "fontFamily": "'JetBrains Mono', monospace", "fontSize": "12px",
+                                           "cursor": "pointer", "marginRight": "12px"}),
+                    ], style={"display": "flex", "alignItems": "center"}),
+                    html.Div([
+                        dcc.Slider(id="vsfx-history-slider", min=0, max=19, step=1, value=0,
+                                   marks=None, tooltip={"placement": "bottom", "always_visible": False},
+                                   updatemode="drag"),
+                    ], style={"flex": "1", "minWidth": "200px", "marginRight": "12px"}),
+                    html.Div(id="vsfx-history-status",
+                             style={"color": COLORS["accent_orange"], "fontSize": "11px",
+                                    "fontFamily": "'JetBrains Mono', monospace",
+                                    "fontWeight": "700", "whiteSpace": "nowrap",
+                                    "minWidth": "160px", "textAlign": "right"}),
+                    html.Div("HISTORY", style={
+                        "color": COLORS["accent_orange"], "fontSize": "9px",
+                        "fontWeight": "700", "fontFamily": "'JetBrains Mono', monospace",
+                        "border": f"1px solid {COLORS['accent_orange']}",
+                        "padding": "2px 8px", "marginLeft": "12px",
+                        "letterSpacing": "1px",
+                    }),
+                ], id="vsfx-history-bar", style={
+                    "display": "none",  # hidden until playback mode
+                    "alignItems": "center", "gap": "4px",
+                    "padding": "6px 12px", "marginBottom": GAP,
+                    "backgroundColor": COLORS["bg_secondary"],
+                    "border": f"1px solid {COLORS['accent_orange']}40",
+                }),
+
                 # 2x2 Chart Grid
                 html.Div([
                     html.Div([
@@ -3079,7 +3622,7 @@ def layout():
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q1",
                                       config={"displayModeBar": True, "scrollZoom": True},
-                                      style={"height": f"{CHART_MD}px"}),
+                                      style={"height": f"{CHART_LG}px"}),
                             type="dot", color=COLORS["accent_cyan"],
                         ),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px",
@@ -3089,7 +3632,7 @@ def layout():
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q2",
                                       config={"displayModeBar": True, "scrollZoom": True},
-                                      style={"height": f"{CHART_MD}px"}),
+                                      style={"height": f"{CHART_LG}px"}),
                             type="dot", color=COLORS["accent_cyan"],
                         ),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px",
@@ -3101,7 +3644,7 @@ def layout():
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q3",
                                       config={"displayModeBar": True, "scrollZoom": True},
-                                      style={"height": f"{CHART_MD}px"}),
+                                      style={"height": f"{CHART_LG}px"}),
                             type="dot", color=COLORS["accent_cyan"],
                         ),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px",
@@ -3111,7 +3654,7 @@ def layout():
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q4",
                                       config={"displayModeBar": True, "scrollZoom": True},
-                                      style={"height": f"{CHART_MD}px"}),
+                                      style={"height": f"{CHART_LG}px"}),
                             type="dot", color=COLORS["accent_cyan"],
                         ),
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px",
@@ -3259,10 +3802,15 @@ def register_callbacks(app):
          Input("vsfx-preset-skew", "n_clicks"),
          Input("vsfx-preset-term", "n_clicks"),
          Input("vsfx-preset-rc", "n_clicks"),
-         Input("vsfx-preset-lab-vol", "n_clicks"),
-         Input("vsfx-preset-lab-smile", "n_clicks"),
-         Input("vsfx-preset-lab-rv", "n_clicks"),
-         Input("vsfx-preset-lab-carry", "n_clicks")],
+         Input("vsfx-preset-rv", "n_clicks"),
+         Input("vsfx-preset-smile", "n_clicks"),
+         Input("vsfx-preset-surface", "n_clicks"),
+         Input("vsfx-preset-tail", "n_clicks"),
+         Input("vsfx-preset-regime", "n_clicks"),
+         Input("vsfx-preset-vov", "n_clicks"),
+         Input("vsfx-preset-full", "n_clicks"),
+         Input("vsfx-preset-carry", "n_clicks"),
+         Input("vsfx-preset-history", "n_clicks")],
         prevent_initial_call=True,
     )
     def update_preset(*args):
@@ -3275,10 +3823,15 @@ def register_callbacks(app):
             "vsfx-preset-skew": "Skew",
             "vsfx-preset-term": "Term",
             "vsfx-preset-rc": "Rich-Cheap",
-            "vsfx-preset-lab-vol": "Lab: Vol Monitor",
-            "vsfx-preset-lab-smile": "Lab: Smile",
-            "vsfx-preset-lab-rv": "Lab: RV",
-            "vsfx-preset-lab-carry": "Lab: Carry",
+            "vsfx-preset-rv": "RV Analysis",
+            "vsfx-preset-smile": "Smile Deep",
+            "vsfx-preset-surface": "Surface",
+            "vsfx-preset-tail": "Tail Risk",
+            "vsfx-preset-regime": "Regime",
+            "vsfx-preset-vov": "Vol-of-Vol",
+            "vsfx-preset-full": "Full Scan",
+            "vsfx-preset-carry": "Carry",
+            "vsfx-preset-history": "History",
         }
         preset_name = preset_map.get(trigger_id, "Trader")
         charts = VIEW_PRESETS.get(preset_name, VIEW_PRESETS["Trader"])
@@ -3296,6 +3849,205 @@ def register_callbacks(app):
         if not interval_ms or interval_ms == 0:
             return 86400000, True
         return interval_ms, False
+
+    # ------------------------------------------------------------------
+    # History Mode callbacks (A-F)
+    # ------------------------------------------------------------------
+
+    # Callback A: Activate/deactivate history mode + prefetch frames
+    @app.callback(
+        [Output("vsfx-history-frames", "data"),
+         Output("vsfx-history-idx", "data", allow_duplicate=True),
+         Output("vsfx-history-slider", "max"),
+         Output("vsfx-history-bar", "style"),
+         Output("vsfx-history-options", "style"),
+         Output("vsfx-history-status", "children", allow_duplicate=True),
+         Output("vsfx-history-playing", "data", allow_duplicate=True),
+         Output("vsfx-history-tick", "disabled", allow_duplicate=True),
+         Output("vsfx-history-play", "children", allow_duplicate=True)],
+        [Input("vsfx-history-mode", "value"),
+         Input("vsfx-pair", "value"),
+         Input("vsfx-history-lookback", "value")],
+        prevent_initial_call="initial_duplicate",
+    )
+    def activate_history_mode(mode, pair, lookback):
+        pair = pair or "EURUSD"
+        lookback = lookback or 20
+        bar_hidden = {"display": "none"}
+        opts_hidden = {"display": "none"}
+        bar_visible = {
+            "display": "flex", "alignItems": "center", "gap": "4px",
+            "padding": "6px 12px", "marginBottom": GAP,
+            "backgroundColor": COLORS["bg_secondary"],
+            "border": f"1px solid {COLORS['accent_orange']}40",
+        }
+        opts_visible = {"display": "block"}
+
+        if mode != "playback":
+            # Reset everything: stop timer, clear frames, hide bar
+            return (None, 0, 0, bar_hidden, opts_hidden, "",
+                    False, True, "\u25b6 PLAY")
+
+        # Prefetch historical frames
+        frames = _prefetch_history_frames(pair, lookback)
+        if not frames:
+            return (None, 0, 0, bar_hidden, opts_visible, "No historical data",
+                    False, True, "\u25b6 PLAY")
+
+        n = len(frames)
+        status = f"{frames[-1].get('date_label', 'Today')}  [{n}/{n}]"
+        # Start paused, user clicks Play to begin
+        return (frames, n - 1, n - 1, bar_visible, opts_visible, status,
+                False, True, "\u25b6 PLAY")
+
+    # Callback B: Timer tick (clientside — increment frame index)
+    # IMPORTANT: Each tick disables the timer. Callback G re-enables it
+    # after update_workstation finishes rendering. This "gate" pattern
+    # prevents rapid-fire ticks from cancelling in-flight server renders.
+    app.clientside_callback(
+        """
+        function(n, playing, idx, frames) {
+            var nu = window.dash_clientside.no_update;
+            if (!playing || !frames || frames.length === 0) {
+                return [nu, nu, nu, nu];
+            }
+            var next_idx = (idx || 0) + 1;
+            if (next_idx >= frames.length) {
+                // Reached end — stop playback, keep timer disabled
+                return [frames.length - 1, frames.length - 1, false, true];
+            }
+            // Advance frame and disable timer (re-enabled after render completes)
+            return [next_idx, next_idx, true, true];
+        }
+        """,
+        [Output("vsfx-history-idx", "data", allow_duplicate=True),
+         Output("vsfx-history-slider", "value", allow_duplicate=True),
+         Output("vsfx-history-playing", "data", allow_duplicate=True),
+         Output("vsfx-history-tick", "disabled", allow_duplicate=True)],
+        [Input("vsfx-history-tick", "n_intervals")],
+        [State("vsfx-history-playing", "data"),
+         State("vsfx-history-idx", "data"),
+         State("vsfx-history-frames", "data")],
+        prevent_initial_call=True,
+    )
+
+    # Callback C: Play/Pause toggle
+    app.clientside_callback(
+        """
+        function(n_clicks, playing, idx, frames) {
+            var nu = window.dash_clientside.no_update;
+            if (!frames || frames.length === 0) {
+                return [false, true, "\\u25b6 PLAY", nu, nu];
+            }
+            var new_playing = !playing;
+            // If at the end, restart from beginning
+            var new_idx = nu;
+            var new_slider = nu;
+            if (new_playing && idx >= frames.length - 1) {
+                new_idx = 0;
+                new_slider = 0;
+            }
+            return [
+                new_playing,
+                !new_playing,
+                new_playing ? "\\u23f8 PAUSE" : "\\u25b6 PLAY",
+                new_idx,
+                new_slider
+            ];
+        }
+        """,
+        [Output("vsfx-history-playing", "data", allow_duplicate=True),
+         Output("vsfx-history-tick", "disabled", allow_duplicate=True),
+         Output("vsfx-history-play", "children", allow_duplicate=True),
+         Output("vsfx-history-idx", "data", allow_duplicate=True),
+         Output("vsfx-history-slider", "value", allow_duplicate=True)],
+        [Input("vsfx-history-play", "n_clicks")],
+        [State("vsfx-history-playing", "data"),
+         State("vsfx-history-idx", "data"),
+         State("vsfx-history-frames", "data")],
+        prevent_initial_call=True,
+    )
+
+    # Callback D: Step prev/next + slider manual scrub
+    app.clientside_callback(
+        """
+        function(prev_clicks, next_clicks, slider_val, idx, frames) {
+            var nu = window.dash_clientside.no_update;
+            if (!frames || frames.length === 0) {
+                return [nu, nu];
+            }
+            var ctx = window.dash_clientside.callback_context;
+            if (!ctx.triggered || ctx.triggered.length === 0) {
+                return [nu, nu];
+            }
+            var trigger = ctx.triggered[0].prop_id;
+            var new_idx = idx || 0;
+            if (trigger.indexOf("prev") >= 0) {
+                new_idx = Math.max(0, new_idx - 1);
+                return [new_idx, new_idx];
+            } else if (trigger.indexOf("next") >= 0) {
+                new_idx = Math.min(frames.length - 1, new_idx + 1);
+                return [new_idx, new_idx];
+            } else if (trigger.indexOf("slider") >= 0) {
+                // Slider triggered — only update idx, don't write back to slider
+                return [slider_val || 0, nu];
+            }
+            return [nu, nu];
+        }
+        """,
+        [Output("vsfx-history-idx", "data", allow_duplicate=True),
+         Output("vsfx-history-slider", "value", allow_duplicate=True)],
+        [Input("vsfx-history-prev", "n_clicks"),
+         Input("vsfx-history-next", "n_clicks"),
+         Input("vsfx-history-slider", "value")],
+        [State("vsfx-history-idx", "data"),
+         State("vsfx-history-frames", "data")],
+        prevent_initial_call=True,
+    )
+
+    # Callback E: Speed change
+    @app.callback(
+        Output("vsfx-history-tick", "interval"),
+        [Input("vsfx-history-speed", "value")],
+        prevent_initial_call=True,
+    )
+    def set_history_speed(speed_ms):
+        return speed_ms or 600
+
+    # Callback F: Status display update
+    app.clientside_callback(
+        """
+        function(idx, frames) {
+            if (!frames || frames.length === 0) {
+                return "";
+            }
+            var i = Math.min(idx || 0, frames.length - 1);
+            var frame = frames[i];
+            var label = frame.date_label || ("Day " + (i + 1));
+            return label + "  [" + (i + 1) + "/" + frames.length + "]";
+        }
+        """,
+        Output("vsfx-history-status", "children", allow_duplicate=True),
+        [Input("vsfx-history-idx", "data")],
+        [State("vsfx-history-frames", "data")],
+        prevent_initial_call=True,
+    )
+
+    # Callback G: Re-enable timer after charts finish rendering ("render gate")
+    # This fires when update_workstation completes and the chart figure is
+    # delivered to the browser. If we're in playback and still playing,
+    # re-enable the timer so the next frame can advance.
+    @app.callback(
+        Output("vsfx-history-tick", "disabled", allow_duplicate=True),
+        Input("vsfx-chart-q1", "figure"),
+        [State("vsfx-history-mode", "value"),
+         State("vsfx-history-playing", "data")],
+        prevent_initial_call=True,
+    )
+    def reenable_timer_after_render(_fig, mode, playing):
+        if mode == "playback" and playing:
+            return False  # re-enable timer → next tick after interval ms
+        raise PreventUpdate
 
     # ------------------------------------------------------------------
     # Callback 3: Main update -- all 4 charts + stat boxes + overnight
@@ -3323,16 +4075,89 @@ def register_callbacks(app):
          Input("vsfx-lab-pairs", "value"),
          Input("vsfx-lab-overlay", "value"),
          Input("vsfx-lab-window", "value"),
-         Input("vsfx-lab-normalize", "value")],
+         Input("vsfx-lab-normalize", "value"),
+         Input("vsfx-history-idx", "data")],
+        [State("vsfx-history-mode", "value"),
+         State("vsfx-history-frames", "data")],
     )
     def update_workstation(pair, model, q1, q2, q3, q4,
                            compare, hist_offset, cross_pair,
                            selected_tenors, delta_range, smile_tenor,
                            n_intervals,
-                           lab_pairs, lab_overlay, lab_window, lab_normalize):
+                           lab_pairs, lab_overlay, lab_window, lab_normalize,
+                           history_idx,
+                           history_mode, history_frames):
         pair = pair or "EURUSD"
         model = model or "market"
 
+        # ── Guard: if trigger was history-idx but mode is live, skip ──
+        ctx = callback_context
+        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
+        if trigger_id == "vsfx-history-idx" and history_mode != "playback":
+            raise PreventUpdate
+
+        # ── History playback mode ──
+        if (history_mode == "playback" and history_frames
+                and history_idx is not None and len(history_frames) > 0):
+            frame_idx = max(0, min(history_idx, len(history_frames) - 1))
+            frame = history_frames[frame_idx]
+            sd_full = _frame_to_sd(frame)
+            spot = frame.get("spot", 1.0)
+            _, _, r_dom, r_for = _get_spot_and_rates(pair)
+
+            sd = _filter_surface_data(sd_full, selected_tenors)
+            sd = _filter_delta_range(sd, delta_range or "10-50")
+
+            date_label = frame.get("date_label", f"{frame.get('days_ago', '?')}D ago")
+
+            extra = {
+                "days_ago": frame.get("days_ago", 1),
+                "smile_tenor": smile_tenor or "3M",
+                "ts_tenor": smile_tenor or "3M",
+                "pdf_tenor": smile_tenor or "3M",
+                "compare": "none",  # disable comparison in history mode
+                "cross_pair": cross_pair,
+                "model": model,
+                "selected_tenors": selected_tenors,
+                "delta_range": delta_range or "10-50",
+                "lab_pairs": lab_pairs or [pair],
+                "lab_overlay": lab_overlay or "",
+                "lab_window": lab_window or 252,
+                "lab_normalize": lab_normalize or "raw",
+                "history_mode": True,
+                "history_date": date_label,
+            }
+
+            # Inject historical surface for Tier 2 charts (fwd_vol, implied_dist, etc.)
+            saved_cache = cache_inject_surface(pair, frame["surface_raw"])
+            try:
+                fig1 = _render_chart(q1, pair, sd, spot, r_dom, r_for, **extra)
+                fig2 = _render_chart(q2, pair, sd, spot, r_dom, r_for, **extra)
+                fig3 = _render_chart(q3, pair, sd, spot, r_dom, r_for, **extra)
+                fig4 = _render_chart(q4, pair, sd, spot, r_dom, r_for, **extra)
+            finally:
+                cache_restore_surface(pair, saved_cache)
+
+            # Simplified stat boxes for history mode
+            stats = _build_stat_boxes_history(pair, sd_full, spot, date_label)
+
+            overnight = html.Div([
+                html.Span("\u23f2 HISTORY MODE", style={
+                    "color": COLORS["accent_orange"], "fontWeight": "700",
+                    "fontFamily": "'JetBrains Mono', monospace", "fontSize": "11px",
+                    "marginRight": "12px",
+                }),
+                html.Span(f"{date_label}  [{frame_idx + 1}/{len(history_frames)}]", style={
+                    "color": COLORS["text_secondary"],
+                    "fontFamily": "'JetBrains Mono', monospace", "fontSize": "10px",
+                }),
+            ], style={"padding": "6px 12px", "marginTop": "4px",
+                      "border": f"1px solid {COLORS['accent_orange']}40",
+                      "backgroundColor": COLORS["bg_secondary"]})
+
+            return fig1, fig2, fig3, fig4, stats, overnight
+
+        # ── Normal (live) mode ──
         # Fetch data and apply tenor / delta filters
         sd_full = _get_surface_data(pair)
         if sd_full is None:
@@ -3571,7 +4396,7 @@ def register_callbacks(app):
                         fig.add_trace(go.Heatmap(
                             z=pvt.values, x=pvt.columns.tolist(),
                             y=pvt.index.tolist(),
-                            colorscale=[[0,"#00cc66"],[0.5,"#000000"],[1,"#ff3333"]],
+                            colorscale=CS_DIVERGING_GR,
                             zmid=0, text=np.round(pvt.values, 2).astype(str),
                             texttemplate="%{text}",
                             textfont=dict(size=10)), row=1, col=1)
@@ -3590,7 +4415,7 @@ def register_callbacks(app):
                 if sc is not None and not sc.empty:
                     fig.add_trace(go.Heatmap(
                         z=sc.values, x=sc.columns.tolist(), y=sc.index.tolist(),
-                        colorscale=[[0,"#ff3333"],[0.5,"#000000"],[1,"#00cc66"]],
+                        colorscale=CS_DIVERGING_RG,
                         zmin=-1, zmax=1,
                         text=np.round(sc.values, 2).astype(str),
                         texttemplate="%{text}",
@@ -3599,7 +4424,7 @@ def register_callbacks(app):
                 if vc is not None and not vc.empty:
                     fig.add_trace(go.Heatmap(
                         z=vc.values, x=vc.columns.tolist(), y=vc.index.tolist(),
-                        colorscale=[[0,"#ff3333"],[0.5,"#000000"],[1,"#00cc66"]],
+                        colorscale=CS_DIVERGING_RG,
                         zmin=-1, zmax=1,
                         text=np.round(vc.values, 2).astype(str),
                         texttemplate="%{text}",
@@ -3777,7 +4602,7 @@ def register_callbacks(app):
                     fig = go.Figure(data=go.Heatmap(
                         z=corr.values, x=corr.columns.tolist(),
                         y=corr.index.tolist(),
-                        colorscale=[[0,"#ff3333"],[0.5,"#000000"],[1,"#00cc66"]],
+                        colorscale=CS_DIVERGING_RG,
                         zmin=-1, zmax=1,
                         text=np.round(corr.values, 2).astype(str),
                         texttemplate="%{text}",
@@ -3792,7 +4617,7 @@ def register_callbacks(app):
                     fig = go.Figure(data=go.Heatmap(
                         z=corr.values, x=corr.columns.tolist(),
                         y=corr.index.tolist(),
-                        colorscale=[[0,"#ff3333"],[0.5,"#000000"],[1,"#00cc66"]],
+                        colorscale=CS_DIVERGING_RG,
                         zmin=-1, zmax=1,
                         text=np.round(corr.values, 2).astype(str),
                         texttemplate="%{text}",
@@ -3810,7 +4635,7 @@ def register_callbacks(app):
                         fig = go.Figure(data=go.Heatmap(
                             z=pvt.values, x=pvt.columns.tolist(),
                             y=pvt.index.tolist(),
-                            colorscale=[[0,"#00cc66"],[0.5,"#000000"],[1,"#ff3333"]],
+                            colorscale=CS_DIVERGING_GR,
                             zmid=0, text=np.round(pvt.values, 2).astype(str),
                             texttemplate="%{text}",
                             textfont=dict(size=11, color="#e0e0e0")))
@@ -3826,8 +4651,9 @@ def register_callbacks(app):
                         x=df["pair"].tolist(), y=df["sharpe_proxy"].tolist(),
                         marker_color=colors,
                         text=[f"{v:.2f}" if np.isfinite(v) else "—" for v in df["sharpe_proxy"]],
-                        textposition="outside",
-                        textfont=dict(color="#e0e0e0", size=10)))
+                        textposition="inside",
+                        textfont=dict(color="#e0e0e0", size=9),
+                        insidetextanchor="end", constraintext="both"))
                 _apply_chart_template(fig, "Carry / Vol Ranking")
                 fig.update_layout(yaxis_title="Sharpe Proxy")
 

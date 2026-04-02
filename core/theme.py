@@ -74,6 +74,32 @@ def status_text():
     return "BLOOMBERG LIVE" if is_connected() else "DISCONNECTED"
 
 
+# ── Heatmap Colorscales ──────────────────────────────────────────────────
+CS_VOL_SURFACE = [
+    [0, "#1a1a3e"], [0.2, "#2a2a5e"], [0.4, "#6b4400"],
+    [0.6, "#bf6b00"], [0.8, "#ff8800"], [1.0, "#ffcc66"],
+]
+CS_PNL_DIVERGING = [
+    [0, "#ff3333"], [0.3, "#330000"], [0.5, "#0e0e0e"],
+    [0.7, "#003300"], [1.0, "#00cc66"],
+]
+CS_DIVERGING_GR = [  # green-to-red, zero=black
+    [0, "#00cc66"], [0.5, "#000000"], [1, "#ff3333"],
+]
+CS_DIVERGING_RG = [  # red-to-green, zero=black
+    [0, "#ff3333"], [0.5, "#000000"], [1, "#00cc66"],
+]
+CS_RICHNESS = [
+    [0.00, "#1565c0"], [0.20, "#0d5a9e"], [0.35, "#1a2a4a"],
+    [0.50, "#2a2a40"], [0.65, "#4a2a1a"], [0.80, "#b85c00"],
+    [1.00, "#ff8800"],
+]
+CS_SKEW = [
+    [0.00, "#c62828"], [0.25, "#6d2020"], [0.50, "#2a2a40"],
+    [0.75, "#1a3a6d"], [1.00, "#1e88e5"],
+]
+
+
 # ── Plotly Chart Template ──────────────────────────────────────────────────
 # Base layout values. Used via **CHART_TEMPLATE["layout"] spread.
 # IMPORTANT: Only include keys that will NEVER be overridden by callers.

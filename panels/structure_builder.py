@@ -2229,74 +2229,77 @@ def _stat_box(label, value, color=COLORS["accent_cyan"]):
 # ============================================================================
 
 def _make_leg_row(idx, cp="call", side="buy", delta=0.25, ratio=1, tenor_mult=1.0, visible=True):
-    """Generate one leg configuration row — simple grid that fits sidebar."""
+    """Generate one leg configuration row — fully stacked for 350px sidebar."""
     row_bg = "#06060f" if idx % 2 == 0 else COLORS["bg_primary"]
     display = "block" if visible else "none"
-    _inp = {**INPUT_STYLE, "padding": "4px 6px", "fontSize": "11px", "textAlign": "center"}
+    _inp = {**INPUT_STYLE, "padding": "5px 8px", "fontSize": "11px", "textAlign": "center",
+            "height": "32px"}
     _lbl = {"fontSize": "8px", "color": COLORS["text_muted"], "textTransform": "uppercase",
-            "letterSpacing": "0.5px", "marginBottom": "1px",
+            "letterSpacing": "0.5px", "marginBottom": "2px",
             "fontFamily": "'JetBrains Mono', monospace"}
     return html.Div([
-        # Row 1: C/P, Side, Delta (use full sidebar width)
+        # Row 1: TYPE + SIDE + DELTA — the three things you always set
         html.Div([
             html.Div([
-                html.Div("C/P", style=_lbl),
+                html.Div("TYPE", style=_lbl),
                 dcc.Dropdown(
                     id={"type": "stb-cp", "index": idx},
                     options=[{"label": "CALL", "value": "call"}, {"label": "PUT", "value": "put"}],
-                    value=cp, clearable=False,
-                    style={"fontSize": "10px"},
+                    value=cp, clearable=False, searchable=False,
+                    style={"fontSize": "11px", "minHeight": "32px"},
                 ),
-            ], style={"flex": "1"}),
+            ], style={"flex": "2", "minWidth": "0"}),
             html.Div([
                 html.Div("SIDE", style=_lbl),
                 dcc.Dropdown(
                     id={"type": "stb-side", "index": idx},
                     options=[{"label": "BUY", "value": "buy"}, {"label": "SELL", "value": "sell"}],
-                    value=side, clearable=False,
-                    style={"fontSize": "10px"},
+                    value=side, clearable=False, searchable=False,
+                    style={"fontSize": "11px", "minHeight": "32px"},
                 ),
-            ], style={"flex": "1"}),
+            ], style={"flex": "2", "minWidth": "0"}),
             html.Div([
                 html.Div("DELTA", style=_lbl),
                 dcc.Input(id={"type": "stb-delta", "index": idx}, type="number",
                           value=delta, min=0.05, max=0.95, step=0.05,
                           style={**_inp, "width": "100%"}, debounce=True),
-            ], style={"flex": "1"}),
-        ], style={"display": "flex", "gap": "6px"}),
-        # Row 2: Ratio, Tenor×, then computed readout
+            ], style={"flex": "1", "minWidth": "55px"}),
+        ], style={"display": "flex", "gap": "6px", "alignItems": "flex-end"}),
+        # Row 2: RATIO + TNR× + computed readout
         html.Div([
             html.Div([
                 html.Div("RATIO", style=_lbl),
                 dcc.Input(id={"type": "stb-ratio", "index": idx}, type="number",
                           value=ratio, min=1, max=3, step=1,
                           style={**_inp, "width": "100%"}, debounce=True),
-            ], style={"flex": "1"}),
+            ], style={"width": "55px", "flexShrink": "0"}),
             html.Div([
                 html.Div("TNR\u00d7", style=_lbl),
                 dcc.Input(id={"type": "stb-tenor-mult", "index": idx}, type="number",
                           value=tenor_mult, min=0.5, max=4.0, step=0.5,
                           style={**_inp, "width": "100%"}, debounce=True),
-            ], style={"flex": "1"}),
+            ], style={"width": "55px", "flexShrink": "0"}),
+            # Computed readout fills remaining space
             html.Div([
-                html.Div("K / VOL / PREM", style=_lbl),
+                html.Div("STRIKE / VOL / PREM", style=_lbl),
                 html.Div([
                     html.Span(id={"type": "stb-strike-disp", "index": idx},
                               style={"color": COLORS["accent_cyan"], "fontSize": "11px",
                                      "fontWeight": "600"}),
-                    html.Span(" ", style={"fontSize": "6px"}),
+                    html.Span(" \u00b7 ", style={"color": "#3a3a5c"}),
                     html.Span(id={"type": "stb-vol-disp", "index": idx},
-                              style={"color": COLORS["text_muted"], "fontSize": "10px"}),
-                    html.Span(" ", style={"fontSize": "6px"}),
+                              style={"color": "#e0e0e0", "fontSize": "10px"}),
+                    html.Span(" \u00b7 ", style={"color": "#3a3a5c"}),
                     html.Span(id={"type": "stb-prem-disp", "index": idx},
                               style={"color": COLORS["accent_orange"], "fontSize": "11px",
                                      "fontWeight": "600"}),
-                ], style={"paddingTop": "4px"}),
-            ], style={"flex": "2"}),
-        ], style={"display": "flex", "gap": "6px", "marginTop": "4px"}),
+                ], style={"paddingTop": "5px", "whiteSpace": "nowrap"}),
+            ], style={"flex": "1", "minWidth": "0"}),
+        ], style={"display": "flex", "gap": "6px", "marginTop": "6px",
+                  "alignItems": "flex-end"}),
     ], id={"type": "stb-leg-row", "index": idx}, style={
         "display": display,
-        "padding": "8px 10px", "borderRadius": "0px",
+        "padding": "10px 10px", "borderRadius": "0px",
         "backgroundColor": row_bg,
         "borderLeft": f"3px solid {COLORS['accent_orange']}",
         "marginBottom": "4px",

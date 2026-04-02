@@ -24,25 +24,19 @@ from core.theme import (
     LABEL_STYLE, DROPDOWN_STYLE, TAB_STYLE, TAB_SELECTED_STYLE,
     TABLE_HEADER_STYLE, TABLE_CELL_STYLE, clickable_stat, make_stat_style,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG, CSV_BTN_STYLE,
-    no_data_fig,
+    no_data_fig, chart_layout,
 )
 from core.csv_export import export_csv
-from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days, tenor_to_years
+from core.fx_conventions import (
+    FX_PAIR_REGISTRY, tenor_to_days, tenor_to_years,
+    safe_float as _sf, ALL_PAIRS, G10_PAIRS, EM_PAIRS, MONITOR_PAIRS,
+)
+from core.fx_analytics import extract_surface_atm as _extract_atm, extract_surface_rr25 as _extract_rr
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
 _P = "rvp"  # prefix
 _MONO = "'JetBrains Mono', monospace"
-
-ALL_PAIRS = sorted(FX_PAIR_REGISTRY.keys())
-G10_PAIRS = [p for p in ALL_PAIRS if FX_PAIR_REGISTRY[p].group == "G10"]
-EM_PAIRS  = [p for p in ALL_PAIRS if p not in G10_PAIRS]
-
-MONITOR_PAIRS = [
-    "EURUSD", "USDJPY", "GBPUSD", "USDCHF", "AUDUSD",
-    "NZDUSD", "USDCAD", "EURGBP", "EURJPY", "GBPJPY",
-    "USDMXN", "USDZAR", "USDTRY", "USDCNH", "USDSGD",
-]
 
 HEATMAP_TENORS = ["1M", "3M", "6M", "1Y"]
 TERM_TENORS = ["1M", "2M", "3M", "6M", "9M", "1Y", "2Y"]
@@ -68,42 +62,18 @@ _CB_BANKS = {
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _sf(v, d=0.0):
-    try:
-        f = float(v)
-        return d if (np.isnan(f) or np.isinf(f)) else f
-    except Exception:
-        return d
-
-
-def _chart_layout(**overrides):
-    """Merge CHART_TEMPLATE with overrides including deep-merged axes."""
-    from core.theme import chart_layout
-    return chart_layout(**overrides)
-
-
 def _empty_fig(title=""):
     fig = go.Figure()
     for y in [0.2, 0.4, 0.6, 0.8]:
         fig.add_shape(type="line", x0=0, x1=1, y0=y, y1=y,
                       xref="paper", yref="paper", line=dict(color="#0d0d1a", width=1))
-    fig.update_layout(**_chart_layout(
+    fig.update_layout(**chart_layout(
         height=220, margin=dict(l=20, r=10, t=30, b=10),
         title=dict(text=title, font=dict(size=10, color="#9a9ab0")),
         annotations=[dict(text="LOADING", x=0.5, y=0.5, showarrow=False,
                           font=dict(color="#3a3a5c", size=10, family="'JetBrains Mono', monospace"),
                           xref="paper", yref="paper")]))
     return fig
-
-
-def _extract_atm(surface, tenor):
-    t = surface.get(tenor, {})
-    return _sf(t.get("atm", 0))
-
-
-def _extract_rr(surface, tenor):
-    t = surface.get(tenor, {})
-    return _sf(t.get("rr25", t.get("25D_RR", 0)))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -151,7 +121,7 @@ def _build_vol_spread_ts(pair_a, pair_b, tenor, lookback):
             fig.add_hline(y=2, line=dict(color="#ff3333", width=0.5, dash="dot"), secondary_y=True)
             fig.add_hline(y=-2, line=dict(color="#1565c0", width=0.5, dash="dot"), secondary_y=True)
 
-        fig.update_layout(**_chart_layout(height=CHART_MD,
+        fig.update_layout(**chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=50, t=30, b=20),
                           title=dict(text=f"VOL SPREAD: {pair_a} vs {pair_b} ({tenor})",
                                      font=dict(size=10, color="#9a9ab0")),
@@ -199,7 +169,7 @@ def _build_zscore_matrix(lookback):
             ),
             xgap=2, ygap=2,
         ))
-        fig.update_layout(**_chart_layout(height=CHART_LG,
+        fig.update_layout(**chart_layout(height=CHART_LG,
                           margin=dict(l=65, r=60, t=30, b=20),
                           title=dict(text=f"ATM Z-SCORE MATRIX ({lookback}D)",
                                      font=dict(size=10, color="#9a9ab0")),
@@ -234,7 +204,7 @@ def _build_ivrv_panel(pair, tenor, lookback):
                                  fill="tonexty", fillcolor="rgba(255,51,51,0.15)", showlegend=False))
         fig.add_hline(y=0, line=dict(color="#9a9ab0", width=0.5, dash="dash"))
 
-        fig.update_layout(**_chart_layout(height=CHART_MD,
+        fig.update_layout(**chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"{pair} IV-RV SPREAD ({tenor})",
                                      font=dict(size=10, color="#9a9ab0")),
@@ -409,7 +379,7 @@ def _build_skew_scatter(pair_a, pair_b, tenor, lookback):
                                      line=dict(color="#ffffff", width=1, dash="dash"),
                                      name=f"R²={r**2:.2f}" if np.isfinite(r) else "R²=—"))
 
-        fig.update_layout(**_chart_layout(height=CHART_MD,
+        fig.update_layout(**chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=30),
                           title=dict(text=f"SKEW SCATTER: {pair_a} vs {pair_b} ({tenor})",
                                      font=dict(size=10, color="#9a9ab0")),
@@ -520,7 +490,7 @@ def _build_corr_heatmap(window):
             len=0.6, thickness=10, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
         ),
     ))
-    fig.update_layout(**_chart_layout(height=CHART_LG,
+    fig.update_layout(**chart_layout(height=CHART_LG,
                       margin=dict(l=60, r=50, t=30, b=50),
                       title=dict(text=f"SPOT CORRELATION ({window}D)",
                                  font=dict(size=10, color="#9a9ab0")),
@@ -672,7 +642,7 @@ def _build_rolling_chart(pair_a, pair_b):
         fig.add_hline(y=0.7, line=dict(color="#00cc66", width=0.5, dash="dash"))
         fig.add_hline(y=-0.7, line=dict(color="#00cc66", width=0.5, dash="dash"))
 
-        fig.update_layout(**_chart_layout(height=CHART_SM,
+        fig.update_layout(**chart_layout(height=CHART_SM,
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"ROLLING CORRELATION: {pair_a} vs {pair_b}",
                                      font=dict(size=10, color="#9a9ab0")),
@@ -783,7 +753,7 @@ def _build_corr_network(window=60):
                     c = corr[i][j]
                     if np.isfinite(c) and abs(c) > CORR_THRESHOLD:
                         G.add_edge(pairs_used[i], pairs_used[j], weight=abs(c))
-            pos = nx.spring_layout(G, k=3.0 / np.sqrt(max(n, 1)), iterations=100, seed=42)
+            pos = nx.spring_layout(G, k=5.0 / np.sqrt(max(n, 1)), iterations=200, seed=42)
         else:
             pos = {}
             for i, p in enumerate(pairs_used):
@@ -848,11 +818,11 @@ def _build_corr_network(window=60):
 
         fig.add_trace(go.Scatter(
             x=node_x, y=node_y, mode="markers+text",
-            marker=dict(size=32, color=node_colors, opacity=0.9,
+            marker=dict(size=44, color=node_colors, opacity=0.9,
                         line=dict(width=2, color="#2d2d50")),
             text=node_labels,
             textposition="middle center",
-            textfont=dict(size=8, color="#000000", family=_MONO),
+            textfont=dict(size=9, color="#000000", family=_MONO, weight=700),
             hovertext=[
                 f"<b>{pairs_used[i][:3]}/{pairs_used[i][3:]}</b><br>"
                 f"Vol %ile: {node_pcts[i]:.0f}<br>"
@@ -867,11 +837,10 @@ def _build_corr_network(window=60):
             font=dict(family=_MONO, color="#e0e0e0", size=11),
             title=dict(text=f"CORRELATION NETWORK ({window}D, |\u03c1| > {CORR_THRESHOLD})",
                        font=dict(color="#ffffff", size=13)),
-            xaxis=dict(showgrid=False, zeroline=False, visible=False,
-                       scaleanchor="y", scaleratio=1),
+            xaxis=dict(showgrid=False, zeroline=False, visible=False),
             yaxis=dict(showgrid=False, zeroline=False, visible=False),
             height=480,
-            margin=dict(l=20, r=20, t=45, b=20),
+            margin=dict(l=40, r=40, t=45, b=20),
             legend=dict(font=dict(color="#9a9ab0", size=9), bgcolor="rgba(0,0,0,0)",
                         x=0.01, y=0.99),
             hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#2d2d50",
@@ -959,7 +928,7 @@ def _build_dxy_chart(lookback):
         fig.add_trace(go.Scatter(x=list(range(len(index))), y=index, mode="lines",
                                  line=dict(color="#ff8800", width=2.5), name="DXY Proxy",
                                  hovertemplate="Day %{x}<br>DXY: %{y:.2f}<extra></extra>"))
-        fig.update_layout(**_chart_layout(height=CHART_SM,
+        fig.update_layout(**chart_layout(height=CHART_SM,
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"DXY PROXY ({lookback}D)",
                                      font=dict(size=10, color="#9a9ab0")),
@@ -1060,7 +1029,7 @@ def _build_cb_chart():
                             marker_color=colors,
                             text=[f"{r:.2f}% ({d})" for r, d in zip(rates, dirs)],
                             textposition="outside", textfont=dict(size=8)))
-    fig.update_layout(**_chart_layout(height=CHART_SM,
+    fig.update_layout(**chart_layout(height=CHART_SM,
                       margin=dict(l=40, r=80, t=30, b=10), showlegend=False,
                       title=dict(text="CENTRAL BANK POLICY RATES",
                                  font=dict(size=10, color="#9a9ab0")),
@@ -1141,7 +1110,7 @@ def _build_term_chart(pair, comp_pair=None):
                                      marker=dict(size=4), name=comp_pair,
                                      hovertemplate="%{x}: %{y:.2f}v<extra>" + comp_pair + "</extra>"))
 
-        fig.update_layout(**_chart_layout(height=CHART_MD,
+        fig.update_layout(**chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"TERM STRUCTURE: {pair}",
                                      font=dict(size=10, color="#9a9ab0")),
@@ -1187,7 +1156,7 @@ def _build_fwd_vol(pair):
                                   line=dict(color="#ffffff", width=1.5, dash="dot"),
                                   marker=dict(size=4), name="Spot Vol",
                                   hovertemplate="%{x}: %{y:.2f}v<extra>Spot</extra>"))
-        fig.update_layout(**_chart_layout(height=CHART_MD,
+        fig.update_layout(**chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=20),
                           title=dict(text=f"FORWARD VOL: {pair}",
                                      font=dict(size=10, color="#9a9ab0")),
@@ -1229,7 +1198,7 @@ def _build_calendar_spread(pair):
                                   line=dict(color="#ff8800", width=2.5), name="1M-3M Spread",
                                   hovertemplate="Day %{x}<br>Spread: %{y:+.2f}v<extra></extra>"))
         fig.add_hline(y=0, line_dash="dot", line_color="#444444", line_width=0.8)
-        fig.update_layout(**_chart_layout(height=CHART_MD,
+        fig.update_layout(**chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=20),
                           barmode="overlay",
                           title=dict(text=f"CALENDAR SPREAD (1M-3M): {pair}",

@@ -301,25 +301,62 @@ div[class*="-clearIndicator"] {
 .dash-dropdown ul,
 .dash-dropdown li {
     background-color: #000000 !important;
+    background: #000000 !important;
     color: #e0e0e0 !important;
     border-color: #2d2d50 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
     outline: none !important;
 }
-.dash-dropdown input,
-.dash-dropdown input[type="text"],
-.dash-dropdown input[type="search"] {
+/* Every input on the entire page — no white boxes anywhere */
+input, input[type="text"], input[type="search"], input[type="number"] {
     background-color: #000000 !important;
+    background: #000000 !important;
+    color: #e0e0e0 !important;
+    caret-color: #ff8800 !important;
+    border-color: #2d2d50 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    font-family: var(--font) !important;
+}
+/* Dropdown search input — extra specificity */
+.dash-dropdown input,
+.Select input,
+.Select-input,
+.Select-input input,
+[class*="control"] input,
+[class*="ValueContainer"] input,
+[class*="inputContainer"],
+[class*="Input"] input {
+    background-color: #000000 !important;
+    background: #000000 !important;
     color: #e0e0e0 !important;
     caret-color: #ff8800 !important;
     border: none !important;
     -webkit-appearance: none !important;
+    box-shadow: none !important;
 }
 .dash-dropdown .Select-menu-outer,
 .dash-dropdown [class*="menu"] {
+    background-color: #000000 !important;
     border: 1px solid #2d2d50 !important;
     z-index: 9500 !important;
+}
+.dash-dropdown .Select-menu,
+.dash-dropdown [class*="MenuList"],
+.dash-dropdown [class*="menuList"] {
+    background-color: #000000 !important;
+    max-height: 250px !important;
+    overflow-y: auto !important;
+}
+.dash-dropdown .Select-option,
+.dash-dropdown [class*="option"] {
+    background-color: #000000 !important;
+    color: #e0e0e0 !important;
+    font-family: var(--font) !important;
+    font-size: 11px !important;
+    padding: 6px 10px !important;
 }
 .dash-dropdown .Select-option:hover,
 .dash-dropdown .Select-option.is-focused,
@@ -348,6 +385,14 @@ div[class*="-clearIndicator"] {
     border-radius: unset !important;
     box-shadow: unset !important;
     outline: unset !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Right-click Context Menu
+   ═══════════════════════════════════════════════════════════════════════════ */
+#mdash-ctx-menu > div:hover {
+    background-color: #ff8800 !important;
+    color: #000000 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

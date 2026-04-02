@@ -444,7 +444,7 @@ def layout():
                         "marginBottom": "16px"}),
 
         # Hidden stores
-        dcc.Store(id="fxb-trade-store", data=json.dumps([])),
+        dcc.Store(id="fxb-trade-store", storage_type="local", data=json.dumps([])),
         dcc.Store(id="fxb-market-cache", data="{}"),
     ])
 

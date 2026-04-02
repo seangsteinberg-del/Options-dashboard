@@ -2741,5 +2741,22 @@ def _extract_metric(surface, tenor: str, metric: str) -> float:
     return None
 
 
+# Public surface extraction helpers (panels should use these instead of local copies)
+def extract_surface_atm(surface, tenor, default=0.0):
+    """Extract ATM vol, returning default (0.0) on missing data."""
+    val = _extract_atm(surface, tenor)
+    return val if val is not None else default
+
+def extract_surface_rr25(surface, tenor, default=0.0):
+    """Extract 25D RR, returning default (0.0) on missing data."""
+    val = _extract_metric(surface, tenor, "25D_RR")
+    return val if val is not None else default
+
+def extract_surface_bf25(surface, tenor, default=0.0):
+    """Extract 25D BF, returning default (0.0) on missing data."""
+    val = _extract_metric(surface, tenor, "25D_BF")
+    return val if val is not None else default
+
+
 
 

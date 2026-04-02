@@ -182,10 +182,17 @@ class BloombergFetcher(threading.Thread):
             # Must cover ALL tenor/metric combos the dashboard requests,
             # otherwise cache-only mode blocks Dash callbacks from fetching
             vol_combos = [
-                ("1M", "ATM"), ("2M", "ATM"), ("3M", "ATM"),
-                ("6M", "ATM"), ("1Y", "ATM"), ("2Y", "ATM"),
-                ("1M", "25D_RR"), ("3M", "25D_RR"),
-                ("1M", "25D_BF"), ("3M", "25D_BF"),
+                # ATM across key tenors
+                ("1W", "ATM"), ("1M", "ATM"), ("2M", "ATM"), ("3M", "ATM"),
+                ("6M", "ATM"), ("9M", "ATM"), ("1Y", "ATM"), ("2Y", "ATM"),
+                # 25D RR / BF for key tenors (needed for history mode surface reconstruction)
+                ("1M", "25D_RR"), ("2M", "25D_RR"), ("3M", "25D_RR"),
+                ("6M", "25D_RR"), ("1Y", "25D_RR"),
+                ("1M", "25D_BF"), ("2M", "25D_BF"), ("3M", "25D_BF"),
+                ("6M", "25D_BF"), ("1Y", "25D_BF"),
+                # 10D wings for key tenors
+                ("1M", "10D_RR"), ("3M", "10D_RR"),
+                ("1M", "10D_BF"), ("3M", "10D_BF"),
             ]
             for pair in pairs:
                 for tenor, metric in vol_combos:

@@ -759,11 +759,11 @@ def serve_layout():
     return html.Div([
 
         # ── Global State Stores ──
-        dcc.Store(id="global-pair",  data="EURUSD"),
+        dcc.Store(id="global-pair", storage_type="local", data="EURUSD"),
         dcc.Store(id="preset-result", data=None),
         dcc.Store(id="cmd-nav-result", data=None),
-        dcc.Store(id="global-tenor", data="3M"),
-        dcc.Store(id="watchlist-store", data=DEFAULT_WATCHLIST),
+        dcc.Store(id="global-tenor", storage_type="local", data="3M"),
+        dcc.Store(id="watchlist-store", storage_type="local", data=DEFAULT_WATCHLIST),
         dcc.Store(id="metric-popup-data", data=None),
         dcc.Store(id="global-portfolio-version", data=0),  # Incremented on trade execution
         dcc.Store(id="stb-to-blotter-store", data=None),  # Structure Builder → Blotter transfer
@@ -1061,6 +1061,29 @@ app.clientside_callback(
     """function(pair) { return pair || window.dash_clientside.no_update; }""",
     Output("global-pair", "data", allow_duplicate=True),
     Input("fxrisk-selected-pair", "data"),
+    prevent_initial_call=True,
+)
+
+# Market Dashboard → "Send to Vol" / "Send to Trade" right-click navigation
+# Routes through cmd-nav-result so render_subtabs picks up the target tab
+app.clientside_callback(
+    """function(data) {
+        if (!data || !data.pair || !data.target) {
+            return [window.dash_clientside.no_update, window.dash_clientside.no_update, window.dash_clientside.no_update];
+        }
+        var ws = data.target === 'trade' ? 'trade' : 'vol';
+        var tab = data.target === 'trade' ? 'structure-builder' : 'vol-surface-fx';
+        // Directly push pair to target panel dropdown — the global-pair sync
+        // callback reads sub-tabs State which is still the OLD tab at this point,
+        // so it would push to the wrong dropdown without this explicit set_props.
+        var targetDropdown = data.target === 'trade' ? 'stb-pair' : 'vsfx-pair';
+        window.dash_clientside.set_props(targetDropdown, {value: data.pair});
+        return [{workspace: ws, tab: tab, ts: data.ts}, ws, data.pair];
+    }""",
+    [Output("cmd-nav-result", "data", allow_duplicate=True),
+     Output("workspace-tabs", "value", allow_duplicate=True),
+     Output("global-pair", "data", allow_duplicate=True)],
+    Input("mdash-send-to", "data"),
     prevent_initial_call=True,
 )
 
@@ -1425,7 +1448,7 @@ if __name__ == "__main__":
         from core.bg_fetcher import BloombergFetcher
         from core.bloomberg_fx import set_cache_only_mode
         print("  Starting background data fetcher...")
-        _bg_fetcher = BloombergFetcher(interval=120, historical_interval=3600)
+        _bg_fetcher = BloombergFetcher(interval=600, historical_interval=86400)
         _bg_fetcher.start()
         _bg_fetcher.wait_for_first_cycle(timeout=180)
         if _bg_fetcher.first_cycle_ok:

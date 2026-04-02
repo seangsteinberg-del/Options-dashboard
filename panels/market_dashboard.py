@@ -34,10 +34,13 @@ from core.theme import (
     LABEL_STYLE, DROPDOWN_STYLE, TAB_STYLE, TAB_SELECTED_STYLE,
     TABLE_HEADER_STYLE, TABLE_CELL_STYLE, clickable_stat, make_stat_style,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG, CSV_BTN_STYLE,
-    no_data_fig,
+    no_data_fig, chart_layout,
 )
 from core.csv_export import export_csv
-from core.fx_conventions import FX_PAIR_REGISTRY, tenor_to_days
+from core.fx_conventions import (
+    FX_PAIR_REGISTRY, tenor_to_days, ALL_PAIRS, G10_PAIRS, EM_PAIRS,
+    safe_float as _sf,
+)
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -46,11 +49,6 @@ _P = "mdash"  # prefix for all IDs
 _MONO = "'JetBrains Mono', monospace"
 _CHART_H = CHART_MD
 _SMALL_H = CHART_SM
-
-ALL_PAIRS = sorted(FX_PAIR_REGISTRY.keys())
-
-G10_PAIRS = [p for p in ALL_PAIRS if FX_PAIR_REGISTRY[p].group == "G10"]
-EM_PAIRS  = [p for p in ALL_PAIRS if p not in G10_PAIRS]
 
 # Central bank calendar (static dates, rotated quarterly)
 _CB_BANKS = {
@@ -92,15 +90,6 @@ def _ordinal(n):
     else:
         suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
     return f"{n}{suffix}"
-
-
-def _sf(v, d=0.0):
-    """Safe float."""
-    try:
-        f = float(v)
-        return d if (np.isnan(f) or np.isinf(f)) else f
-    except Exception:
-        return d
 
 
 def _fmt_spot(pair: str, spot: float) -> str:
@@ -566,7 +555,7 @@ def _build_vol_index_chart(pairs):
         fig.add_trace(go.Scatter(x=[len(index)-1], y=[float(index[-1])],
                                  mode="markers", marker=dict(color="#ff8800", size=7),
                                  showlegend=False))
-        fig.update_layout(**_chart_layout( height=_CHART_H,
+        fig.update_layout(**chart_layout( height=_CHART_H,
                           margin=dict(l=50, r=15, t=35, b=28), showlegend=False,
                           title=dict(text="G10 VOL INDEX (60D)", font=dict(size=10, color="#9a9ab0")),
                           xaxis_title="Trading Days", yaxis_title="Vol (%)"))
@@ -602,7 +591,7 @@ def _build_skew_chart(pairs):
                                 marker_color=colors, text=[f"{r:+.1f}" for r in rrs],
                                 textposition="outside", textfont=dict(size=8, color="#e0e0e0"),
                                 hovertemplate="%{y}: %{x:+.2f}v<br>Skew: %{text}<extra></extra>"))
-        fig.update_layout(**_chart_layout( height=_SMALL_H,
+        fig.update_layout(**chart_layout( height=_SMALL_H,
                           margin=dict(l=55, r=10, t=25, b=10), showlegend=False,
                           title=dict(text="25D RR (SKEW)", font=dict(size=10, color="#9a9ab0")),
                           xaxis=dict(zeroline=True, zerolinecolor="#9a9ab0", zerolinewidth=1,
@@ -645,7 +634,7 @@ def _build_term_chart(pairs):
                                 textposition="outside", textfont=dict(size=8, color="#e0e0e0"),
                                 customdata=[[d["spread"]] for d in data],
                                 hovertemplate="%{y}: %{x:+.2f}v<br>%{text}<extra>1M-1Y Spread</extra>"))
-        fig.update_layout(**_chart_layout( height=_SMALL_H,
+        fig.update_layout(**chart_layout( height=_SMALL_H,
                           margin=dict(l=55, r=10, t=25, b=10), showlegend=False,
                           title=dict(text="1M-1Y SPREAD", font=dict(size=10, color="#9a9ab0")),
                           xaxis=dict(zeroline=True, zerolinecolor="#9a9ab0", zerolinewidth=1,
@@ -698,7 +687,7 @@ def _build_vol_richness_heatmap(pairs):
             hovertemplate="<b>%{y}</b> %{x}<br>Percentile: %{z:.0f}<extra></extra>",
             xgap=2, ygap=2,
         ))
-        fig.update_layout(**_chart_layout(
+        fig.update_layout(**chart_layout(
             height=CHART_SM,
             margin=dict(l=65, r=10, t=30, b=25), showlegend=False,
             title=dict(text="VOL RICHNESS (% ILE)", font=dict(size=10, color="#9a9ab0")),
@@ -711,18 +700,12 @@ def _build_vol_richness_heatmap(pairs):
         return _empty_fig("VOL RICHNESS", _SMALL_H, "No percentile data")
 
 
-def _chart_layout(**overrides):
-    """Merge CHART_TEMPLATE with overrides including deep-merged axes."""
-    from core.theme import chart_layout
-    return chart_layout(**overrides)
-
-
 def _empty_fig(title="", height=_CHART_H, msg="LOADING"):
     fig = go.Figure()
     for y in [0.2, 0.4, 0.6, 0.8]:
         fig.add_shape(type="line", x0=0, x1=1, y0=y, y1=y,
                       xref="paper", yref="paper", line=dict(color="#0d0d1a", width=1))
-    fig.update_layout(**_chart_layout(
+    fig.update_layout(**chart_layout(
         height=height, margin=dict(l=20, r=10, t=30, b=10),
         title=dict(text=title, font=dict(size=10, color="#9a9ab0")),
         annotations=[dict(text=msg, x=0.5, y=0.5, showarrow=False,
@@ -736,8 +719,28 @@ def _empty_fig(title="", height=_CHART_H, msg="LOADING"):
 def layout():
     return html.Div([
         dcc.Store(id=f"{_P}-selected-pair", data=None),
+        dcc.Store(id=f"{_P}-send-to", data=None),  # {"pair": "EURUSD", "target": "vol"|"trade"}
         dcc.Interval(id=f"{_P}-interval", interval=120_000, n_intervals=0),
         dcc.Download(id=f"{_P}-csv-download"),
+
+        # ── Right-click context menu (hidden until triggered) ──
+        html.Div(id=f"{_P}-ctx-menu", children=[
+            html.Div("SEND TO VOL", id=f"{_P}-ctx-vol", n_clicks=0,
+                     style={"padding": "6px 16px", "cursor": "pointer",
+                            "color": "#e0e0e0", "fontSize": "10px",
+                            "fontFamily": _MONO, "letterSpacing": "1px",
+                            "borderBottom": "1px solid #2d2d50"}),
+            html.Div("SEND TO TRADE", id=f"{_P}-ctx-trade", n_clicks=0,
+                     style={"padding": "6px 16px", "cursor": "pointer",
+                            "color": "#e0e0e0", "fontSize": "10px",
+                            "fontFamily": _MONO, "letterSpacing": "1px"}),
+        ], style={
+            "display": "none", "position": "fixed", "zIndex": "9999",
+            "backgroundColor": "#111111", "border": "1px solid #ff8800",
+            "minWidth": "140px",
+        }),
+        # Hidden store for context menu target pair
+        dcc.Store(id=f"{_P}-ctx-pair", data=None),
 
         # ── Title + Controls ──
         html.Div([
@@ -783,8 +786,7 @@ def layout():
         html.Div([
             # Left column: movers table
             html.Div([
-                html.Div(id=f"{_P}-movers", style={"overflowY": "auto", "overflowX": "auto",
-                                                     "maxHeight": "620px"}),
+                html.Div(id=f"{_P}-movers"),
             ], style={"flex": "3", "minWidth": "600px", "border": "1px solid #2d2d50",
                        "padding": GAP}),
 
@@ -819,15 +821,18 @@ def layout():
                           style={"height": f"{CHART_SM}px"}),
             ], style={"flex": "1", "border": "1px solid #2d2d50"}),
 
-            # Right: events + positioning
+            # Right: events + positioning side-by-side
             html.Div([
                 html.Div("EVENTS & POSITIONING", style={
                     "color": "#9a9ab0", "fontSize": "10px", "fontWeight": "700",
                     "letterSpacing": "1.5px", "padding": f"{GAP} 10px",
                     "fontFamily": _MONO, "borderBottom": "1px solid #2d2d50",
                 }),
-                html.Div(id=f"{_P}-events", style={"padding": f"{GAP}"}),
-                html.Div(id=f"{_P}-positioning", style={"padding": f"{GAP}"}),
+                html.Div([
+                    html.Div(id=f"{_P}-events", style={"flex": "1", "padding": f"{GAP}",
+                             "borderRight": "1px solid #2d2d50"}),
+                    html.Div(id=f"{_P}-positioning", style={"flex": "1", "padding": f"{GAP}"}),
+                ], style={"display": "flex", "gap": "0px"}),
             ], style={"flex": "1", "border": "1px solid #2d2d50"}),
         ], style={"display": "flex", "gap": GAP, "marginTop": SECTION_GAP}),
 
@@ -863,20 +868,34 @@ def _render_kpis(kpis):
     return boxes
 
 
+_SUBGROUP_RANK = {"Majors": 0, "Crosses": 1, "Scandies": 2, "Asia": 3, "LatAm": 4, "CEEMEA": 5}
+
+def _pair_importance(pair):
+    """Return (group_rank, subgroup_rank, liquidity_tier) for priority sorting.
+    G10 Majors first, then Crosses, Scandies, then EM by region."""
+    spec = FX_PAIR_REGISTRY.get(pair)
+    if not spec:
+        return (9, 9, 9)
+    group_rank = 0 if spec.group == "G10" else 1
+    sub_rank = _SUBGROUP_RANK.get(spec.subgroup, 8)
+    return (group_rank, sub_rank, spec.liquidity_tier)
+
+
 def _render_movers_table(rows, sort_key):
     """Render the movers HTML table."""
+    # Always sort by importance (G10 majors first), then by selected metric within each tier
     if sort_key == "spot":
-        rows.sort(key=lambda r: (abs(r.get("chg_pct", 0)), r.get("pair", "")), reverse=True)
+        rows.sort(key=lambda r: (_pair_importance(r["pair"]), -abs(r.get("chg_pct", 0))))
     elif sort_key == "vol":
-        rows.sort(key=lambda r: (abs(r.get("vol_chg", 0)), r.get("pair", "")), reverse=True)
+        rows.sort(key=lambda r: (_pair_importance(r["pair"]), -abs(r.get("vol_chg", 0))))
     elif sort_key == "atm":
-        rows.sort(key=lambda r: (r.get("atm_1m", 0), r.get("pair", "")), reverse=True)
+        rows.sort(key=lambda r: (_pair_importance(r["pair"]), -r.get("atm_1m", 0)))
     elif sort_key == "pctile":
-        rows.sort(key=lambda r: (r.get("pctile", 50), r.get("pair", "")), reverse=True)
+        rows.sort(key=lambda r: (_pair_importance(r["pair"]), -r.get("pctile", 50)))
     elif sort_key == "ivrv":
-        rows.sort(key=lambda r: (abs(r.get("iv_rv", 0)), r.get("pair", "")), reverse=True)
+        rows.sort(key=lambda r: (_pair_importance(r["pair"]), -abs(r.get("iv_rv", 0))))
     else:
-        rows.sort(key=lambda r: r.get("pair", ""))
+        rows.sort(key=lambda r: _pair_importance(r["pair"]))
 
     header = html.Tr([
         html.Th(h, style=TABLE_HEADER_STYLE)
@@ -912,21 +931,21 @@ def _render_movers_table(rows, sort_key):
         spot_spark = r.get("spot_spark", "\u2014")
         vol_spark = r.get("vol_spark", "\u2014")
 
-        body_rows.append(html.Tr([
+        body_rows.append(html.Tr(id={"type": f"{_P}-tr", "index": r["pair"]}, children=[
             html.Td(r["pair"], style={**TABLE_CELL_STYLE, "fontWeight": "700",
                                        "color": "#e0e0e0", "cursor": "pointer"},
                     id={"type": f"{_P}-row-click", "index": r["pair"]}),
             html.Td(_fmt_spot(r['pair'], r['spot']), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r['chg_pct'], "+.2f", "%"), style={**TABLE_CELL_STYLE, "color": chg_color}),
             html.Td(spot_spark, style={**TABLE_CELL_STYLE, "color": chg_color,
-                     "fontSize": "20px", "letterSpacing": "-1px", "lineHeight": "0.8", "padding": "0px 3px",
-                     "verticalAlign": "bottom"}),
+                     "fontSize": "16px", "letterSpacing": "-1px", "lineHeight": "1",
+                     "padding": "2px 3px", "verticalAlign": "middle"}),
             html.Td(_sf_display(r['atm_1m'], ".1f", "v"), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r.get('atm_3m', 0), ".1f", "v"), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r['vol_chg'], "+.2f", "v"), style={**TABLE_CELL_STYLE, "color": vol_color}),
             html.Td(vol_spark, style={**TABLE_CELL_STYLE, "color": COLORS["accent_orange"],
-                     "fontSize": "20px", "letterSpacing": "-1px", "lineHeight": "0.8", "padding": "0px 3px",
-                     "verticalAlign": "bottom"}),
+                     "fontSize": "16px", "letterSpacing": "-1px", "lineHeight": "1",
+                     "padding": "2px 3px", "verticalAlign": "middle"}),
             html.Td(_sf_display(r.get('vol_mom', 0), "+.1f", "%"), style={**TABLE_CELL_STYLE,
                      "color": COLORS["accent_red"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) > 2 else
                               COLORS["accent_green"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) < -2 else "#9a9ab0"}),
@@ -938,7 +957,7 @@ def _render_movers_table(rows, sort_key):
         ]))
 
     return html.Table([html.Thead(header), html.Tbody(body_rows)],
-                      style={"width": "max-content", "minWidth": "100%",
+                      style={"width": "100%",
                              "borderCollapse": "collapse",
                              "fontFamily": _MONO, "fontSize": "11px",
                              "whiteSpace": "nowrap"})
@@ -968,28 +987,28 @@ def _render_events(events):
 
 
 def _render_positioning(extremes):
-    """Render positioning extremes with severity distinction."""
+    """Render positioning extremes as a compact table."""
     if not extremes:
         return html.Div("No positioning extremes",
                         style={"color": "#9a9ab0", "fontSize": "10px"})
 
-    items = []
+    _cs = {**TABLE_CELL_STYLE, "fontSize": "9px", "padding": "2px 6px"}
+    header = html.Tr([html.Th(h, style={**TABLE_HEADER_STYLE, "fontSize": "8px", "padding": "3px 6px"})
+                       for h in ["PAIR", "Z", "DIR", "SEV"]])
+    body = []
     for e in extremes:
         color = COLORS["accent_red"] if e["direction"] == "RICH" else "#1565c0"
         severity = e.get("severity", "NOTABLE")
-        opacity = "1.0" if severity == "EXTREME" else "0.6"
-        items.append(html.Div([
-            html.Span(e["pair"], style={"color": "#e0e0e0", "fontWeight": "700",
-                                         "marginRight": "8px", "fontSize": "10px"}),
-            html.Span(f"z={e['z']:+.1f}", style={"color": color, "fontWeight": "600",
-                                                    "fontSize": "10px", "marginRight": "6px",
-                                                    "opacity": opacity}),
-            html.Span(e["direction"], style={"color": color, "fontSize": "9px",
-                                              "letterSpacing": "1px", "marginRight": "6px"}),
-            html.Span(severity, style={"color": COLORS["text_muted"], "fontSize": "8px",
-                                        "fontWeight": "600" if severity == "EXTREME" else "400"}),
-        ], style={"padding": "2px 0"}))
-    return html.Div(items)
+        body.append(html.Tr([
+            html.Td(e["pair"], style={**_cs, "fontWeight": "700", "color": "#e0e0e0"}),
+            html.Td(f"{e['z']:+.1f}", style={**_cs, "color": color, "fontWeight": "600"}),
+            html.Td(e["direction"], style={**_cs, "color": color}),
+            html.Td(severity[:3], style={**_cs, "color": "#e0e0e0" if severity == "EXTREME" else "#9a9ab0",
+                                          "fontWeight": "600" if severity == "EXTREME" else "400"}),
+        ]))
+    return html.Table([html.Thead(header), html.Tbody(body)],
+                      style={"width": "100%", "borderCollapse": "collapse",
+                             "fontFamily": _MONO, "fontSize": "9px"})
 
 
 # ── Callbacks ────────────────────────────────────────────────────────────────
@@ -1093,6 +1112,80 @@ def register_callbacks(app):
             return id_dict["index"]
         except Exception:
             raise PreventUpdate
+
+    # ── Right-click context menu: attach handler + show/hide ──────────
+    app.clientside_callback(
+        """
+        function(children) {
+            // Attach right-click handler to pair cells in movers table
+            setTimeout(function() {
+                var menu = document.getElementById('mdash-ctx-menu');
+                if (!menu) return;
+
+                // Close menu on any click
+                document.removeEventListener('click', window._mdashCloseCtx);
+                window._mdashCloseCtx = function() { menu.style.display = 'none'; };
+                document.addEventListener('click', window._mdashCloseCtx);
+
+                // Attach contextmenu to entire table rows
+                var rows = document.querySelectorAll('[id*="mdash-tr"]');
+                rows.forEach(function(row) {
+                    row.oncontextmenu = function(e) {
+                        e.preventDefault();
+                        var idStr = row.getAttribute('id');
+                        try {
+                            var idObj = JSON.parse(idStr);
+                            window._mdashCtxPair = idObj.index;
+                        } catch(ex) {
+                            window._mdashCtxPair = '';
+                        }
+                        menu.style.display = 'block';
+                        menu.style.left = e.clientX + 'px';
+                        menu.style.top = e.clientY + 'px';
+                    };
+                });
+            }, 100);
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output(f"{_P}-ctx-pair", "data"),
+        Input(f"{_P}-movers", "children"),
+        prevent_initial_call=True,
+    )
+
+    # Context menu: Send to Vol
+    app.clientside_callback(
+        """
+        function(n) {
+            if (!n) return window.dash_clientside.no_update;
+            var pair = window._mdashCtxPair;
+            if (!pair) return window.dash_clientside.no_update;
+            var menu = document.getElementById('mdash-ctx-menu');
+            if (menu) menu.style.display = 'none';
+            return {pair: pair, target: 'vol', ts: Date.now()};
+        }
+        """,
+        Output(f"{_P}-send-to", "data", allow_duplicate=True),
+        Input(f"{_P}-ctx-vol", "n_clicks"),
+        prevent_initial_call=True,
+    )
+
+    # Context menu: Send to Trade
+    app.clientside_callback(
+        """
+        function(n) {
+            if (!n) return window.dash_clientside.no_update;
+            var pair = window._mdashCtxPair;
+            if (!pair) return window.dash_clientside.no_update;
+            var menu = document.getElementById('mdash-ctx-menu');
+            if (menu) menu.style.display = 'none';
+            return {pair: pair, target: 'trade', ts: Date.now()};
+        }
+        """,
+        Output(f"{_P}-send-to", "data", allow_duplicate=True),
+        Input(f"{_P}-ctx-trade", "n_clicks"),
+        prevent_initial_call=True,
+    )
 
     # ── CSV Export ──────────────────────────────────────────────────────
     @app.callback(

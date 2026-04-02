@@ -11,8 +11,11 @@ Institutional FX options risk panel with 5 tabbed views:
 Plus 8 KPI stat boxes and a persistent position table at the bottom.
 """
 
+import logging
 import dash
 from dash import html, dcc, Input, Output, State, no_update, dash_table, callback_context
+
+logger = logging.getLogger(__name__)
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -25,7 +28,7 @@ from core.theme import (
     DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
     clickable_stat, chart_layout, CSV_BTN_STYLE,
-    no_data_fig,
+    no_data_fig, CS_PNL_DIVERGING,
 )
 from core.csv_export import export_csv
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs
@@ -730,9 +733,8 @@ def _build_risk_treemap(positions):
         values=values,
         marker=dict(
             colors=colors,
-            colorscale=[[0, "#ff3333"], [0.3, "#330000"], [0.5, "#0e0e0e"],
-                        [0.7, "#003300"], [1.0, "#00cc66"]],
-            cmid=0,
+            colorscale=CS_PNL_DIVERGING,
+            zmid=0,
             colorbar=dict(title=dict(text="P&L", font=dict(color="#9a9ab0", size=10)),
                           tickfont=dict(color="#9a9ab0", size=9),
                           len=0.6, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)"),
@@ -870,9 +872,8 @@ def _build_greeks_landscape(positions, pair, spots, rates, vol_surfaces):
 
     fig = go.Figure(data=go.Surface(
         x=spot_range, y=time_range, z=delta_grid,
-        colorscale=[[0, "#ff3333"], [0.3, "#330000"], [0.5, "#0e0e0e"],
-                    [0.7, "#003300"], [1.0, "#00cc66"]],
-        cmid=0, opacity=0.92,
+        colorscale=CS_PNL_DIVERGING,
+        zmid=0, opacity=0.92,
         colorbar=dict(title=dict(text="Delta ($)", font=dict(color="#9a9ab0", size=10)),
                       tickfont=dict(color="#9a9ab0", size=9),
                       len=0.6, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)"),
@@ -934,9 +935,8 @@ def _build_gex_heatmap(positions):
 
     fig = go.Figure(data=go.Heatmap(
         x=tenor_buckets, y=pairs, z=z.tolist(),
-        colorscale=[[0, "#ff3333"], [0.3, "#330000"], [0.5, "#0e0e0e"],
-                    [0.7, "#003300"], [1.0, "#00cc66"]],
-        cmid=0,
+        colorscale=CS_PNL_DIVERGING,
+        zmid=0,
         text=text, texttemplate="%{text}",
         textfont=dict(size=10, color="#d0d0d0"),
         hovertemplate="Pair: %{y}<br>Bucket: %{x}<br>Gamma $: %{z:,.0f}<extra></extra>",

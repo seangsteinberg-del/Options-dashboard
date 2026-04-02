@@ -157,6 +157,31 @@ def pair_groups() -> Dict[str, List[str]]:
 
 
 # ============================================================================
+# Shared Constants & Utilities
+# ============================================================================
+
+# Pre-computed pair group constants
+ALL_PAIRS = sorted(FX_PAIR_REGISTRY.keys())
+G10_PAIRS = [p for p in ALL_PAIRS if FX_PAIR_REGISTRY[p].group == "G10"]
+EM_PAIRS  = [p for p in ALL_PAIRS if p not in G10_PAIRS]
+
+MONITOR_PAIRS = [
+    "EURUSD", "USDJPY", "GBPUSD", "USDCHF", "AUDUSD",
+    "NZDUSD", "USDCAD", "EURGBP", "EURJPY", "GBPJPY",
+    "USDMXN", "USDZAR", "USDTRY", "USDCNH", "USDSGD",
+]
+
+
+def safe_float(v, d=0.0):
+    """Safe float conversion — returns d for None, NaN, Inf, or non-numeric values."""
+    try:
+        f = float(v)
+        return d if (np.isnan(f) or np.isinf(f)) else f
+    except Exception:
+        return d
+
+
+# ============================================================================
 # Garman-Kohlhagen Helpers
 # ============================================================================
 
