@@ -1149,21 +1149,25 @@ def layout():
             html.Div([
                 html.Div([
                     html.Button("CSV", id=f"{_P}-csv-vol-spread", n_clicks=0, style=CSV_BTN_STYLE),
-                    dcc.Graph(id=f"{_P}-vol-spread", config={"displayModeBar": False, "responsive": True}),
+                    dcc.Graph(id=f"{_P}-vol-spread", config={"displayModeBar": False, "responsive": True},
+                              style={"height": "320px"}),
                 ], style={"flex": "1", "minWidth": "350px"}),
                 html.Div([
                     html.Button("CSV", id=f"{_P}-csv-skew-scatter", n_clicks=0, style=CSV_BTN_STYLE),
-                    dcc.Graph(id=f"{_P}-skew-scatter", config={"displayModeBar": False, "responsive": True}),
+                    dcc.Graph(id=f"{_P}-skew-scatter", config={"displayModeBar": False, "responsive": True},
+                              style={"height": "320px"}),
                 ], style={"flex": "1", "minWidth": "350px"}),
             ], style={"display": "flex", "gap": GAP}),
             html.Div([
                 html.Div([
                     html.Button("CSV", id=f"{_P}-csv-zscore", n_clicks=0, style=CSV_BTN_STYLE),
-                    dcc.Graph(id=f"{_P}-zscore-matrix", config={"displayModeBar": False, "responsive": True}),
+                    dcc.Graph(id=f"{_P}-zscore-matrix", config={"displayModeBar": False, "responsive": True},
+                              style={"height": "320px"}),
                 ], style={"flex": "1", "minWidth": "350px"}),
                 html.Div([
                     html.Button("CSV", id=f"{_P}-csv-ivrv", n_clicks=0, style=CSV_BTN_STYLE),
-                    dcc.Graph(id=f"{_P}-ivrv-panel", config={"displayModeBar": False, "responsive": True}),
+                    dcc.Graph(id=f"{_P}-ivrv-panel", config={"displayModeBar": False, "responsive": True},
+                              style={"height": "320px"}),
                 ], style={"flex": "1", "minWidth": "350px"}),
             ], style={"display": "flex", "gap": GAP, "marginTop": GAP}),
             # Signal table
@@ -1189,7 +1193,7 @@ def layout():
                     ], style={"display": "flex", "alignItems": "center", "gap": GAP, "marginBottom": GAP}),
                     html.Button("CSV", id=f"{_P}-csv-corr", n_clicks=0, style=CSV_BTN_STYLE),
                     dcc.Graph(id=f"{_P}-corr-heatmap", config={"displayModeBar": False, "responsive": True},
-                              style={"height": f"{CHART_LG}px"}),
+                              style={"height": "600px"}),
                 ], style={"flex": "3"}),
                 html.Div([
                     html.Div("VOL REGIME", style={
@@ -1259,11 +1263,13 @@ def layout():
                 html.Div([
                     html.Div([
                         html.Button("CSV", id=f"{_P}-csv-carry-term", n_clicks=0, style=CSV_BTN_STYLE),
-                        dcc.Graph(id=f"{_P}-carry-term", config={"displayModeBar": False, "responsive": True}),
+                        dcc.Graph(id=f"{_P}-carry-term", config={"displayModeBar": False, "responsive": True},
+                                  style={"height": "300px"}),
                     ], style={"flex": "1", "minWidth": "350px"}),
                     html.Div([
                         html.Button("CSV", id=f"{_P}-csv-carry-fwd", n_clicks=0, style=CSV_BTN_STYLE),
-                        dcc.Graph(id=f"{_P}-carry-fwd", config={"displayModeBar": False, "responsive": True}),
+                        dcc.Graph(id=f"{_P}-carry-fwd", config={"displayModeBar": False, "responsive": True},
+                                  style={"height": "300px"}),
                     ], style={"flex": "1", "minWidth": "350px"}),
                 ], style={"display": "flex", "gap": GAP}),
                 html.Button("CSV", id=f"{_P}-csv-carry-cal", n_clicks=0, style=CSV_BTN_STYLE),

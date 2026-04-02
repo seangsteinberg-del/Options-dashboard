@@ -259,11 +259,11 @@ def _build_movers(pairs):
                 hist_spot = get_fx_historical_spot(pair, days=7)
                 if hist_spot is not None and not hist_spot.empty and "close" in hist_spot.columns:
                     spot_vals = hist_spot["close"].dropna().tolist()[-5:]
-                    spot_spark = _spark_chars(spot_vals, width=5)
+                    spot_spark = _spark_chars(spot_vals, width=7)
                 hist_vol = get_fx_historical_vol(pair, "1M", "atm", days=7)
                 if hist_vol is not None and len(hist_vol) >= 2:
                     vol_vals = hist_vol.dropna().tolist()[-5:]
-                    vol_spark = _spark_chars(vol_vals, width=5)
+                    vol_spark = _spark_chars(vol_vals, width=7)
             except Exception:
                 pass
 
@@ -918,12 +918,12 @@ def _render_movers_table(rows, sort_key):
             html.Td(_fmt_spot(r['pair'], r['spot']), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r['chg_pct'], "+.2f", "%"), style={**TABLE_CELL_STYLE, "color": chg_color}),
             html.Td(spot_spark, style={**TABLE_CELL_STYLE, "color": chg_color,
-                     "fontSize": "10px", "letterSpacing": "1px"}),
+                     "fontSize": "14px", "letterSpacing": "0px", "lineHeight": "1", "padding": "2px 4px"}),
             html.Td(_sf_display(r['atm_1m'], ".1f", "v"), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r.get('atm_3m', 0), ".1f", "v"), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r['vol_chg'], "+.2f", "v"), style={**TABLE_CELL_STYLE, "color": vol_color}),
             html.Td(vol_spark, style={**TABLE_CELL_STYLE, "color": COLORS["accent_orange"],
-                     "fontSize": "10px", "letterSpacing": "1px"}),
+                     "fontSize": "14px", "letterSpacing": "0px", "lineHeight": "1", "padding": "2px 4px"}),
             html.Td(_sf_display(r.get('vol_mom', 0), "+.1f", "%"), style={**TABLE_CELL_STYLE,
                      "color": COLORS["accent_red"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) > 2 else
                               COLORS["accent_green"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) < -2 else "#9a9ab0"}),

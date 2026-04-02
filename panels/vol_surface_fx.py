@@ -542,25 +542,17 @@ def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
     except Exception:
         pass
 
-    # Forward vol curve on secondary y-axis
+    # Forward vol curve (same y-axis — same units as ATM)
     try:
         fwd_df = forward_vol_curve(pair, start_tenor="1M")
         if not fwd_df.empty:
             fig.add_trace(go.Scatter(
                 x=fwd_df["end_tenor"], y=fwd_df["forward_vol"],
-                mode="lines+markers", name="Forward Vol",
+                mode="lines+markers", name="Forward Vol (from 1M)",
                 line=dict(color=COLORS["accent_orange"], width=2, dash="dashdot"),
-                marker=dict(size=5, symbol="diamond"),
-                yaxis="y2",
+                marker=dict(size=6, symbol="diamond", color=COLORS["accent_orange"]),
+                hovertemplate="<b>%{x}</b><br>Fwd Vol: %{y:.2f}%<extra>Forward</extra>",
             ))
-            fig.update_layout(
-                yaxis2=dict(
-                    title="Forward Vol (%)", overlaying="y", side="right",
-                    gridcolor="#1a1a30",
-                    tickfont=dict(size=10, color=COLORS["accent_orange"]),
-                    title_font=dict(color=COLORS["accent_orange"], size=11),
-                ),
-            )
     except Exception:
         pass
 
@@ -574,17 +566,25 @@ def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
 
 @_safe_chart
 def chart_skew_rr(pair, sd, spot, r_dom, r_for, **kw):
-    """4. Skew Profile (25D RR) -- bar chart with percentile coloring."""
+    """4. Skew Profile (25D RR) -- line chart with 1Y range ribbon."""
     tenors = sd["tenors"]
     rr_vals = sd["rr25"]
 
-    # Get percentiles for color intensity
     pctiles = []
+    p_mins = []
+    p_maxs = []
     for t in tenors:
         p = vol_percentile(pair, t, "25D_RR")
-        pctiles.append(p.get("percentile", 50.0) if isinstance(p, dict) else 50.0)
+        if isinstance(p, dict):
+            pctiles.append(p.get("percentile", 50.0))
+            p_mins.append(p.get("min", 0))
+            p_maxs.append(p.get("max", 0))
+        else:
+            pctiles.append(50.0)
+            p_mins.append(rr_vals[tenors.index(t)] if t in tenors else 0)
+            p_maxs.append(rr_vals[tenors.index(t)] if t in tenors else 0)
 
-    # Color by percentile: deep blue (low) to red (high)
+    # Percentile-based marker colors
     colors = []
     for pct in pctiles:
         r = int(min(255, pct * 2.55))
@@ -592,26 +592,27 @@ def chart_skew_rr(pair, sd, spot, r_dom, r_for, **kw):
         colors.append(f"rgb({r},60,{b})")
 
     fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=tenors, y=rr_vals, name="25D RR",
-        marker=dict(color=colors, line=dict(width=1, color=COLORS["border"])),
-        text=[f"{v:+.2f}" if np.isfinite(v) else "" for v in rr_vals],
-        textposition="outside",
-        textfont=dict(size=10, color=COLORS["text_secondary"]),
-        hovertemplate="Tenor: %{x}<br>25D RR: %{y:.2f}<br>%ile: %{customdata:.0f}<extra></extra>",
-        customdata=pctiles,
+
+    # 1Y range ribbon (min-max band)
+    fig.add_trace(go.Scatter(
+        x=tenors + tenors[::-1],
+        y=p_maxs + p_mins[::-1],
+        fill="toself", fillcolor="rgba(255,136,0,0.08)",
+        line=dict(width=0), showlegend=True, name="1Y Range",
+        hoverinfo="skip",
     ))
 
-    # 1Y range whiskers
-    for i, t in enumerate(tenors):
-        p = vol_percentile(pair, t, "25D_RR")
-        if isinstance(p, dict):
-            p_min = p.get("min", rr_vals[i] if i < len(rr_vals) else 0)
-            p_max = p.get("max", rr_vals[i] if i < len(rr_vals) else 0)
-            fig.add_shape(type="line",
-                x0=i, x1=i, y0=p_min, y1=p_max,
-                line=dict(color=COLORS["text_muted"], width=1, dash="dot"),
-                xref="x", yref="y")
+    # Current RR line with percentile-colored markers
+    fig.add_trace(go.Scatter(
+        x=tenors, y=rr_vals, mode="lines+markers+text",
+        name="25D RR", line=dict(color=COLORS["accent_orange"], width=2.5),
+        marker=dict(size=10, color=colors, line=dict(width=2, color=COLORS["accent_orange"])),
+        text=[f"{v:+.2f}" if np.isfinite(v) else "" for v in rr_vals],
+        textposition="top center",
+        textfont=dict(size=10, color=COLORS["text_secondary"]),
+        hovertemplate="<b>%{x}</b><br>25D RR: %{y:+.2f}<br>%ile: %{customdata:.0f}<extra></extra>",
+        customdata=pctiles,
+    ))
 
     fig.add_hline(y=0, line=dict(color="#3a3a5c", width=0.8))
     _apply_chart_template(fig, f"25D Risk Reversal -- {pair}")
@@ -622,14 +623,23 @@ def chart_skew_rr(pair, sd, spot, r_dom, r_for, **kw):
 
 @_safe_chart
 def chart_smile_bf(pair, sd, spot, r_dom, r_for, **kw):
-    """5. Smile Curvature (25D BF) -- bar chart with percentile coloring."""
+    """5. Smile Curvature (25D BF) -- line chart with 1Y range ribbon."""
     tenors = sd["tenors"]
     bf_vals = sd["bf25"]
 
     pctiles = []
+    p_mins = []
+    p_maxs = []
     for t in tenors:
         p = vol_percentile(pair, t, "25D_BF")
-        pctiles.append(p.get("percentile", 50.0) if isinstance(p, dict) else 50.0)
+        if isinstance(p, dict):
+            pctiles.append(p.get("percentile", 50.0))
+            p_mins.append(p.get("min", 0))
+            p_maxs.append(p.get("max", 0))
+        else:
+            pctiles.append(50.0)
+            p_mins.append(bf_vals[tenors.index(t)] if t in tenors else 0)
+            p_maxs.append(bf_vals[tenors.index(t)] if t in tenors else 0)
 
     colors = []
     for pct in pctiles:
@@ -638,25 +648,27 @@ def chart_smile_bf(pair, sd, spot, r_dom, r_for, **kw):
         colors.append(f"rgb({r},60,{b})")
 
     fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=tenors, y=bf_vals, name="25D BF",
-        marker=dict(color=colors, line=dict(width=1, color=COLORS["border"])),
-        text=[f"{v:.2f}" if np.isfinite(v) else "" for v in bf_vals],
-        textposition="outside",
-        textfont=dict(size=10, color=COLORS["text_secondary"]),
-        hovertemplate="Tenor: %{x}<br>25D BF: %{y:.2f}<br>%ile: %{customdata:.0f}<extra></extra>",
-        customdata=pctiles,
+
+    # 1Y range ribbon
+    fig.add_trace(go.Scatter(
+        x=tenors + tenors[::-1],
+        y=p_maxs + p_mins[::-1],
+        fill="toself", fillcolor="rgba(255,136,0,0.08)",
+        line=dict(width=0), showlegend=True, name="1Y Range",
+        hoverinfo="skip",
     ))
 
-    for i, t in enumerate(tenors):
-        p = vol_percentile(pair, t, "25D_BF")
-        if isinstance(p, dict):
-            p_min = p.get("min", bf_vals[i] if i < len(bf_vals) else 0)
-            p_max = p.get("max", bf_vals[i] if i < len(bf_vals) else 0)
-            fig.add_shape(type="line",
-                x0=i, x1=i, y0=p_min, y1=p_max,
-                line=dict(color=COLORS["text_muted"], width=1, dash="dot"),
-                xref="x", yref="y")
+    # Current BF line with percentile-colored markers
+    fig.add_trace(go.Scatter(
+        x=tenors, y=bf_vals, mode="lines+markers+text",
+        name="25D BF", line=dict(color=COLORS["accent_cyan"], width=2.5),
+        marker=dict(size=10, color=colors, line=dict(width=2, color=COLORS["accent_cyan"])),
+        text=[f"{v:.2f}" if np.isfinite(v) else "" for v in bf_vals],
+        textposition="top center",
+        textfont=dict(size=10, color=COLORS["text_secondary"]),
+        hovertemplate="<b>%{x}</b><br>25D BF: %{y:.2f}<br>%ile: %{customdata:.0f}<extra></extra>",
+        customdata=pctiles,
+    ))
 
     _apply_chart_template(fig, f"25D Butterfly -- {pair}")
     fig.update_layout(xaxis=dict(title="Tenor", type="category"),

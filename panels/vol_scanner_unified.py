@@ -960,17 +960,17 @@ def layout():
                     html.Div([
                         html.Button("CSV", id=f"{_P}-csv-spark-atm", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id=f"{_P}-spark-atm", config={"displayModeBar": False, "responsive": True},
-                                  style={"flex": "1", "minWidth": "200px"}),
+                                  style={"height": "240px", "minWidth": "200px"}),
                     ], style={"flex": "1", "minWidth": "200px"}),
                     html.Div([
                         html.Button("CSV", id=f"{_P}-csv-spark-ivrv", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id=f"{_P}-spark-ivrv", config={"displayModeBar": False, "responsive": True},
-                                  style={"flex": "1", "minWidth": "200px"}),
+                                  style={"height": "240px", "minWidth": "200px"}),
                     ], style={"flex": "1", "minWidth": "200px"}),
                     html.Div([
                         html.Button("CSV", id=f"{_P}-csv-spark-term", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id=f"{_P}-spark-term", config={"displayModeBar": False, "responsive": True},
-                                  style={"flex": "1", "minWidth": "200px"}),
+                                  style={"height": "240px", "minWidth": "200px"}),
                     ], style={"flex": "1", "minWidth": "200px"}),
                 ], style={"display": "flex", "gap": GAP}),
             ]),
@@ -1013,17 +1013,17 @@ def layout():
                     html.Div([
                         html.Button("CSV", id=f"{_P}-csv-drill-atm", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id=f"{_P}-drill-atm", config={"displayModeBar": False, "responsive": True},
-                                  style={"flex": "1", "minWidth": "200px"}),
+                                  style={"height": "240px", "minWidth": "200px"}),
                     ], style={"flex": "1", "minWidth": "200px"}),
                     html.Div([
                         html.Button("CSV", id=f"{_P}-csv-drill-ivrv", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id=f"{_P}-drill-ivrv", config={"displayModeBar": False, "responsive": True},
-                                  style={"flex": "1", "minWidth": "200px"}),
+                                  style={"height": "240px", "minWidth": "200px"}),
                     ], style={"flex": "1", "minWidth": "200px"}),
                     html.Div([
                         html.Button("CSV", id=f"{_P}-csv-drill-cone", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id=f"{_P}-drill-cone", config={"displayModeBar": False, "responsive": True},
-                                  style={"flex": "1", "minWidth": "200px"}),
+                                  style={"height": "240px", "minWidth": "200px"}),
                     ], style={"flex": "1", "minWidth": "200px"}),
                     html.Div(id=f"{_P}-drill-stats", style={"minWidth": "120px"}),
                 ], style={"display": "flex", "gap": GAP}),
@@ -1050,12 +1050,12 @@ def layout():
                     html.Div([
                         html.Button("CSV", id=f"{_P}-csv-rr-spot", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id=f"{_P}-rr-spot", config={"displayModeBar": False, "responsive": True},
-                                  style={"flex": "1", "minWidth": "300px"}),
+                                  style={"height": "280px", "minWidth": "300px"}),
                     ], style={"flex": "1", "minWidth": "300px"}),
                     html.Div([
                         html.Button("CSV", id=f"{_P}-csv-smile", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id=f"{_P}-smile", config={"displayModeBar": False, "responsive": True},
-                                  style={"flex": "1", "minWidth": "300px"}),
+                                  style={"height": "280px", "minWidth": "300px"}),
                     ], style={"flex": "1", "minWidth": "300px"}),
                 ], style={"display": "flex", "gap": GAP}),
             ]),
