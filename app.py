@@ -63,7 +63,7 @@ from dash import html, dcc, Input, Output, State, callback_context, ALL, MATCH
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 
-from core.theme import COLORS, TAB_STYLE, TAB_SELECTED_STYLE, status_color, status_text, CHART_TEMPLATE
+from core.theme import COLORS, TAB_STYLE, TAB_SELECTED_STYLE, status_color, status_text, CHART_TEMPLATE, ordinal as _ordinal
 from core.bloomberg import is_connected
 from core.csv_export import set_downloads_dir
 
@@ -219,16 +219,6 @@ server = app.server
 # ═══════════════════════════════════════════════════════════════════════════
 # FX Ticker Tape
 # ═══════════════════════════════════════════════════════════════════════════
-
-def _ordinal(n):
-    """Return an integer as an ordinal string: 1 -> '1st', 23 -> '23rd'."""
-    n = int(n)
-    if 11 <= n % 100 <= 13:
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    return f"{n}{suffix}"
-
 
 def _fx_spot_data():
     """Fetch real FX spot data from Bloomberg. Returns empty dict if unavailable."""

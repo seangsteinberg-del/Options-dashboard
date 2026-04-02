@@ -34,7 +34,7 @@ from core.theme import (
     LABEL_STYLE, DROPDOWN_STYLE, TAB_STYLE, TAB_SELECTED_STYLE,
     TABLE_HEADER_STYLE, TABLE_CELL_STYLE, clickable_stat, make_stat_style,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG, CSV_BTN_STYLE,
-    no_data_fig, chart_layout,
+    no_data_fig, chart_layout, ordinal as _ordinal,
 )
 from core.csv_export import export_csv
 from core.fx_conventions import (
@@ -81,16 +81,6 @@ _previous_movers = {}  # Cache previous movers data for crossing detection
 
 
 # ── Safe helpers ─────────────────────────────────────────────────────────────
-
-def _ordinal(n):
-    """Return an integer as an ordinal string: 1 -> '1st', 23 -> '23rd'."""
-    n = int(n)
-    if 11 <= n % 100 <= 13:
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    return f"{n}{suffix}"
-
 
 def _fmt_spot(pair: str, spot: float) -> str:
     """Format spot price using pair convention (pip precision)."""

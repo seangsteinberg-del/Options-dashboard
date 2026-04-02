@@ -29,7 +29,7 @@ from core.theme import (
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
     CSV_BTN_STYLE, no_data_fig, chart_layout,
     CS_VOL_SURFACE, CS_DIVERGING_GR, CS_DIVERGING_RG,
-    safe_chart,
+    safe_chart, ordinal as _ordinal,
 )
 from core.csv_export import export_csv
 from core.bloomberg_fx import (
@@ -358,28 +358,14 @@ def _apply_chart_template(fig, title="", height=CHART_LG):
 
 
 def _empty_fig(msg="No data"):
-    """Return a blank figure with a message."""
-    fig = go.Figure()
-    fig.add_annotation(text=msg, xref="paper", yref="paper", x=0.5, y=0.5,
-                       showarrow=False, font=dict(color=COLORS["text_muted"], size=14))
-    _apply_chart_template(fig)
-    return fig
+    """Return a blank figure with a message, styled to match this panel."""
+    return no_data_fig(msg=msg)
 
 
 logger = logging.getLogger(__name__)
 
 
 _safe_chart = safe_chart
-
-
-def _ordinal(n):
-    """Return an integer as an ordinal string: 1 -> '1st', 23 -> '23rd'."""
-    n = int(n)
-    if 11 <= n % 100 <= 13:
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    return f"{n}{suffix}"
 
 
 def _is_jpy_pair(pair):

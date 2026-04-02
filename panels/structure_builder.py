@@ -29,7 +29,7 @@ from core.theme import (
     BUTTON_SUCCESS_STYLE, BUTTON_DANGER_STYLE,
     make_stat_style, clickable_stat,
     CSV_BTN_STYLE, no_data_fig,
-    stat_box as _stat_box,
+    stat_box as _stat_box, ordinal as _ordinal,
 )
 from core.config import TENORS_TRADING
 from core.csv_export import export_csv
@@ -237,16 +237,6 @@ STRUCTURE_VIEWS = {
 # ============================================================================
 # Inline Garman-Kohlhagen Pricing
 # ============================================================================
-
-def _ordinal(n):
-    """Return an integer as an ordinal string: 1 -> '1st', 23 -> '23rd'."""
-    n = int(n)
-    if 11 <= n % 100 <= 13:
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    return f"{n}{suffix}"
-
 
 def _norm_cdf(x):
     """Standard normal CDF using numpy/scipy-free erf approx for speed."""

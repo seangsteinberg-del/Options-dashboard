@@ -436,6 +436,16 @@ def stat_box(label, value, color=None):
     ], style=make_stat_style(color))
 
 
+def ordinal(n):
+    """Return an integer as an ordinal string: 1 -> '1st', 23 -> '23rd'."""
+    n = int(n)
+    if 11 <= n % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 # ── Safe chart decorator ────────────────────────────────────────────────────
 def safe_chart(fn):
     """Decorator: wrap chart functions so exceptions return a clean empty

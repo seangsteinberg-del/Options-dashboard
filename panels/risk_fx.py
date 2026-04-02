@@ -28,7 +28,7 @@ from core.theme import (
     DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
     clickable_stat, chart_layout, CSV_BTN_STYLE,
-    no_data_fig, CS_PNL_DIVERGING, stat_box,
+    no_data_fig, CS_PNL_DIVERGING, stat_box, ordinal as _ordinal,
 )
 from core.csv_export import export_csv
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs
@@ -113,16 +113,6 @@ BUTTON_SUCCESS_STYLE = {
     **BUTTON_STYLE,
     "backgroundColor": COLORS["accent_green"],
 }
-
-
-def _ordinal(n):
-    """Return an integer as an ordinal string: 1 -> '1st', 23 -> '23rd'."""
-    n = int(n)
-    if 11 <= n % 100 <= 13:
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    return f"{n}{suffix}"
 
 
 def _make_stat_style(color=None):
