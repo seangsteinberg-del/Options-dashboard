@@ -89,6 +89,16 @@ body {
     scrollbar-color: #333355 #000000;
 }
 
+/* Text selection — Bloomberg orange highlight */
+::selection {
+    background: rgba(255, 136, 0, 0.3);
+    color: #ffffff;
+}
+::-moz-selection {
+    background: rgba(255, 136, 0, 0.3);
+    color: #ffffff;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Dropdown (Select) — Terminal Style
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -479,6 +489,10 @@ input, input[type="text"], input[type="search"], input[type="number"] {
 .tab {
     border-radius: 0 !important;
     font-family: var(--font) !important;
+    transition: color 0.1s ease, border-color 0.1s ease;
+}
+.tab:hover:not(.tab--selected) {
+    color: #e0e0e0 !important;
 }
 .tab--selected {
     border-top: 2px solid #ff8800 !important;
@@ -503,6 +517,7 @@ textarea {
     font-family: var(--font) !important;
     font-size: 11px !important;
     padding: 6px 8px !important;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 input::placeholder,
 textarea::placeholder {
@@ -526,7 +541,7 @@ input[type="radio"] {
 button, .btn {
     border-radius: 0 !important;
     font-family: var(--font) !important;
-    transition: none !important;
+    transition: filter 0.1s ease, background-color 0.1s ease, color 0.1s ease;
     cursor: pointer;
 }
 button:hover {
@@ -597,6 +612,7 @@ button:focus-visible {
    ═══════════════════════════════════════════════════════════════════════════ */
 .stat-box {
     background-color: var(--bg-stat);
+    transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 .stat-box:hover {
     background-color: #0c0c18 !important;
