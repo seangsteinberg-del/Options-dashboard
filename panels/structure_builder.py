@@ -2562,6 +2562,14 @@ def layout():
                               "padding": "12px"}, className="dashboard-card"),
                 ], style={"display": "flex", "gap": "12px", "flexWrap": "wrap"}),
 
+                # Parallel coordinates (full width)
+                html.Div([
+                    dcc.Graph(id="stb-parallel-coords", config={"displayModeBar": False},
+                              style={"height": "350px"}),
+                ], style={**CARD_STYLE, "padding": "12px", "marginBottom": "12px",
+                          "marginTop": "12px"},
+                   className="dashboard-card"),
+
                 # Tenor Scan table
                 html.Div(id="stb-tenor-scan", style={
                     **CARD_STYLE, "padding": "12px", "marginTop": "12px",
@@ -2660,6 +2668,77 @@ def _build_pnl_surface(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
         title=dict(text="P&L SURFACE (SPOT \u00d7 VOL)", font=dict(color=COLORS["text_primary"], size=13)),
         margin=dict(l=10, r=10, t=40, b=10),
         height=400,
+    )
+    return fig
+
+
+# ============================================================================
+# Parallel Coordinates -- Leg Comparison
+# ============================================================================
+
+def _build_parallel_coords(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
+    """Parallel coordinates: compare current structure's Greeks across legs."""
+    tpl = CHART_TEMPLATE["layout"]
+
+    if not processed_legs or T < 1e-6:
+        return no_data_fig(height=350, msg="ADD LEGS FOR PARALLEL COORDINATES")
+
+    # Compute per-leg metrics
+    dimensions = []
+    leg_data = {"leg": [], "delta": [], "gamma": [], "vega": [], "theta": [],
+                "premium": [], "strike": [], "vol": []}
+
+    for li, lg in enumerate(processed_legs):
+        leg_data["leg"].append(li + 1)
+        qty = lg["side_sign"] * lg["ratio"]
+        greeks = _vectorized_greeks(np.array([S]), lg["strike"], max(lg["T"], 1e-6),
+                                     r_d, r_f, lg["vol"], lg["cp_sign"])
+        leg_data["delta"].append(float(greeks["delta"][0] * qty * notional))
+        leg_data["gamma"].append(float(greeks["gamma"][0] * qty * notional))
+        leg_data["vega"].append(float(greeks["vega"][0] * qty * notional))
+        leg_data["theta"].append(float(greeks["theta"][0] * qty * notional))
+        leg_data["premium"].append(float(lg["price_unit"] * qty * notional))
+        leg_data["strike"].append(float(lg["strike"]))
+        leg_data["vol"].append(float(lg["vol"] * 100))
+
+    if not leg_data["leg"]:
+        return no_data_fig(height=350, msg="NO LEG DATA")
+
+    # Build parallel coordinates
+    n_legs = len(leg_data["leg"])
+    # Color by leg number
+    colors = leg_data["leg"]
+
+    fig = go.Figure(data=go.Parcoords(
+        line=dict(
+            color=colors,
+            colorscale=[[0, "#ff8800"], [0.5, "#00b4d8"], [1.0, "#a78bfa"]],
+            showscale=False,
+            cmin=1, cmax=max(n_legs, 2),
+        ),
+        dimensions=[
+            dict(label="Leg", values=leg_data["leg"], range=[0.5, n_legs + 0.5]),
+            dict(label="Delta ($)", values=leg_data["delta"]),
+            dict(label="Gamma ($)", values=leg_data["gamma"]),
+            dict(label="Vega ($)", values=leg_data["vega"]),
+            dict(label="Theta ($)", values=leg_data["theta"]),
+            dict(label="Premium ($)", values=leg_data["premium"]),
+            dict(label="Strike", values=leg_data["strike"]),
+            dict(label="Vol (%)", values=leg_data["vol"]),
+        ],
+        labelside="top",
+        labelfont=dict(size=10, color="#e0e0e0", family="'JetBrains Mono', monospace"),
+        tickfont=dict(size=9, color="#9a9ab0", family="'JetBrains Mono', monospace"),
+        rangefont=dict(size=8, color="#9a9ab0", family="'JetBrains Mono', monospace"),
+    ))
+
+    fig.update_layout(
+        paper_bgcolor="#000000", plot_bgcolor="#000000",
+        font=dict(family="'JetBrains Mono', monospace", color="#e0e0e0"),
+        title=dict(text="PARALLEL COORDINATES -- LEG COMPARISON",
+                   font=dict(color="#ffffff", size=13)),
+        margin=dict(l=60, r=60, t=50, b=30),
+        height=350,
     )
     return fig
 
@@ -2772,7 +2851,8 @@ def register_callbacks(app):
          Output("struct-smile-chart", "figure"),
          Output("stb-tenor-scan", "children"),
          Output("stb-trade-analysis", "children"),
-         Output("stb-pnl-surface", "figure")] +
+         Output("stb-pnl-surface", "figure"),
+         Output("stb-parallel-coords", "figure")] +
         [Output({"type": "stb-strike-disp", "index": i}, "children") for i in range(MAX_LEGS)] +
         [Output({"type": "stb-vol-disp", "index": i}, "children") for i in range(MAX_LEGS)] +
         [Output({"type": "stb-prem-disp", "index": i}, "children") for i in range(MAX_LEGS)],
@@ -2816,7 +2896,7 @@ def register_callbacks(app):
             })
 
         # Number of new outputs before per-leg displays: 13
-        n_new = 13
+        n_new = 14
         empty_div = html.Div()
 
         # Fetch market data
@@ -2832,7 +2912,7 @@ def register_callbacks(app):
             empty_stats = [html.Div("--", style=STAT_BOX_STYLE) for _ in range(10)]
             ndf_surface = no_data_fig(height=400, msg="NO MARKET DATA")
             return ([empty_div, [], empty_stats, ndf, ndf, ndf, ndf, empty_table, ndf, ndf,
-                     empty_div, empty_div, ndf_surface]
+                     empty_div, empty_div, ndf_surface, ndf]
                     + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 
         try:
@@ -2964,6 +3044,7 @@ def register_callbacks(app):
             heatmap_fig = _build_pnl_heatmap(processed, S, T, r_d, r_f, notional, atm_vol)
             surface_fig = _build_3d_surface(processed, S, T, r_d, r_f, notional, atm_vol)
             pnl_surface_fig = _build_pnl_surface(processed, S, T, r_d, r_f, notional, atm_vol)
+            parallel_fig = _build_parallel_coords(processed, S, T, r_d, r_f, notional, atm_vol)
             premium_table = _build_premium_table(processed, pair, pip_size, notional)
             scenario_fig = _build_scenario_chart(processed, S, T, r_d, r_f, notional)
             smile_fig = _build_smile_chart(processed, vol_surface, tenor)
@@ -3075,7 +3156,7 @@ def register_callbacks(app):
 
             return ([suggestions_div, sugg_store_data, stats, payoff_fig, greeks_fig,
                      heatmap_fig, surface_fig, premium_table, scenario_fig, smile_fig,
-                     tenor_scan_div, trade_analysis_div, pnl_surface_fig]
+                     tenor_scan_div, trade_analysis_div, pnl_surface_fig, parallel_fig]
                     + strike_disps + vol_disps + prem_disps)
 
         except Exception as e:
@@ -3086,7 +3167,7 @@ def register_callbacks(app):
                                    "fontSize": "11px", "padding": "8px"})
             empty_stats = [html.Div("--", style=STAT_BOX_STYLE) for _ in range(10)]
             return ([empty_div, [], empty_stats, err_fig, err_fig, err_fig, err_fig,
-                     empty_table, err_fig, err_fig, empty_div, empty_div, err_surface]
+                     empty_table, err_fig, err_fig, empty_div, empty_div, err_surface, err_fig]
                     + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 
     # -- Historical cost context callback --

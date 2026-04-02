@@ -743,6 +743,164 @@ def _build_corr_cone(pair_a, pair_b):
         return _empty_fig(f"CORR CONE: {pair_a} vs {pair_b}")
 
 
+def _build_corr_network(window=60):
+    """Force-directed correlation network: nodes = FX pairs, edges = significant correlations."""
+    try:
+        from core.fx_analytics import spot_correlation_matrix, vol_percentile
+
+        # ── networkx for layout ──
+        try:
+            import networkx as nx
+            _has_nx = True
+        except ImportError:
+            _has_nx = False
+
+        top_pairs = MONITOR_PAIRS[:12]
+        matrix = spot_correlation_matrix(top_pairs, window)
+        if matrix is None or (hasattr(matrix, 'empty') and matrix.empty):
+            return no_data_fig(msg="NO CORRELATION DATA FOR NETWORK")
+
+        if hasattr(matrix, 'values'):
+            corr = matrix.values
+        else:
+            corr = np.array(matrix, dtype=float)
+
+        n = min(len(top_pairs), corr.shape[0])
+        pairs_used = top_pairs[:n]
+        corr = corr[:n, :n]
+
+        # ── Build graph and layout ──
+        if _has_nx:
+            G = nx.Graph()
+            for i, p in enumerate(pairs_used):
+                G.add_node(p)
+            for i in range(n):
+                for j in range(i + 1, n):
+                    c = corr[i][j]
+                    if np.isfinite(c) and abs(c) > 0.3:
+                        G.add_edge(pairs_used[i], pairs_used[j], weight=abs(c), corr=c)
+            pos = nx.spring_layout(G, k=2.5 / np.sqrt(max(n, 1)), iterations=80, seed=42)
+        else:
+            # Fallback: circular layout
+            pos = {}
+            for i, p in enumerate(pairs_used):
+                angle = 2 * np.pi * i / n
+                pos[p] = np.array([np.cos(angle), np.sin(angle)])
+
+        # ── Node colours: vol regime percentile ──
+        node_colors = []
+        node_pcts = []
+        for p in pairs_used:
+            try:
+                info = vol_percentile(p, "3M", "ATM", 252)
+                pct = _sf(info.get("percentile", 50) if isinstance(info, dict) else 50, 50)
+            except Exception:
+                pct = 50
+            node_pcts.append(pct)
+            # Green (low vol) → orange (mid) → red (high vol)
+            if pct < 25:
+                node_colors.append("#00cc66")
+            elif pct < 50:
+                node_colors.append("#4db88a")
+            elif pct < 75:
+                node_colors.append("#ff8800")
+            else:
+                node_colors.append("#ff3333")
+
+        fig = go.Figure()
+
+        # ── Edge traces (one per edge for individual colour/width) ──
+        for i in range(n):
+            for j in range(i + 1, n):
+                c = corr[i][j]
+                if not np.isfinite(c) or abs(c) <= 0.3:
+                    continue
+                p1, p2 = pairs_used[i], pairs_used[j]
+                x0, y0 = pos[p1]
+                x1, y1 = pos[p2]
+                edge_color = "#00cc66" if c > 0 else "#ff3333"
+                edge_width = max(1, abs(c) * 5)
+                edge_opacity = min(0.9, 0.3 + abs(c) * 0.6)
+                fig.add_trace(go.Scatter(
+                    x=[x0, x1, None], y=[y0, y1, None],
+                    mode="lines",
+                    line=dict(color=edge_color, width=edge_width),
+                    opacity=edge_opacity,
+                    hoverinfo="text",
+                    text=[f"{p1} -- {p2}<br>\u03c1 = {c:+.3f}"],
+                    showlegend=False,
+                ))
+
+        # ── Node trace ──
+        node_x = [pos[p][0] for p in pairs_used]
+        node_y = [pos[p][1] for p in pairs_used]
+        node_labels = [f"{p[:3]}/{p[3:]}" for p in pairs_used]
+        hover_texts = [
+            f"<b>{pairs_used[i][:3]}/{pairs_used[i][3:]}</b><br>"
+            f"Vol Percentile: {node_pcts[i]:.0f}%<br>"
+            f"Regime: {'HIGH' if node_pcts[i] > 75 else 'ELEVATED' if node_pcts[i] > 50 else 'NORMAL' if node_pcts[i] > 25 else 'LOW'}"
+            for i in range(n)
+        ]
+        fig.add_trace(go.Scatter(
+            x=node_x, y=node_y, mode="markers+text",
+            marker=dict(
+                size=24, color=node_colors,
+                line=dict(width=2, color="#ff8800"),
+                opacity=0.95,
+            ),
+            text=node_labels,
+            textposition="top center",
+            textfont=dict(size=9, color="#e0e0e0", family=_MONO),
+            hovertext=hover_texts,
+            hoverinfo="text",
+            showlegend=False,
+        ))
+
+        # ── Legend proxy traces ──
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="lines", name="Positive \u03c1",
+            line=dict(color="#00cc66", width=2),
+        ))
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="lines", name="Negative \u03c1",
+            line=dict(color="#ff3333", width=2),
+        ))
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers", name="Low Vol",
+            marker=dict(color="#00cc66", size=8),
+        ))
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers", name="High Vol",
+            marker=dict(color="#ff3333", size=8),
+        ))
+
+        fig.update_layout(
+            paper_bgcolor="#000000", plot_bgcolor="#000000",
+            font=dict(family=_MONO, color="#e0e0e0", size=11),
+            title=dict(
+                text=f"CORRELATION NETWORK ({window}D, |\u03c1| > 0.3)",
+                font=dict(color="#ffffff", size=13),
+            ),
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
+                       visible=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
+                       visible=False),
+            height=420,
+            margin=dict(l=20, r=20, t=40, b=20),
+            legend=dict(
+                font=dict(color="#9a9ab0", size=9), bgcolor="rgba(0,0,0,0)",
+                x=0.01, y=0.99, bordercolor="#2d2d50", borderwidth=1,
+            ),
+            hoverlabel=dict(
+                bgcolor="#0a0a14", bordercolor="#2d2d50",
+                font=dict(color="#e0e0e0", family=_MONO, size=11),
+            ),
+        )
+        return fig
+    except Exception:
+        return _empty_fig("CORRELATION NETWORK")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # MACRO TAB (from macro_regime.py)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1102,6 +1260,174 @@ def _build_calendar_spread(pair):
         return _empty_fig(f"{pair} CALENDAR SPREAD")
 
 
+def _build_carry_vol_bubble():
+    """Carry vs Vol percentile bubble chart with quadrant analysis."""
+    try:
+        from core.fx_analytics import carry_per_vol, vol_percentile, carry_momentum
+
+        top_pairs = MONITOR_PAIRS[:15]
+        carry_df = carry_per_vol(top_pairs)
+
+        if carry_df is None or carry_df.empty:
+            return no_data_fig(msg="NO CARRY DATA")
+
+        # Build data for each pair
+        x_vals, y_vals, sizes, colors, texts, hovers = [], [], [], [], [], []
+        for _, row in carry_df.iterrows():
+            pair = row["pair"]
+            carry_bps = _sf(row.get("carry_bps", 0))
+            sharpe = _sf(row.get("sharpe_proxy", 0))
+
+            # Vol percentile (Y axis)
+            try:
+                vp_info = vol_percentile(pair, "3M", "ATM", 252)
+                pct = _sf(vp_info.get("percentile", 50) if isinstance(vp_info, dict) else 50, 50)
+            except Exception:
+                pct = 50
+
+            # Momentum → color
+            try:
+                mom_info = carry_momentum(pair)
+                momentum = mom_info.get("momentum", "STABLE") if isinstance(mom_info, dict) else "STABLE"
+            except Exception:
+                momentum = "STABLE"
+
+            if momentum == "IMPROVING":
+                color = "#00cc66"
+            elif momentum == "DETERIORATING":
+                color = "#ff3333"
+            else:
+                color = "#9a9ab0"
+
+            bubble_size = max(12, min(40, abs(sharpe) * 20 + 10))
+
+            x_vals.append(carry_bps)
+            y_vals.append(pct)
+            sizes.append(bubble_size)
+            colors.append(color)
+            texts.append(f"{pair[:3]}/{pair[3:]}")
+            hovers.append(
+                f"<b>{pair[:3]}/{pair[3:]}</b><br>"
+                f"Carry: {carry_bps:.0f} bps<br>"
+                f"Vol Pctile: {pct:.0f}%<br>"
+                f"Sharpe Proxy: {sharpe:.2f}<br>"
+                f"Momentum: {momentum}"
+            )
+
+        if not x_vals:
+            return no_data_fig(msg="NO CARRY BUBBLE DATA")
+
+        fig = go.Figure()
+
+        # ── Quadrant shading (very subtle) ──
+        x_max = max(abs(v) for v in x_vals) * 1.3 if x_vals else 200
+        x_range = [-x_max * 0.3, x_max]
+
+        # Bottom-right: HIGH CARRY + CHEAP VOL (golden quadrant)
+        fig.add_shape(type="rect", x0=0, x1=x_range[1] * 1.1, y0=0, y1=50,
+                      fillcolor="rgba(0,204,102,0.04)", line=dict(width=0),
+                      layer="below")
+        # Top-right: HIGH CARRY + RICH VOL
+        fig.add_shape(type="rect", x0=0, x1=x_range[1] * 1.1, y0=50, y1=100,
+                      fillcolor="rgba(255,136,0,0.04)", line=dict(width=0),
+                      layer="below")
+        # Top-left: LOW CARRY + RICH VOL
+        fig.add_shape(type="rect", x0=x_range[0] * 1.1, x1=0, y0=50, y1=100,
+                      fillcolor="rgba(255,51,51,0.04)", line=dict(width=0),
+                      layer="below")
+        # Bottom-left: LOW CARRY + CHEAP VOL
+        fig.add_shape(type="rect", x0=x_range[0] * 1.1, x1=0, y0=0, y1=50,
+                      fillcolor="rgba(154,154,176,0.03)", line=dict(width=0),
+                      layer="below")
+
+        # ── Quadrant divider lines ──
+        fig.add_vline(x=0, line=dict(color="#2d2d50", width=1, dash="dash"))
+        fig.add_hline(y=50, line=dict(color="#2d2d50", width=1, dash="dash"))
+
+        # ── Quadrant annotations ──
+        ann_font = dict(size=8, family=_MONO)
+        fig.add_annotation(x=x_range[1] * 0.7, y=92, text="HIGH CARRY + RICH VOL",
+                           showarrow=False, font=dict(**ann_font, color="#ff8800"),
+                           opacity=0.7)
+        fig.add_annotation(x=x_range[1] * 0.7, y=8,
+                           text="HIGH CARRY + CHEAP VOL  \u2605",
+                           showarrow=False, font=dict(**ann_font, color="#00cc66"),
+                           opacity=0.9)
+        fig.add_annotation(x=x_range[0] * 0.5, y=92, text="LOW CARRY + RICH VOL",
+                           showarrow=False, font=dict(**ann_font, color="#ff3333"),
+                           opacity=0.7)
+        fig.add_annotation(x=x_range[0] * 0.5, y=8, text="LOW CARRY + CHEAP VOL",
+                           showarrow=False, font=dict(**ann_font, color="#9a9ab0"),
+                           opacity=0.5)
+
+        # ── Bubble traces (one per momentum group for legend) ──
+        groups = {
+            "IMPROVING": ("#00cc66", []),
+            "DETERIORATING": ("#ff3333", []),
+            "STABLE": ("#9a9ab0", []),
+        }
+        for i in range(len(x_vals)):
+            mom_key = "IMPROVING" if colors[i] == "#00cc66" else (
+                "DETERIORATING" if colors[i] == "#ff3333" else "STABLE")
+            groups[mom_key][1].append(i)
+
+        for mom_label, (color, indices) in groups.items():
+            if not indices:
+                continue
+            fig.add_trace(go.Scatter(
+                x=[x_vals[i] for i in indices],
+                y=[y_vals[i] for i in indices],
+                mode="markers+text",
+                marker=dict(
+                    size=[sizes[i] for i in indices],
+                    color=color,
+                    opacity=0.85,
+                    line=dict(width=1.5, color="#ff8800"),
+                ),
+                text=[texts[i] for i in indices],
+                textposition="top center",
+                textfont=dict(size=8, color="#e0e0e0", family=_MONO),
+                hovertext=[hovers[i] for i in indices],
+                hoverinfo="text",
+                name=mom_label,
+            ))
+
+        fig.update_layout(
+            paper_bgcolor="#000000", plot_bgcolor="#000000",
+            font=dict(family=_MONO, color="#e0e0e0", size=11),
+            title=dict(
+                text="CARRY vs VOL REGIME  (bubble = Sharpe proxy, color = momentum)",
+                font=dict(color="#ffffff", size=12),
+            ),
+            xaxis=dict(
+                title=dict(text="Carry (bps)", font=dict(size=10, color="#9a9ab0")),
+                showgrid=True, gridcolor="#1a1a30", zeroline=False,
+                tickfont=dict(size=9, color="#9a9ab0"),
+            ),
+            yaxis=dict(
+                title=dict(text="ATM 3M Vol Percentile (%)", font=dict(size=10, color="#9a9ab0")),
+                showgrid=True, gridcolor="#1a1a30", zeroline=False,
+                range=[-5, 105],
+                tickfont=dict(size=9, color="#9a9ab0"),
+            ),
+            height=400,
+            margin=dict(l=50, r=30, t=40, b=40),
+            legend=dict(
+                title=dict(text="MOMENTUM", font=dict(size=9, color="#ff8800")),
+                font=dict(color="#9a9ab0", size=9), bgcolor="rgba(0,0,0,0)",
+                x=1.0, y=1.0, xanchor="right",
+                bordercolor="#2d2d50", borderwidth=1,
+            ),
+            hoverlabel=dict(
+                bgcolor="#0a0a14", bordercolor="#2d2d50",
+                font=dict(color="#e0e0e0", family=_MONO, size=11),
+            ),
+        )
+        return fig
+    except Exception:
+        return _empty_fig("CARRY vs VOL BUBBLE")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # LAYOUT
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1217,6 +1543,9 @@ def layout():
                               style={"height": "280px"}),
                 ], style={"flex": "1"}),
             ], style={"display": "flex", "gap": GAP, "marginTop": GAP}),
+            # Correlation network (force-directed graph)
+            dcc.Graph(id=f"{_P}-corr-network", config={"displayModeBar": False, "responsive": True},
+                      style={"height": "420px", "marginTop": GAP}),
         ]),
 
         # ══════════ MACRO TAB ══════════
@@ -1250,6 +1579,9 @@ def layout():
 
         # ══════════ CARRY TAB ══════════
         html.Div(id=f"{_P}-carry-container", style={"display": "none"}, children=[
+            # Carry vs Vol bubble chart (at the top)
+            dcc.Graph(id=f"{_P}-carry-bubble", config={"displayModeBar": False, "responsive": True},
+                      style={"height": "400px", "marginBottom": GAP}),
             html.Div(id=f"{_P}-carry-table-wrapper", style={
                 "overflowY": "auto", "maxHeight": "350px", "border": "1px solid #2d2d50",
             }),
@@ -1488,6 +1820,15 @@ def register_callbacks(app):
             return _empty_fig("Select two different pairs")
         return _build_corr_cone(pa, pb)
 
+    @app.callback(
+        Output(f"{_P}-corr-network", "figure"),
+        [Input(f"{_P}-corr-window", "value"), Input(f"{_P}-tabs", "value")],
+    )
+    def update_corr_network(window, tab):
+        if tab != "correlation":
+            raise PreventUpdate
+        return _build_corr_network(window or 60)
+
     # ══════════ MACRO CALLBACKS ══════════
 
     @app.callback(
@@ -1520,6 +1861,15 @@ def register_callbacks(app):
             return err_div, [err_div], empty, empty
 
     # ══════════ CARRY CALLBACKS ══════════
+
+    @app.callback(
+        Output(f"{_P}-carry-bubble", "figure"),
+        [Input(f"{_P}-tabs", "value"), Input(f"{_P}-interval", "n_intervals")],
+    )
+    def update_carry_bubble(tab, n):
+        if tab != "carry":
+            raise PreventUpdate
+        return _build_carry_vol_bubble()
 
     @app.callback(
         Output(f"{_P}-carry-table-wrapper", "children"),

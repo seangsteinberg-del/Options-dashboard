@@ -348,6 +348,12 @@ def layout():
                     ], style={"flex": "1", "minWidth": "400px"}),
                 ], style={"display": "flex", "gap": SECTION_GAP, "flexWrap": "wrap"}),
             ]),
+            dcc.Graph(id="fxrisk-treemap", config={"displayModeBar": False},
+                      style={"height": "400px", "marginTop": "8px"}),
+            dcc.Graph(id="fxrisk-gex-heatmap", config={"displayModeBar": False},
+                      style={"height": "350px", "marginTop": "8px"}),
+            dcc.Graph(id="fxrisk-greeks-landscape", config={"displayModeBar": True, "scrollZoom": True},
+                      style={"height": "420px", "marginTop": "8px"}),
         ]),
 
         # VaR
@@ -436,6 +442,8 @@ def layout():
                     ], style={"flex": "1", "minWidth": "400px"}),
                 ], style={"display": "flex", "gap": SECTION_GAP, "flexWrap": "wrap"}),
             ]),
+            dcc.Graph(id="fxrisk-sankey", config={"displayModeBar": False},
+                      style={"height": "400px", "marginTop": "8px"}),
         ]),
 
         # What-If
@@ -639,6 +647,313 @@ def layout():
         ], style=CARD_STYLE),
 
     ], style={"padding": "0"})
+
+
+# ---------------------------------------------------------------------------
+# Chart builders for new visualisations
+# ---------------------------------------------------------------------------
+
+def _build_risk_treemap(positions):
+    """Portfolio treemap: size=notional, color=P&L, hierarchy=book->pair->position."""
+    if not positions:
+        return no_data_fig(height=400, msg="NO POSITIONS")
+
+    labels = []
+    parents = []
+    values = []
+    colors = []
+    hover_texts = []
+
+    # Build hierarchy: Total -> Book -> Pair -> Position
+    books = {}
+    for pos in positions:
+        book = pos.get("book", "UNKNOWN")
+        pair = pos.get("pair", "???")
+        if book not in books:
+            books[book] = {}
+        if pair not in books[book]:
+            books[book][pair] = []
+        books[book][pair].append(pos)
+
+    # Root
+    labels.append("PORTFOLIO")
+    parents.append("")
+    values.append(0)
+    colors.append(0)
+    hover_texts.append("Total Portfolio")
+
+    for book, pairs in books.items():
+        # Book level
+        labels.append(book)
+        parents.append("PORTFOLIO")
+        values.append(0)
+        colors.append(0)
+        hover_texts.append(f"Book: {book}")
+
+        for pair, pos_list in pairs.items():
+            # Pair level
+            pair_label = f"{book}/{pair}"
+            labels.append(pair_label)
+            parents.append(book)
+            values.append(0)
+            colors.append(0)
+            hover_texts.append(f"{pair} in {book}")
+
+            for pos in pos_list:
+                notional = abs(pos.get("notional", 1_000_000))
+                pnl = pos.get("pnl", pos.get("unrealized_pnl", 0))
+                pos_id = pos.get("id", "?")
+                cp = pos.get("type", pos.get("cp", pos.get("option_type", "?"))).upper()
+                strike = pos.get("strike", 0)
+                tenor = pos.get("tenor", "?")
+                side = "LONG" if pos.get("side", pos.get("direction", 1)) in ("buy", 1) else "SHORT"
+
+                pos_label = f"{pair_label}/{pos_id}"
+                labels.append(pos_label)
+                parents.append(pair_label)
+                values.append(notional)
+                pnl_val = float(pnl) if pnl else 0
+                colors.append(pnl_val)
+                if pnl:
+                    hover_texts.append(
+                        f"<b>{pair}</b> {side} {cp}<br>"
+                        f"Strike: {strike:.4f} | Tenor: {tenor}<br>"
+                        f"Notional: {notional:,.0f}<br>"
+                        f"P&L: {pnl_val:,.0f}"
+                    )
+                else:
+                    hover_texts.append(f"<b>{pair}</b> {side} {cp}")
+
+    fig = go.Figure(go.Treemap(
+        labels=labels,
+        parents=parents,
+        values=values,
+        marker=dict(
+            colors=colors,
+            colorscale=[[0, "#ff3333"], [0.3, "#330000"], [0.5, "#0e0e0e"],
+                        [0.7, "#003300"], [1.0, "#00cc66"]],
+            cmid=0,
+            colorbar=dict(title=dict(text="P&L", font=dict(color="#9a9ab0", size=10)),
+                          tickfont=dict(color="#9a9ab0", size=9),
+                          len=0.6, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)"),
+            line=dict(width=1, color="#2d2d50"),
+        ),
+        textfont=dict(family="'JetBrains Mono', monospace", size=11, color="#e0e0e0"),
+        hovertext=hover_texts,
+        hovertemplate="%{hovertext}<extra></extra>",
+        branchvalues="total",
+    ))
+
+    fig.update_layout(
+        paper_bgcolor="#000000",
+        font=dict(family="'JetBrains Mono', monospace", color="#e0e0e0"),
+        title=dict(text="PORTFOLIO RISK TREEMAP", font=dict(color="#ffffff", size=13)),
+        margin=dict(l=10, r=10, t=40, b=10),
+        height=400,
+    )
+    return fig
+
+
+def _build_sankey_pnl(attr_data):
+    """Sankey diagram: P&L flows from Total -> Greek -> Pair."""
+    if not attr_data:
+        return no_data_fig(height=400, msg="NO ATTRIBUTION DATA")
+
+    # Build nodes and links
+    node_labels = ["Total P&L"]
+    node_colors = ["#ff8800"]
+    greek_names = ["Delta", "Gamma", "Vega", "Theta", "Cross", "Unexplained"]
+    greek_colors = ["#00b4d8", "#a78bfa", "#ff8800", "#00cc66", "#9a9ab0", "#ff3333"]
+
+    for gn, gc in zip(greek_names, greek_colors):
+        node_labels.append(gn)
+        node_colors.append(gc)
+
+    # Get Greek-level P&L values
+    greek_vals = {
+        "Delta": attr_data.get("delta_pnl", 0),
+        "Gamma": attr_data.get("gamma_pnl", 0),
+        "Vega": attr_data.get("vega_pnl", 0),
+        "Theta": attr_data.get("theta_pnl", 0),
+        "Cross": attr_data.get("cross_pnl", attr_data.get("vanna_pnl", 0)),
+        "Unexplained": attr_data.get("unexplained_pnl", attr_data.get("unexplained", 0)),
+    }
+
+    sources = []
+    targets = []
+    values = []
+    link_colors = []
+
+    for i, gn in enumerate(greek_names):
+        val = greek_vals[gn]
+        if abs(val) < 0.01:
+            continue
+        sources.append(0)  # Total
+        targets.append(i + 1)  # Greek node
+        values.append(abs(val))
+        link_colors.append(
+            "rgba(0,204,102,0.3)" if val > 0 else "rgba(255,51,51,0.3)"
+        )
+
+    if not values:
+        return no_data_fig(height=400, msg="NO SIGNIFICANT P&L FLOWS")
+
+    fig = go.Figure(go.Sankey(
+        node=dict(
+            pad=20, thickness=25,
+            label=node_labels,
+            color=node_colors,
+            line=dict(color="#2d2d50", width=1),
+            hovertemplate="<b>%{label}</b><br>%{value:,.0f}<extra></extra>",
+        ),
+        link=dict(
+            source=sources, target=targets, value=values,
+            color=link_colors,
+            hovertemplate="%{source.label} -> %{target.label}<br>%{value:,.0f}<extra></extra>",
+        ),
+    ))
+
+    fig.update_layout(
+        paper_bgcolor="#000000", plot_bgcolor="#000000",
+        font=dict(family="'JetBrains Mono', monospace", color="#e0e0e0", size=11),
+        title=dict(text="P&L ATTRIBUTION FLOW", font=dict(color="#ffffff", size=13)),
+        margin=dict(l=20, r=20, t=50, b=20),
+        height=400,
+    )
+    return fig
+
+
+def _build_greeks_landscape(positions, pair, spots, rates, vol_surfaces):
+    """3D landscape: portfolio delta across spot range x time to expiry."""
+    if not positions:
+        return no_data_fig(height=420, msg="NO POSITIONS FOR LANDSCAPE")
+
+    spot_raw = spots.get(pair, 1.0)
+    spot = float(spot_raw) if not isinstance(spot_raw, dict) else float(spot_raw.get("mid", 1.0))
+    pair_rates = rates.get(pair, {"r_d": 0.04, "r_f": 0.02})
+    if isinstance(pair_rates, dict):
+        r_d = pair_rates.get("r_d", pair_rates.get("r_dom", 0.03))
+        r_f = pair_rates.get("r_f", pair_rates.get("r_for", 0.02))
+    else:
+        r_d, r_f = 0.03, 0.02
+
+    # Filter positions for this pair
+    pair_positions = [p for p in positions if p.get("pair") == pair]
+    if not pair_positions:
+        return no_data_fig(height=420, msg=f"NO {pair} POSITIONS")
+
+    from scipy.stats import norm as _norm
+
+    n_spots = 30
+    n_times = 20
+    spot_range = np.linspace(spot * 0.9, spot * 1.1, n_spots)
+    time_range = np.linspace(0.5, 0.01, n_times)  # years to expiry
+
+    delta_grid = np.zeros((n_times, n_spots))
+
+    for pos in pair_positions:
+        K = pos.get("strike", spot)
+        vol = _safe_atm_vol(vol_surfaces.get(pair, 0.10))
+        cp = 1 if pos.get("option_type", pos.get("type", "call")).lower() == "call" else -1
+        notional = pos.get("notional", 1_000_000)
+        direction = 1 if pos.get("direction", pos.get("side", "buy")).lower() == "buy" else -1
+
+        for ti, t in enumerate(time_range):
+            t_use = max(t, 1e-6)
+            sqrt_t = np.sqrt(t_use)
+            sig = max(vol, 1e-6)
+            d1 = (np.log(spot_range / K) + (r_d - r_f + 0.5 * sig**2) * t_use) / (sig * sqrt_t)
+            delta = cp * np.exp(-r_f * t_use) * _norm.cdf(cp * d1) * direction * notional
+            delta_grid[ti, :] += delta
+
+    fig = go.Figure(data=go.Surface(
+        x=spot_range, y=time_range, z=delta_grid,
+        colorscale=[[0, "#ff3333"], [0.3, "#330000"], [0.5, "#0e0e0e"],
+                    [0.7, "#003300"], [1.0, "#00cc66"]],
+        cmid=0, opacity=0.92,
+        colorbar=dict(title=dict(text="Delta ($)", font=dict(color="#9a9ab0", size=10)),
+                      tickfont=dict(color="#9a9ab0", size=9),
+                      len=0.6, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)"),
+        contours=dict(z=dict(show=True, usecolormap=True, project_z=True, width=1)),
+        lighting=dict(ambient=0.6, diffuse=0.7, specular=0.3, roughness=0.5),
+        hovertemplate="Spot: %{x:.4f}<br>Time: %{y:.2f}Y<br>Delta: %{z:,.0f}<extra></extra>",
+    ))
+
+    fig.update_layout(
+        scene=dict(
+            xaxis=dict(title="Spot", backgroundcolor="#000000", gridcolor="#2d2d50", color="#9a9ab0"),
+            yaxis=dict(title="Time (years)", backgroundcolor="#000000", gridcolor="#2d2d50", color="#9a9ab0"),
+            zaxis=dict(title="Portfolio Delta ($)", backgroundcolor="#000000", gridcolor="#2d2d50", color="#9a9ab0"),
+            bgcolor="#000000",
+            camera=dict(eye=dict(x=1.6, y=-1.6, z=0.85)),
+        ),
+        paper_bgcolor="#000000",
+        font=dict(family="'JetBrains Mono', monospace", color="#e0e0e0"),
+        title=dict(text=f"DELTA LANDSCAPE -- {pair}", font=dict(color="#ffffff", size=13)),
+        margin=dict(l=10, r=10, t=40, b=10),
+        height=420,
+    )
+    return fig
+
+
+def _build_gex_heatmap(positions):
+    """Gamma exposure heatmap: tenor buckets x pair = net gamma."""
+    if not positions:
+        return no_data_fig(height=350, msg="NO POSITIONS FOR GEX")
+
+    from core.fx_portfolio import _years_to_expiry
+
+    tenor_buckets = ["<1M", "1-3M", "3-6M", "6M-1Y", ">1Y"]
+    tenor_ranges = [(0, 1/12), (1/12, 0.25), (0.25, 0.5), (0.5, 1.0), (1.0, 10.0)]
+
+    pairs = sorted(set(p.get("pair", "???") for p in positions if p.get("status", "open") == "open"))
+    if not pairs:
+        return no_data_fig(height=350, msg="NO PAIRS")
+
+    z = np.zeros((len(pairs), len(tenor_buckets)))
+    for pos in positions:
+        if pos.get("status", "open") != "open":
+            continue
+        pair = pos.get("pair", "???")
+        T = _years_to_expiry(pos.get("expiry", 0.25))
+        gamma = pos.get("gamma", 0)
+        notional = pos.get("notional", 1_000_000)
+        direction = 1 if pos.get("direction", pos.get("side", "buy")) in ("buy", 1) else -1
+
+        if pair not in pairs:
+            continue
+        pi = pairs.index(pair)
+        for bi, (lo, hi) in enumerate(tenor_ranges):
+            if lo <= T < hi:
+                z[pi, bi] += gamma * notional * direction
+                break
+
+    text = [[f"{v:,.0f}" if abs(v) > 0.5 else "" for v in row] for row in z]
+
+    fig = go.Figure(data=go.Heatmap(
+        x=tenor_buckets, y=pairs, z=z.tolist(),
+        colorscale=[[0, "#ff3333"], [0.3, "#330000"], [0.5, "#0e0e0e"],
+                    [0.7, "#003300"], [1.0, "#00cc66"]],
+        cmid=0,
+        text=text, texttemplate="%{text}",
+        textfont=dict(size=10, color="#d0d0d0"),
+        hovertemplate="Pair: %{y}<br>Bucket: %{x}<br>Gamma $: %{z:,.0f}<extra></extra>",
+        colorbar=dict(title=dict(text="Gamma ($)", font=dict(color="#9a9ab0", size=10)),
+                      tickfont=dict(color="#9a9ab0", size=9),
+                      len=0.8, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)"),
+        xgap=2, ygap=2,
+    ))
+
+    fig.update_layout(
+        paper_bgcolor="#000000", plot_bgcolor="#000000",
+        font=dict(family="'JetBrains Mono', monospace", color="#e0e0e0"),
+        title=dict(text="GAMMA EXPOSURE MAP", font=dict(color="#ffffff", size=13)),
+        xaxis=dict(title="Tenor Bucket", type="category", tickfont=dict(size=10, color="#9a9ab0")),
+        yaxis=dict(title="", type="category", tickfont=dict(size=10, color="#e0e0e0")),
+        margin=dict(l=70, r=20, t=40, b=40),
+        height=350,
+    )
+    return fig
 
 
 # ---------------------------------------------------------------------------
@@ -1064,6 +1379,54 @@ def register_callbacks(app):
                                    "x": 0.5, "y": 0.5, "showarrow": False,
                                    "font": {"color": COLORS["accent_red"], "size": 14},
                                }]))
+            return _err, _err, _err
+
+    # -----------------------------------------------------------------------
+    # 3a. Greeks tab: Treemap, GEX heatmap, Delta landscape
+    # -----------------------------------------------------------------------
+    @app.callback(
+        [
+            Output("fxrisk-treemap", "figure"),
+            Output("fxrisk-gex-heatmap", "figure"),
+            Output("fxrisk-greeks-landscape", "figure"),
+        ],
+        [Input("fxrisk-tabs", "value"),
+         Input("global-portfolio-version", "data")],
+        prevent_initial_call=True,
+    )
+    def update_greeks_extra_charts(tab, _portfolio_ver):
+        if tab != "greeks":
+            return no_update, no_update, no_update
+
+        try:
+            positions = get_all_positions()
+            if not positions:
+                empty = no_data_fig(height=400, msg="NO POSITIONS")
+                return empty, no_data_fig(height=350, msg="NO POSITIONS"), no_data_fig(height=420, msg="NO POSITIONS")
+
+            spots, rates, vol_surfaces = _load_market_data()
+
+            # Treemap
+            treemap_fig = _build_risk_treemap(positions)
+
+            # GEX heatmap
+            gex_fig = _build_gex_heatmap(positions)
+
+            # Delta landscape -- use the pair with largest total delta exposure
+            delta_data = delta_by_pair(positions, spots, rates, vol_surfaces)
+            if delta_data:
+                landscape_pair = max(delta_data.keys(), key=lambda p: abs(delta_data[p]))
+            else:
+                landscape_pair = positions[0].get("pair", "EURUSD")
+
+            landscape_fig = _build_greeks_landscape(
+                positions, landscape_pair, spots, rates, vol_surfaces,
+            )
+
+            return treemap_fig, gex_fig, landscape_fig
+
+        except Exception:
+            _err = no_data_fig(height=400, msg="CHART ERROR")
             return _err, _err, _err
 
     # -----------------------------------------------------------------------
@@ -1702,6 +2065,44 @@ def register_callbacks(app):
                                    "font": {"color": COLORS["accent_red"], "size": 14},
                                }]))
             return _err, _err
+
+    # -----------------------------------------------------------------------
+    # 7b. Attribution tab: Sankey P&L flow
+    # -----------------------------------------------------------------------
+    @app.callback(
+        Output("fxrisk-sankey", "figure"),
+        [Input("fxrisk-tabs", "value"),
+         Input("global-portfolio-version", "data")],
+        prevent_initial_call=True,
+    )
+    def update_sankey_attribution(tab, _portfolio_ver):
+        if tab != "attribution":
+            return no_update
+
+        try:
+            positions = get_all_positions()
+            if not positions:
+                return no_data_fig(height=400, msg="NO POSITIONS")
+
+            spots, rates, vol_surfaces = _load_market_data()
+
+            # Simulate a 1-day move for attribution (same logic as main attr callback)
+            rng = np.random.RandomState(seed=99)
+            spots_new = {}
+            surfaces_new = {}
+            for pair, spot_val in spots.items():
+                vol = _safe_atm_vol(vol_surfaces.get(pair, 0.10))
+                daily_ret = rng.normal(0, vol / np.sqrt(252))
+                spots_new[pair] = spot_val * (1 + daily_ret)
+                surfaces_new[pair] = vol * (1 + rng.normal(0, 0.02))
+
+            attr = pnl_attribution(positions, spots, spots_new, vol_surfaces,
+                                    surfaces_new, rates, dt=1 / 365)
+
+            return _build_sankey_pnl(attr)
+
+        except Exception:
+            return no_data_fig(height=400, msg="SANKEY ERROR")
 
     # -----------------------------------------------------------------------
     # 8. What-If: preview trade impact

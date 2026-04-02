@@ -95,6 +95,9 @@ CHART_OPTIONS = [
     {"label": "Wing Richness", "value": "wing_richness_chart"},
     {"label": "Forward Vol Surface", "value": "fwd_vol_surface"},
     {"label": "Tail Risk Metrics", "value": "tail_risk_chart"},
+    {"label": "Pair Radar Profile", "value": "radar_profile"},
+    {"label": "Vol Surface Timelapse", "value": "vol_timelapse"},
+    {"label": "IV vs RV Regime Scatter", "value": "iv_rv_scatter"},
     {"label": "── LAB: TIME SERIES ─", "value": "_ts_header", "disabled": True},
     {"label": "TS: ATM Vol",       "value": "lab_atm"},
     {"label": "TS: 25D RR",        "value": "lab_25d_rr"},
@@ -176,6 +179,7 @@ VIEW_PRESETS = {
     "Strategist: Smile Deep": ["smile_pca_chart", "wing_richness_chart", "smile_curve", "pdf_comparison"],
     "Strategist: Surface":    ["fwd_vol_surface", "surface_3d", "heatmap", "rich_cheap"],
     "Strategist: Tail Risk":  ["tail_risk_chart", "implied_dist", "vol_cone_chart", "rv_estimators"],
+    "Strategist: Regime":  ["iv_rv_scatter", "radar_profile", "vol_timelapse", "vol_ts"],
 }
 
 _PAIR_GROUPS = {
@@ -2082,6 +2086,302 @@ def chart_tail_risk(pair, sd, spot, r_dom, r_for, **kw):
     return fig
 
 
+# ---------------------------------------------------------------------------
+# NEW: Radar / Timelapse / IV-RV Scatter
+# ---------------------------------------------------------------------------
+
+@_safe_chart
+def chart_radar_profile(pair, sd, spot, r_dom, r_for, **kw):
+    """Radar chart: 6-axis vol profile for current pair vs a comparison pair."""
+    from core.fx_analytics import (vol_percentile, vol_zscore, iv_rv_percentile,
+                                    vol_of_vol_term_structure, smile_skewness, wing_richness as _wr)
+
+    def _get_profile(p):
+        """Get 6 normalised metrics (0-100 scale) for radar."""
+        metrics = {}
+        # ATM vol percentile
+        vp = vol_percentile(p, "3M", "ATM")
+        metrics["ATM Vol"] = vp["percentile"] if vp else 50
+        # Skew intensity (abs RR percentile)
+        rp = vol_percentile(p, "3M", "25D_RR")
+        metrics["Skew"] = rp["percentile"] if rp else 50
+        # Wings (BF percentile)
+        bp = vol_percentile(p, "3M", "25D_BF")
+        metrics["Wings"] = bp["percentile"] if bp else 50
+        # IV-RV spread percentile
+        irp = iv_rv_percentile(p, "3M")
+        metrics["IV-RV"] = irp.get("percentile", 50) if irp else 50
+        # Vol-of-vol (normalise to 0-100 via percentile proxy)
+        vov = vol_of_vol_term_structure(p)
+        if vov is not None and not vov.empty and "vov_20d" in vov.columns:
+            vov_val = vov.loc[vov["tenor"] == "3M", "vov_20d"]
+            metrics["Vol-of-Vol"] = min(float(vov_val.iloc[0]) * 200, 100) if len(vov_val) > 0 and vov_val.iloc[0] is not None else 50
+        else:
+            metrics["Vol-of-Vol"] = 50
+        # Term structure steepness
+        z1m = vol_zscore(p, "1M", "ATM")
+        z1y = vol_zscore(p, "1Y", "ATM")
+        term_z = abs((z1m["zscore"] if z1m else 0) - (z1y["zscore"] if z1y else 0))
+        metrics["Term Slope"] = min(term_z * 25, 100)  # scale to 0-100
+        return metrics
+
+    profile = _get_profile(pair)
+    categories = list(profile.keys())
+    values = list(profile.values())
+    # Close the polygon
+    categories_closed = categories + [categories[0]]
+    values_closed = values + [values[0]]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=values_closed, theta=categories_closed,
+        fill="toself", fillcolor="rgba(255,136,0,0.12)",
+        line=dict(color=COLORS["accent_orange"], width=2.5),
+        marker=dict(size=8, color=COLORS["accent_orange"]),
+        name=pair,
+        hovertemplate="<b>%{theta}</b><br>%{r:.0f}th percentile<extra>" + pair + "</extra>",
+    ))
+
+    # Comparison pair (cross-pair from sidebar)
+    cross = kw.get("cross_pair", "USDJPY")
+    if cross and cross != pair:
+        profile2 = _get_profile(cross)
+        values2 = [profile2[c] for c in categories]
+        values2_closed = values2 + [values2[0]]
+        fig.add_trace(go.Scatterpolar(
+            r=values2_closed, theta=categories_closed,
+            fill="toself", fillcolor="rgba(0,180,216,0.08)",
+            line=dict(color=COLORS["accent_cyan"], width=2, dash="dash"),
+            marker=dict(size=6, color=COLORS["accent_cyan"]),
+            name=cross,
+            hovertemplate="<b>%{theta}</b><br>%{r:.0f}th percentile<extra>" + cross + "</extra>",
+        ))
+
+    # 50th percentile reference circle
+    fig.add_trace(go.Scatterpolar(
+        r=[50] * (len(categories) + 1), theta=categories_closed,
+        line=dict(color=COLORS["text_muted"], width=1, dash="dot"),
+        showlegend=False, hoverinfo="skip",
+    ))
+
+    fig.update_layout(
+        polar=dict(
+            bgcolor="#000000",
+            radialaxis=dict(visible=True, range=[0, 100], showticklabels=True,
+                            tickfont=dict(size=8, color=COLORS["text_muted"]),
+                            gridcolor="#1e1e38", linecolor="#2d2d50"),
+            angularaxis=dict(tickfont=dict(size=10, color=COLORS["text_primary"],
+                                           family="'JetBrains Mono', monospace"),
+                             gridcolor="#1e1e38", linecolor="#2d2d50"),
+        ),
+        paper_bgcolor="#000000",
+        font=dict(family="'JetBrains Mono', monospace", color=COLORS["text_primary"]),
+        title=dict(text=f"Vol Profile Radar -- {pair}" + (f" vs {cross}" if cross and cross != pair else ""),
+                   font=dict(color="#ffffff", size=13)),
+        legend=dict(font=dict(color=COLORS["text_secondary"], size=10), bgcolor="rgba(0,0,0,0)"),
+        margin=dict(l=60, r=60, t=50, b=40),
+        height=420,
+    )
+    return fig
+
+
+@_safe_chart
+def chart_vol_timelapse(pair, sd, spot, r_dom, r_for, **kw):
+    """Animated vol surface heatmap: scrub through last 20 trading days."""
+    tenors = ["1W", "1M", "2M", "3M", "6M", "9M", "1Y"]
+    metrics = ["ATM"]
+    n_days = 20
+
+    # Build daily snapshots
+    frames = []
+    frame_labels = []
+    for d in range(n_days, 0, -1):
+        row_data = []
+        for t in tenors:
+            ch = vol_change(pair, t, "ATM", days_ago=d)
+            if ch:
+                row_data.append(ch.get("previous", 0))
+            else:
+                row_data.append(0)
+        frames.append(row_data)
+        frame_labels.append(f"{d}D ago")
+
+    # Add current
+    current_row = []
+    for t in tenors:
+        idx = sd["tenors"].index(t) if t in sd["tenors"] else -1
+        current_row.append(float(sd["atm"][idx]) if idx >= 0 else 0)
+    frames.append(current_row)
+    frame_labels.append("Today")
+
+    if not frames or all(all(v == 0 for v in f) for f in frames):
+        return _empty_fig("No historical data for timelapse")
+
+    # Build animated figure
+    z_all = np.array(frames)
+    z_min = float(np.nanmin(z_all[z_all > 0])) if np.any(z_all > 0) else 0
+    z_max = float(np.nanmax(z_all)) if np.any(z_all > 0) else 20
+
+    fig = go.Figure(
+        data=[go.Bar(
+            x=tenors, y=frames[-1],
+            marker=dict(color=frames[-1],
+                        colorscale=[[0, "#1a1a3e"], [0.3, "#2a2a5e"], [0.5, "#6b4400"],
+                                    [0.7, "#bf6b00"], [0.85, "#ff8800"], [1.0, "#ffcc66"]],
+                        cmin=z_min, cmax=z_max,
+                        colorbar=dict(title=dict(text="Vol %", font=dict(color=COLORS["text_muted"], size=10)),
+                                      tickfont=dict(color=COLORS["text_muted"], size=9),
+                                      len=0.6, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)")),
+            text=[f"{v:.2f}" for v in frames[-1]],
+            textposition="outside", textfont=dict(size=11, color=COLORS["text_primary"]),
+            hovertemplate="<b>%{x}</b><br>ATM: %{y:.2f}%<extra></extra>",
+        )],
+        frames=[
+            go.Frame(
+                data=[go.Bar(
+                    x=tenors, y=f,
+                    marker=dict(color=f,
+                                colorscale=[[0, "#1a1a3e"], [0.3, "#2a2a5e"], [0.5, "#6b4400"],
+                                            [0.7, "#bf6b00"], [0.85, "#ff8800"], [1.0, "#ffcc66"]],
+                                cmin=z_min, cmax=z_max),
+                    text=[f"{v:.2f}" for v in f],
+                    textposition="outside", textfont=dict(size=11, color=COLORS["text_primary"]),
+                )],
+                name=label,
+            )
+            for f, label in zip(frames, frame_labels)
+        ],
+    )
+
+    fig.update_layout(
+        updatemenus=[dict(
+            type="buttons", showactive=False,
+            x=0.0, y=1.15, xanchor="left",
+            buttons=[
+                dict(label="\u25b6 Play", method="animate",
+                     args=[None, {"frame": {"duration": 400, "redraw": True},
+                                  "fromcurrent": True, "transition": {"duration": 200}}]),
+                dict(label="\u23f8 Pause", method="animate",
+                     args=[[None], {"frame": {"duration": 0, "redraw": False},
+                                    "mode": "immediate", "transition": {"duration": 0}}]),
+            ],
+            font=dict(color=COLORS["accent_orange"], size=10, family="'JetBrains Mono', monospace"),
+            bgcolor="#000000", bordercolor=COLORS["accent_orange"], borderwidth=1,
+        )],
+        sliders=[dict(
+            active=len(frames) - 1,
+            steps=[dict(args=[[label], {"frame": {"duration": 0, "redraw": True},
+                                        "mode": "immediate"}],
+                        label=label, method="animate")
+                   for label in frame_labels],
+            x=0.0, len=1.0, y=-0.05,
+            currentvalue=dict(prefix="", font=dict(color=COLORS["accent_orange"], size=12,
+                                                    family="'JetBrains Mono', monospace")),
+            font=dict(color=COLORS["text_muted"], size=9),
+            tickcolor=COLORS["border"], bordercolor=COLORS["border"],
+            bgcolor="#06060f", activebgcolor=COLORS["accent_orange"],
+        )],
+    )
+
+    _apply_chart_template(fig, f"Vol Surface Timelapse -- {pair}")
+    fig.update_layout(
+        xaxis=dict(title="Tenor", type="category"),
+        yaxis=dict(title="ATM Vol (%)", range=[z_min * 0.9, z_max * 1.1]),
+        height=450,
+        margin=dict(l=50, r=20, t=60, b=60),
+    )
+    return fig
+
+
+@_safe_chart
+def chart_iv_rv_scatter(pair, sd, spot, r_dom, r_for, **kw):
+    """IV vs Realized Vol scatter: each point is a historical observation, colored by regime."""
+    from core.fx_analytics import iv_rv_spread, vol_regime_history
+
+    df = iv_rv_spread(pair, "3M", rv_window=20, lookback=504)
+    if df is None or df.empty or len(df) < 20:
+        return _empty_fig("Insufficient IV/RV history for scatter")
+
+    iv_vals = df["iv"].values
+    rv_vals = df["rv"].values
+
+    # Get regime colors for each data point
+    regime_hist = vol_regime_history(pair, lookback=504)
+    regime_colors = []
+    regime_labels = []
+    if regime_hist is not None and not regime_hist.empty and len(regime_hist) >= len(df):
+        rh = regime_hist.tail(len(df))
+        regime_colors = rh["color"].tolist()
+        regime_labels = rh["regime"].tolist()
+    else:
+        regime_colors = [COLORS["text_muted"]] * len(df)
+        regime_labels = ["UNKNOWN"] * len(df)
+
+    fig = go.Figure()
+
+    # 45-degree "fair pricing" line
+    all_vals = np.concatenate([iv_vals, rv_vals])
+    v_min = float(np.nanmin(all_vals[np.isfinite(all_vals)])) * 0.8
+    v_max = float(np.nanmax(all_vals[np.isfinite(all_vals)])) * 1.1
+    fig.add_trace(go.Scatter(
+        x=[v_min, v_max], y=[v_min, v_max], mode="lines",
+        line=dict(color=COLORS["text_muted"], width=1, dash="dash"),
+        name="Fair (IV=RV)", showlegend=True, hoverinfo="skip",
+    ))
+
+    # Scatter points colored by regime
+    # Group by regime for proper legend
+    regime_types = list(set(regime_labels))
+    regime_color_map = {}
+    for rl, rc in zip(regime_labels, regime_colors):
+        regime_color_map[rl] = rc
+
+    for regime in regime_types:
+        mask = [r == regime for r in regime_labels]
+        mask_arr = np.array(mask)
+        if not mask_arr.any():
+            continue
+        fig.add_trace(go.Scatter(
+            x=iv_vals[mask_arr], y=rv_vals[mask_arr],
+            mode="markers", name=regime,
+            marker=dict(size=5, color=regime_color_map.get(regime, COLORS["text_muted"]),
+                        opacity=0.6, line=dict(width=0.5, color="rgba(255,255,255,0.2)")),
+            hovertemplate="IV: %{x:.1f}%<br>RV: %{y:.1f}%<extra>" + regime + "</extra>",
+        ))
+
+    # Highlight current point
+    if len(iv_vals) > 0 and len(rv_vals) > 0:
+        fig.add_trace(go.Scatter(
+            x=[iv_vals[-1]], y=[rv_vals[-1]], mode="markers",
+            marker=dict(size=14, color=COLORS["accent_orange"], symbol="diamond",
+                        line=dict(width=2, color="#ffffff")),
+            name=f"Current ({iv_vals[-1]:.1f} / {rv_vals[-1]:.1f})",
+            hovertemplate=f"<b>Current</b><br>IV: {iv_vals[-1]:.2f}%<br>RV: {rv_vals[-1]:.2f}%<extra></extra>",
+        ))
+
+    # Label the quadrants
+    mid_iv = float(np.nanmedian(iv_vals))
+    mid_rv = float(np.nanmedian(rv_vals))
+    for text, x, y in [
+        ("IV RICH\n(sell vol)", v_max * 0.95, v_min * 1.05),
+        ("IV CHEAP\n(buy vol)", v_min * 1.05, v_max * 0.92),
+    ]:
+        fig.add_annotation(x=x, y=y, text=text, showarrow=False,
+                           font=dict(color=COLORS["text_muted"], size=9,
+                                     family="'JetBrains Mono', monospace"),
+                           opacity=0.6)
+
+    _apply_chart_template(fig, f"IV vs Realized Vol -- {pair} 3M")
+    fig.update_layout(
+        xaxis=dict(title="Implied Vol (ATM 3M, %)", range=[v_min, v_max]),
+        yaxis=dict(title="Realized Vol (20d, %)", range=[v_min, v_max],
+                   scaleanchor="x", scaleratio=1),
+        height=420,
+        legend=dict(font=dict(color=COLORS["text_secondary"], size=9), bgcolor="rgba(0,0,0,0)"),
+    )
+    return fig
+
+
 # Chart dispatch table
 CHART_DISPATCH = {
     # Surface charts
@@ -2108,6 +2408,9 @@ CHART_DISPATCH = {
     "wing_richness_chart": chart_wing_richness,
     "fwd_vol_surface": chart_fwd_vol_surface,
     "tail_risk_chart": chart_tail_risk,
+    "radar_profile": chart_radar_profile,
+    "vol_timelapse": chart_vol_timelapse,
+    "iv_rv_scatter": chart_iv_rv_scatter,
     # Lab study charts
     "lab_study_vol_cone": _lab_study_vol_cone,
     "lab_study_smile": _lab_study_smile,
