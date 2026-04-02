@@ -2565,9 +2565,6 @@ def layout():
                         html.Button("CSV", id="stb-csv-3d", n_clicks=0, style={"display": "none"}),
                         dcc.Graph(id="stb-3d-chart", style={"display": "none"}),
                     ], style={"display": "none"}),
-                    html.Div(id="stb-premium-table-container", style={
-                        **CARD_STYLE, "flex": "1", "minWidth": "340px", "padding": "12px",
-                    }, className="dashboard-card"),
                     html.Div([
                         html.Button("CSV", id="stb-csv-scenario", n_clicks=0, style=CSV_BTN_STYLE),
                         dcc.Graph(id="stb-scenario-chart", style={"height": "520px"},
@@ -2575,6 +2572,12 @@ def layout():
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "340px",
                               "padding": "12px"}, className="dashboard-card"),
                 ], style={"display": "flex", "gap": "12px", "flexWrap": "wrap"}),
+
+                # Premium & cost table (full width, scrollable)
+                html.Div(id="stb-premium-table-container", style={
+                    **CARD_STYLE, "padding": "12px", "marginTop": "12px",
+                    "overflowX": "auto",
+                }, className="dashboard-card"),
 
                 # Parallel coordinates (full width)
                 html.Div([
