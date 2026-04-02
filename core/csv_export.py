@@ -55,8 +55,10 @@ def figure_to_dataframe(fig_dict):
         t = next((tr for tr in traces if tr.get("type") in ("heatmap", "surface", "heatmapgl")), None)
         if t is None:
             return pd.DataFrame()
-        z = t.get("z") or []
-        if not z or not isinstance(z, (list, np.ndarray)) or len(z) == 0:
+        z = t.get("z")
+        if z is None:
+            z = []
+        if not isinstance(z, (list, np.ndarray)) or len(z) == 0:
             return pd.DataFrame()
         first_row = z[0] if len(z) > 0 and isinstance(z[0], (list, np.ndarray)) else []
         x = t.get("x", list(range(len(first_row))))

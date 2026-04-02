@@ -186,15 +186,8 @@ class TestHeatmapTraces:
         df = figure_to_dataframe(fig)
         assert df.empty
 
-    @pytest.mark.xfail(
-        reason="Bug: `z = t.get('z') or []` raises ValueError on numpy arrays "
-               "because numpy truth value is ambiguous. Should use "
-               "`z = t.get('z'); if z is None: z = []`",
-        raises=ValueError,
-        strict=True,
-    )
     def test_heatmap_numpy_z_raw(self):
-        """Passing a raw numpy array as z triggers a ValueError (known bug)."""
+        """Passing a raw numpy array as z should work correctly."""
         z = np.array([[1.5, 2.5], [3.5, 4.5]])
         fig = {
             "data": [{"type": "heatmap", "z": z, "x": ["a", "b"], "y": ["r0", "r1"]}],
