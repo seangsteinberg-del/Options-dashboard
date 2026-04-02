@@ -42,7 +42,7 @@ from core.fx_stress import (
     get_scenarios, stress_portfolio, compare_scenarios, custom_stress,
     FX_STRESS_SCENARIOS,
 )
-from core.fx_analytics import historical_var, expected_shortfall, parametric_var, vol_percentile, vol_regime_detect
+from core.fx_analytics import parametric_var, vol_percentile, vol_regime_detect
 from core.fx_conventions import FX_PAIR_REGISTRY
 
 

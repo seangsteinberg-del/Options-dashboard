@@ -34,7 +34,7 @@ from core.fx_exotics import (
     exotic_greeks, _mc_paths, _gk_price,
 )
 from core.fx_conventions import (
-    FX_PAIR_REGISTRY, all_pairs, tenor_to_years, delta_to_strike,
+    FX_PAIR_REGISTRY, tenor_to_years, delta_to_strike,
 )
 
 

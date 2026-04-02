@@ -10,7 +10,6 @@ Four view tabs inside one panel:
   [SIGNALS] Signal confluence heatmap — multi-factor z-score matrix with confluence scoring
 """
 
-import json
 import logging
 import numpy as np
 
