@@ -297,11 +297,17 @@ def _build_rr_bf_spreads(pair_a, pair_b, tenor="3M"):
     """Cross-pair RR & BF spread time series with z-score bands."""
     try:
         from core.fx_analytics import cross_pair_rr_spread, cross_pair_bf_spread
-        rr = cross_pair_rr_spread(pair_a, pair_b, tenor, 252)
-        bf = cross_pair_bf_spread(pair_a, pair_b, tenor, 252)
+        # Try 120-day lookback first (more pairs have this), fallback to 60
+        rr = cross_pair_rr_spread(pair_a, pair_b, tenor, 120)
+        bf = cross_pair_bf_spread(pair_a, pair_b, tenor, 120)
 
         if rr is None and bf is None:
-            return _empty_fig(f"No RR/BF spread data for {pair_a} vs {pair_b}")
+            # Try shorter lookback
+            rr = cross_pair_rr_spread(pair_a, pair_b, tenor, 60)
+            bf = cross_pair_bf_spread(pair_a, pair_b, tenor, 60)
+
+        if rr is None and bf is None:
+            return _empty_fig(f"No RR/BF history for {pair_a[:3]}/{pair_a[3:]} vs {pair_b[:3]}/{pair_b[3:]}")
 
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1,
                             subplot_titles=[f"25D RR Spread ({pair_a} - {pair_b})",
@@ -1299,7 +1305,7 @@ def _build_carry_vol_bubble():
             else:
                 color = "#9a9ab0"
 
-            bubble_size = max(12, min(40, abs(sharpe) * 20 + 10))
+            bubble_size = max(10, min(28, abs(sharpe) * 12 + 8))
 
             x_vals.append(carry_bps)
             y_vals.append(pct)
@@ -1319,46 +1325,35 @@ def _build_carry_vol_bubble():
 
         fig = go.Figure()
 
-        # ── Quadrant shading (very subtle) ──
-        x_max = max(abs(v) for v in x_vals) * 1.3 if x_vals else 200
-        x_range = [-x_max * 0.3, x_max]
-
-        # Bottom-right: HIGH CARRY + CHEAP VOL (golden quadrant)
-        fig.add_shape(type="rect", x0=0, x1=x_range[1] * 1.1, y0=0, y1=50,
-                      fillcolor="rgba(0,204,102,0.04)", line=dict(width=0),
-                      layer="below")
-        # Top-right: HIGH CARRY + RICH VOL
-        fig.add_shape(type="rect", x0=0, x1=x_range[1] * 1.1, y0=50, y1=100,
-                      fillcolor="rgba(255,136,0,0.04)", line=dict(width=0),
-                      layer="below")
-        # Top-left: LOW CARRY + RICH VOL
-        fig.add_shape(type="rect", x0=x_range[0] * 1.1, x1=0, y0=50, y1=100,
-                      fillcolor="rgba(255,51,51,0.04)", line=dict(width=0),
-                      layer="below")
-        # Bottom-left: LOW CARRY + CHEAP VOL
-        fig.add_shape(type="rect", x0=x_range[0] * 1.1, x1=0, y0=0, y1=50,
-                      fillcolor="rgba(154,154,176,0.03)", line=dict(width=0),
-                      layer="below")
+        # ── Clip x-axis to exclude extreme outliers for readability ──
+        # Use interquartile range to set sensible bounds
+        x_arr = np.array(x_vals)
+        q1, q3 = np.percentile(x_arr, 15), np.percentile(x_arr, 85)
+        iqr = q3 - q1
+        x_lo = min(q1 - 2 * max(iqr, 50), min(x_arr) * 0.9)
+        x_hi = max(q3 + 2 * max(iqr, 50), max(x_arr) * 1.1)
+        # Ensure 0 is visible and symmetric-ish
+        x_lo = min(x_lo, -100)
+        x_hi = max(x_hi, 100)
 
         # ── Quadrant divider lines ──
         fig.add_vline(x=0, line=dict(color="#2d2d50", width=1, dash="dash"))
         fig.add_hline(y=50, line=dict(color="#2d2d50", width=1, dash="dash"))
 
-        # ── Quadrant annotations ──
-        ann_font = dict(size=8, family=_MONO)
-        fig.add_annotation(x=x_range[1] * 0.7, y=92, text="HIGH CARRY + RICH VOL",
-                           showarrow=False, font=dict(**ann_font, color="#ff8800"),
-                           opacity=0.7)
-        fig.add_annotation(x=x_range[1] * 0.7, y=8,
-                           text="HIGH CARRY + CHEAP VOL  \u2605",
-                           showarrow=False, font=dict(**ann_font, color="#00cc66"),
-                           opacity=0.9)
-        fig.add_annotation(x=x_range[0] * 0.5, y=92, text="LOW CARRY + RICH VOL",
-                           showarrow=False, font=dict(**ann_font, color="#ff3333"),
-                           opacity=0.7)
-        fig.add_annotation(x=x_range[0] * 0.5, y=8, text="LOW CARRY + CHEAP VOL",
-                           showarrow=False, font=dict(**ann_font, color="#9a9ab0"),
-                           opacity=0.5)
+        # ── Quadrant labels (corner positioned) ──
+        ann_font = dict(size=9, family=_MONO)
+        fig.add_annotation(x=0.98, y=0.98, xref="paper", yref="paper",
+                           text="HIGH CARRY + RICH VOL", xanchor="right",
+                           showarrow=False, font=dict(**ann_font, color="#ff8800"), opacity=0.6)
+        fig.add_annotation(x=0.98, y=0.02, xref="paper", yref="paper",
+                           text="HIGH CARRY + CHEAP VOL  \u2605", xanchor="right",
+                           showarrow=False, font=dict(**ann_font, color="#00cc66"), opacity=0.8)
+        fig.add_annotation(x=0.02, y=0.98, xref="paper", yref="paper",
+                           text="LOW CARRY + RICH VOL", xanchor="left",
+                           showarrow=False, font=dict(**ann_font, color="#ff3333"), opacity=0.6)
+        fig.add_annotation(x=0.02, y=0.02, xref="paper", yref="paper",
+                           text="LOW CARRY + CHEAP VOL", xanchor="left",
+                           showarrow=False, font=dict(**ann_font, color="#9a9ab0"), opacity=0.4)
 
         # ── Bubble traces (one per momentum group for legend) ──
         groups = {
