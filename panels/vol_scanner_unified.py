@@ -245,24 +245,24 @@ def _build_top_movers(rows):
     biggest_ivrv = max(rows, key=lambda r: abs(r.get("ivrv_3m", 0)))
     strongest = max(rows, key=lambda r: abs(r.get("composite", 0)))
     strength_val = strongest.get("composite", 0)
-    strength_color = "#ff3333" if strength_val > 0 else "#00cc66" if strength_val < 0 else "#9a9ab0"
+    strength_color = COLORS["accent_red"] if strength_val > 0 else COLORS["accent_green"] if strength_val < 0 else COLORS["text_secondary"]
     n_inverted = sum(1 for r in rows if r.get("atm_1m", 0) > 0 and r.get("atm_1y", 0) > 0
                      and r.get("atm_1m", 0) > r.get("atm_1y", 0))
 
     items = [
         ("CHEAPEST VOL", f"{cheapest['pair']} {cheapest['atm3m_pct']:.0f}%ile", "#1565c0"),
-        ("RICHEST VOL", f"{richest['pair']} {richest['atm3m_pct']:.0f}%ile", "#ff3333"),
-        ("BIGGEST SKEW", f"{biggest_skew['pair']} {biggest_skew['rr25_3m']:+.1f}v", "#ff8800"),
-        ("IV-RV GAP", f"{biggest_ivrv['pair']} {biggest_ivrv['ivrv_3m']:+.1f}v", "#ff8800"),
+        ("RICHEST VOL", f"{richest['pair']} {richest['atm3m_pct']:.0f}%ile", COLORS["accent_red"]),
+        ("BIGGEST SKEW", f"{biggest_skew['pair']} {biggest_skew['rr25_3m']:+.1f}v", COLORS["accent_orange"]),
+        ("IV-RV GAP", f"{biggest_ivrv['pair']} {biggest_ivrv['ivrv_3m']:+.1f}v", COLORS["accent_orange"]),
         ("STRONGEST", f"{strongest['pair']} {strength_val:+.0f}", strength_color),
-        ("TERM INVERSION", f"{n_inverted}/{len(rows)}", "#ff3333" if n_inverted > 0 else "#9a9ab0"),
+        ("TERM INVERSION", f"{n_inverted}/{len(rows)}", COLORS["accent_red"] if n_inverted > 0 else COLORS["text_secondary"]),
     ]
     boxes = []
     for label, value, color in items:
         boxes.append(html.Div([
             html.Div(value, style={"fontSize": "11px", "fontWeight": "700",
                                    "color": color, "fontFamily": _MONO}),
-            html.Div(label, style={"fontSize": "8px", "color": "#9a9ab0",
+            html.Div(label, style={"fontSize": "8px", "color": COLORS["text_secondary"],
                                    "letterSpacing": "1px", "fontFamily": _MONO}),
         ], style={**STAT_BOX_STYLE, "borderTop": f"2px solid {color}", "flex": "1"}))
     return boxes
@@ -512,7 +512,7 @@ def _build_drill_stats(pair, tenor, lookback):
 
         pct_info = vol_percentile(pair, tenor, "ATM", lookback)
         pct = _sf(pct_info.get("percentile", 50) if isinstance(pct_info, dict) else 50)
-        pct_color = "#ff3333" if pct > 80 else "#1565c0" if pct < 20 else "#ff8800"
+        pct_color = COLORS["accent_red"] if pct > 80 else "#1565c0" if pct < 20 else COLORS["accent_orange"]
 
         try:
             from core.fx_analytics import iv_rv_percentile
@@ -534,17 +534,17 @@ def _build_drill_stats(pair, tenor, lookback):
         try:
             regime = vol_regime_detect(pair)
             regime_label = regime.get("regime", "NORMAL") if isinstance(regime, dict) else "NORMAL"
-            regime_color = regime.get("color", "#e0e0e0") if isinstance(regime, dict) else "#e0e0e0"
+            regime_color = regime.get("color", COLORS["text_primary"]) if isinstance(regime, dict) else COLORS["text_primary"]
         except Exception as exc:
             logger.warning("Vol regime detect failed for %s: %s", pair, exc)
             regime_label = "NORMAL"
-            regime_color = "#e0e0e0"
+            regime_color = COLORS["text_primary"]
 
         items = [
             ("IV %ILE", f"{pct:.0f}%", pct_color),
-            ("IV-RV %ILE", f"{ivrv_pct:.0f}%", "#ff8800"),
-            ("BRKEVN RV", f"{be_rv:.1f}v", "#00cc66" if cushion > 0 else "#ff3333"),
-            ("CARRY/DAY", f"{cushion:.2f}v", "#ff8800"),
+            ("IV-RV %ILE", f"{ivrv_pct:.0f}%", COLORS["accent_orange"]),
+            ("BRKEVN RV", f"{be_rv:.1f}v", COLORS["accent_green"] if cushion > 0 else COLORS["accent_red"]),
+            ("CARRY/DAY", f"{cushion:.2f}v", COLORS["accent_orange"]),
             ("REGIME", regime_label, regime_color),
         ]
         boxes = []
@@ -552,13 +552,13 @@ def _build_drill_stats(pair, tenor, lookback):
             boxes.append(html.Div([
                 html.Div(value, style={"fontSize": "11px", "fontWeight": "700",
                                        "color": color, "fontFamily": _MONO}),
-                html.Div(label, style={"fontSize": "8px", "color": "#9a9ab0",
+                html.Div(label, style={"fontSize": "8px", "color": COLORS["text_secondary"],
                                        "letterSpacing": "1px", "fontFamily": _MONO}),
             ], style={**STAT_BOX_STYLE, "marginBottom": "4px"}))
         return boxes
     except Exception as exc:
         logger.warning("Drill stats failed: %s", exc)
-        return [html.Div("Error loading stats", style={"color": "#9a9ab0", "fontSize": "10px"})]
+        return [html.Div("Error loading stats", style={"color": COLORS["text_secondary"], "fontSize": "10px"})]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -772,8 +772,8 @@ def _build_tail_table(pair, tenor):
                 logger.warning("Tail probability failed for %s: %s", pair, exc)
                 up, dn = 0, 0
 
-            up_color = "#ff3333" if up > 15 else "#ff8800" if up > 5 else "#9a9ab0"
-            dn_color = "#ff3333" if dn > 15 else "#ff8800" if dn > 5 else "#9a9ab0"
+            up_color = COLORS["accent_red"] if up > 15 else COLORS["accent_orange"] if up > 5 else COLORS["text_secondary"]
+            dn_color = COLORS["accent_red"] if dn > 15 else COLORS["accent_orange"] if dn > 5 else COLORS["text_secondary"]
             body.append(html.Tr([
                 html.Td(f"±{move}%", style={**TABLE_CELL_STYLE, "fontWeight": "600"}),
                 html.Td(f"{up:.1f}%", style={**TABLE_CELL_STYLE, "color": up_color}),
@@ -784,7 +784,7 @@ def _build_tail_table(pair, tenor):
                                  "fontFamily": _MONO, "fontSize": "10px"})
     except Exception as exc:
         logger.warning("Tail table failed: %s", exc)
-        return html.Div("No tail data", style={"color": "#9a9ab0", "fontSize": "10px"})
+        return html.Div("No tail data", style={"color": COLORS["text_secondary"], "fontSize": "10px"})
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -838,7 +838,7 @@ def layout():
         # ── Title + Controls ──
         html.Div([
             html.Span("VOL SCANNER", style={
-                "color": "#ffffff", "fontSize": "13px", "fontWeight": "700",
+                "color": COLORS["text_bright"], "fontSize": "13px", "fontWeight": "700",
                 "letterSpacing": "2px", "fontFamily": _MONO,
             }),
             html.Div([
@@ -853,7 +853,7 @@ def layout():
             ], style={"display": "flex", "gap": GAP}),
         ], style={"display": "flex", "justifyContent": "space-between",
                   "alignItems": "center", "padding": "8px 0",
-                  "borderBottom": "1px solid #2d2d50"}),
+                  "borderBottom": f"1px solid {COLORS['border']}"}),
 
         # ── View Tabs ──
         dcc.Tabs(id=f"{_P}-view-tabs", value="table", children=[
@@ -873,12 +873,12 @@ def layout():
             html.Div(id=f"{_P}-table-wrapper", style={"marginTop": GAP}),
             # Drill-down
             html.Div(id=f"{_P}-table-drilldown", style={
-                "display": "none", "marginTop": "8px", "border": "1px solid #2d2d50",
+                "display": "none", "marginTop": "8px", "border": f"1px solid {COLORS['border']}",
                 "padding": "8px",
             }, children=[
                 html.Div([
                     html.Span(id=f"{_P}-drilldown-title", style={
-                        "color": "#ff8800", "fontSize": "11px", "fontWeight": "700",
+                        "color": COLORS["accent_orange"], "fontSize": "11px", "fontWeight": "700",
                         "fontFamily": _MONO,
                     }),
                     html.Button("OPEN VOL SURFACE", id=f"{_P}-deeplink-volsurface",
@@ -927,11 +927,11 @@ def layout():
 
             # Drill-down section
             html.Div(id=f"{_P}-hm-drill", style={
-                "marginTop": SECTION_GAP, "border": "1px solid #2d2d50", "padding": GAP,
+                "marginTop": SECTION_GAP, "border": f"1px solid {COLORS['border']}", "padding": GAP,
             }, children=[
                 html.Div([
                     html.Span(id=f"{_P}-drill-label", style={
-                        "color": "#ff8800", "fontSize": "11px", "fontWeight": "700",
+                        "color": COLORS["accent_orange"], "fontSize": "11px", "fontWeight": "700",
                         "fontFamily": _MONO,
                     }),
                     html.Button("OPEN VOL SURFACE", id=f"{_P}-hm-deeplink-volsurface",
@@ -1001,11 +1001,11 @@ def layout():
                 ], style={"flex": "3"}),
                 html.Div([
                     html.Div("TAIL PROBABILITIES", style={
-                        "color": "#9a9ab0", "fontSize": "9px", "fontWeight": "700",
+                        "color": COLORS["text_secondary"], "fontSize": "9px", "fontWeight": "700",
                         "letterSpacing": "1.5px", "marginBottom": GAP, "fontFamily": _MONO,
                     }),
                     html.Div(id=f"{_P}-tail-table"),
-                ], style={"flex": "2", "padding": GAP, "border": "1px solid #2d2d50"}),
+                ], style={"flex": "2", "padding": GAP, "border": f"1px solid {COLORS['border']}"}),
             ], style={"display": "flex", "gap": GAP, "marginTop": GAP}),
 
             # Skew slope heatmap
@@ -1106,21 +1106,21 @@ def register_callbacks(app):
             row_selectable="single",
             style_table={"overflowX": "auto", "maxHeight": "450px", "overflowY": "auto"},
             style_header={
-                "backgroundColor": "#000000", "color": "#9a9ab0",
+                "backgroundColor": COLORS["bg_primary"], "color": COLORS["text_secondary"],
                 "fontWeight": "700", "fontSize": "9px", "textTransform": "uppercase",
                 "letterSpacing": "1px", "border": "1px solid #111122",
-                "borderBottom": "2px solid #2d2d50",
+                "borderBottom": f"2px solid {COLORS['border']}",
                 "fontFamily": _MONO, "padding": "6px 6px",
             },
             style_cell={
-                "backgroundColor": "#000000", "color": "#e0e0e0",
+                "backgroundColor": COLORS["bg_primary"], "color": COLORS["text_primary"],
                 "fontSize": "11px", "fontFamily": _MONO,
                 "border": "1px solid #111122", "padding": "4px 6px",
                 "textAlign": "right", "minWidth": "60px",
             },
             style_cell_conditional=[
                 {"if": {"column_id": "pair"}, "textAlign": "left", "fontWeight": "700",
-                 "color": "#ffffff", "borderRight": "2px solid #2d2d50"},
+                 "color": COLORS["text_bright"], "borderRight": f"2px solid {COLORS['border']}"},
                 {"if": {"column_id": "group"}, "textAlign": "center", "color": "#555555",
                  "fontSize": "9px"},
                 {"if": {"column_id": "spot"}, "color": "#666666"},
@@ -1132,21 +1132,21 @@ def register_callbacks(app):
                 {"if": {"row_index": "odd"}, "backgroundColor": "#030308"},
                 # Selected row
                 {"if": {"state": "selected"}, "backgroundColor": "#0a0a1e",
-                 "border": "1px solid #ff8800"},
+                 "border": f"1px solid {COLORS['accent_orange']}"},
                 # Spot change coloring
                 {"if": {"filter_query": "{chg_pct} > 0", "column_id": "chg_pct"},
-                 "color": "#00cc66"},
+                 "color": COLORS["accent_green"]},
                 {"if": {"filter_query": "{chg_pct} < 0", "column_id": "chg_pct"},
-                 "color": "#ff3333"},
+                 "color": COLORS["accent_red"]},
                 {"if": {"filter_query": "{chg_pct} > 0.5", "column_id": "chg_pct"},
-                 "color": "#00cc66", "fontWeight": "bold", "backgroundColor": "#001a0a"},
+                 "color": COLORS["accent_green"], "fontWeight": "bold", "backgroundColor": "#001a0a"},
                 {"if": {"filter_query": "{chg_pct} < -0.5", "column_id": "chg_pct"},
-                 "color": "#ff3333", "fontWeight": "bold", "backgroundColor": "#1a0000"},
+                 "color": COLORS["accent_red"], "fontWeight": "bold", "backgroundColor": "#1a0000"},
                 # ATM percentile — background tints at extremes
                 {"if": {"filter_query": "{atm3m_pct} < 20", "column_id": "atm3m_pct"},
                  "color": "#1565c0", "fontWeight": "bold", "backgroundColor": "#0a1020"},
                 {"if": {"filter_query": "{atm3m_pct} > 80", "column_id": "atm3m_pct"},
-                 "color": "#ff8800", "fontWeight": "bold", "backgroundColor": "#1a0e00"},
+                 "color": COLORS["accent_orange"], "fontWeight": "bold", "backgroundColor": "#1a0e00"},
                 {"if": {"filter_query": "{atm3m_pct} < 10", "column_id": "atm3m_pct"},
                  "color": "#42a5f5", "fontWeight": "bold", "backgroundColor": "#081828"},
                 {"if": {"filter_query": "{atm3m_pct} > 90", "column_id": "atm3m_pct"},
@@ -1155,55 +1155,55 @@ def register_callbacks(app):
                 {"if": {"filter_query": "{rr3m_pct} < 20", "column_id": "rr3m_pct"},
                  "color": "#1565c0", "fontWeight": "bold", "backgroundColor": "#0a1020"},
                 {"if": {"filter_query": "{rr3m_pct} > 80", "column_id": "rr3m_pct"},
-                 "color": "#ff3333", "fontWeight": "bold", "backgroundColor": "#1a0000"},
+                 "color": COLORS["accent_red"], "fontWeight": "bold", "backgroundColor": "#1a0000"},
                 # Z-score coloring with bg tints
                 {"if": {"filter_query": "{z_atm3m} > 1.5", "column_id": "z_atm3m"},
-                 "color": "#ff8800"},
+                 "color": COLORS["accent_orange"]},
                 {"if": {"filter_query": "{z_atm3m} < -1.5", "column_id": "z_atm3m"},
                  "color": "#1565c0"},
                 {"if": {"filter_query": "{z_atm3m} > 2", "column_id": "z_atm3m"},
-                 "color": "#ff3333", "fontWeight": "bold", "backgroundColor": "#1a0000"},
+                 "color": COLORS["accent_red"], "fontWeight": "bold", "backgroundColor": "#1a0000"},
                 {"if": {"filter_query": "{z_atm3m} < -2", "column_id": "z_atm3m"},
                  "color": "#42a5f5", "fontWeight": "bold", "backgroundColor": "#081828"},
                 # IV-RV spread — green/red with bg
                 {"if": {"filter_query": "{ivrv_3m} > 1.5", "column_id": "ivrv_3m"},
-                 "color": "#00cc66", "fontWeight": "bold", "backgroundColor": "#001a0a"},
+                 "color": COLORS["accent_green"], "fontWeight": "bold", "backgroundColor": "#001a0a"},
                 {"if": {"filter_query": "{ivrv_3m} < -1.5", "column_id": "ivrv_3m"},
-                 "color": "#ff3333", "fontWeight": "bold", "backgroundColor": "#1a0000"},
+                 "color": COLORS["accent_red"], "fontWeight": "bold", "backgroundColor": "#1a0000"},
                 # Term spread — inverted is hot, flat is cold
                 {"if": {"filter_query": "{term_spread} > 1.5", "column_id": "term_spread"},
-                 "color": "#ff8800", "fontWeight": "bold"},
+                 "color": COLORS["accent_orange"], "fontWeight": "bold"},
                 {"if": {"filter_query": "{term_spread} < -0.5", "column_id": "term_spread"},
                  "color": "#1565c0"},
                 # Composite score — progressive background tinting
                 {"if": {"filter_query": "{composite} > 30", "column_id": "composite"},
-                 "color": "#ff3333", "fontWeight": "bold"},
+                 "color": COLORS["accent_red"], "fontWeight": "bold"},
                 {"if": {"filter_query": "{composite} < -30", "column_id": "composite"},
-                 "color": "#00cc66", "fontWeight": "bold"},
+                 "color": COLORS["accent_green"], "fontWeight": "bold"},
                 {"if": {"filter_query": "{composite} > 50", "column_id": "composite"},
-                 "color": "#ff3333", "fontWeight": "bold", "backgroundColor": "#1a0000"},
+                 "color": COLORS["accent_red"], "fontWeight": "bold", "backgroundColor": "#1a0000"},
                 {"if": {"filter_query": "{composite} < -50", "column_id": "composite"},
-                 "color": "#00cc66", "fontWeight": "bold", "backgroundColor": "#001a00"},
+                 "color": COLORS["accent_green"], "fontWeight": "bold", "backgroundColor": "#001a00"},
                 # Signal coloring — STRONG tiers (full row highlight)
                 {"if": {"filter_query": '{signal} contains "STRONG SELL"'},
                  "backgroundColor": "#0e0000"},
                 {"if": {"filter_query": '{signal} contains "STRONG BUY"'},
                  "backgroundColor": "#000e00"},
                 {"if": {"filter_query": '{signal} contains "STRONG SELL VOL"', "column_id": "signal"},
-                 "color": "#ff3333", "fontWeight": "900", "borderLeft": "3px solid #ff3333"},
+                 "color": COLORS["accent_red"], "fontWeight": "900", "borderLeft": f"3px solid {COLORS['accent_red']}"},
                 {"if": {"filter_query": '{signal} contains "STRONG BUY VOL"', "column_id": "signal"},
-                 "color": "#00cc66", "fontWeight": "900", "borderLeft": "3px solid #00cc66"},
+                 "color": COLORS["accent_green"], "fontWeight": "900", "borderLeft": f"3px solid {COLORS['accent_green']}"},
                 # Signal coloring — normal vol tiers
                 {"if": {"filter_query": '{signal} contains "SELL VOL"', "column_id": "signal"},
-                 "color": "#ff3333", "fontWeight": "bold", "borderLeft": "2px solid #ff3333"},
+                 "color": COLORS["accent_red"], "fontWeight": "bold", "borderLeft": f"2px solid {COLORS['accent_red']}"},
                 {"if": {"filter_query": '{signal} contains "BUY VOL"', "column_id": "signal"},
-                 "color": "#00cc66", "fontWeight": "bold", "borderLeft": "2px solid #00cc66"},
+                 "color": COLORS["accent_green"], "fontWeight": "bold", "borderLeft": f"2px solid {COLORS['accent_green']}"},
                 # Skew signals — orange
                 {"if": {"filter_query": '{signal} contains "SKEW"', "column_id": "signal"},
-                 "color": "#ff8800", "borderLeft": "2px solid #ff8800"},
+                 "color": COLORS["accent_orange"], "borderLeft": f"2px solid {COLORS['accent_orange']}"},
                 # Term signals
                 {"if": {"filter_query": '{signal} contains "TERM"', "column_id": "signal"},
-                 "color": "#e0e0e0", "borderLeft": "2px solid #9a9ab0"},
+                 "color": COLORS["text_primary"], "borderLeft": f"2px solid {COLORS['text_secondary']}"},
             ],
         )
 
@@ -1232,7 +1232,7 @@ def register_callbacks(app):
         pair = row.get("pair", "EURUSD")
 
         return (
-            {"display": "block", "marginTop": "8px", "border": "1px solid #2d2d50", "padding": "8px"},
+            {"display": "block", "marginTop": "8px", "border": f"1px solid {COLORS['border']}", "padding": "8px"},
             f"{pair} — DRILL-DOWN",
             _build_atm_history(pair, "3M", 252),
             _build_ivrv_chart(pair, "3M", 252),

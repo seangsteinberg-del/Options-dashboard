@@ -3332,13 +3332,13 @@ def layout():
                     html.Div(style={"height": "4px"}),
                     html.Div([
                         html.Button("Regime", id="vsfx-preset-regime", n_clicks=0,
-                                    style={**PRESET_BTN, "color": "#9a9ab0"}),
+                                    style={**PRESET_BTN, "color": COLORS["text_secondary"]}),
                         html.Button("Vol-of-Vol", id="vsfx-preset-vov", n_clicks=0,
-                                    style={**PRESET_BTN, "color": "#9a9ab0"}),
+                                    style={**PRESET_BTN, "color": COLORS["text_secondary"]}),
                         html.Button("Full Scan", id="vsfx-preset-full", n_clicks=0,
-                                    style={**PRESET_BTN, "color": "#9a9ab0"}),
+                                    style={**PRESET_BTN, "color": COLORS["text_secondary"]}),
                         html.Button("Carry", id="vsfx-preset-carry", n_clicks=0,
-                                    style={**PRESET_BTN, "color": "#9a9ab0"}),
+                                    style={**PRESET_BTN, "color": COLORS["text_secondary"]}),
                         html.Button("History", id="vsfx-preset-history", n_clicks=0,
                                     style={**PRESET_BTN, "color": COLORS["accent_orange"]}),
                     ], style={"display": "flex", "flexWrap": "wrap"}),
@@ -3488,7 +3488,7 @@ def layout():
                     html.Button("\u2192 BUILD TRADE", id="vsfx-build-trade-btn",
                         n_clicks=0, style={
                             "backgroundColor": COLORS["accent_orange"],
-                            "color": "#000", "border": "none", "borderRadius": "0px",
+                            "color": COLORS["bg_primary"], "border": "none", "borderRadius": "0px",
                             "padding": "6px 12px", "width": "100%",
                             "fontFamily": "'JetBrains Mono', monospace",
                             "fontSize": "10px", "fontWeight": "700",
@@ -3560,7 +3560,7 @@ def layout():
                                            "cursor": "pointer", "marginRight": "4px"}),
                         html.Button("\u25b6 PLAY", id="vsfx-history-play", n_clicks=0,
                                     style={"background": COLORS["accent_orange"], "border": "none",
-                                           "color": "#000", "padding": "4px 14px",
+                                           "color": COLORS["bg_primary"], "padding": "4px 14px",
                                            "fontFamily": "'JetBrains Mono', monospace", "fontSize": "10px",
                                            "fontWeight": "700", "cursor": "pointer", "marginRight": "4px",
                                            "letterSpacing": "0.5px"}),
@@ -3685,7 +3685,7 @@ def layout():
                         html.Div([
                             html.Button("RUN STUDY", id="vsfx-study-run",
                                 n_clicks=0, style={
-                                    "backgroundColor": "#ff8800", "color": "#000",
+                                    "backgroundColor": COLORS["accent_orange"], "color": COLORS["bg_primary"],
                                     "border": "none", "borderRadius": "0px",
                                     "padding": "4px 12px",
                                     "fontFamily": "'JetBrains Mono', monospace",
@@ -3740,7 +3740,7 @@ def layout():
                         html.Div([
                             html.Button("REFRESH", id="vsfx-comp-refresh",
                                 n_clicks=0, style={
-                                    "backgroundColor": "#ff8800", "color": "#000",
+                                    "backgroundColor": COLORS["accent_orange"], "color": COLORS["bg_primary"],
                                     "border": "none", "borderRadius": "0px",
                                     "padding": "4px 12px",
                                     "fontFamily": "'JetBrains Mono', monospace",

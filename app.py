@@ -170,9 +170,9 @@ def _safe_panel_layout(tab_id, module):
         import traceback
         return html.Div([
             html.Div(f"PANEL LOAD ERROR: {tab_id}", style={
-                "color": "#ff3333", "fontWeight": "700", "fontSize": "13px"}),
+                "color": COLORS["accent_red"], "fontWeight": "700", "fontSize": "13px"}),
             html.Pre(traceback.format_exc(), style={
-                "color": "#808080", "fontSize": "10px", "whiteSpace": "pre-wrap"}),
+                "color": COLORS["text_secondary"], "fontSize": "10px", "whiteSpace": "pre-wrap"}),
         ], style={"padding": "40px"})
 
 # Workspace presets
@@ -313,9 +313,9 @@ def _preset_button(label, idx):
         id={"type": "preset-btn", "index": idx},
         n_clicks=0,
         style={
-            "backgroundColor": "#000000",
-            "color": "#808080",
-            "border": "1px solid #222240",
+            "backgroundColor": COLORS["bg_primary"],
+            "color": COLORS["text_secondary"],
+            "border": f"1px solid {COLORS['border']}",
             "borderRadius": "0px",
             "padding": "4px 10px",
             "fontSize": "9px",
@@ -358,7 +358,7 @@ def make_header():
                     }),
                 ]),
                 html.Div("Institutional Derivatives Analytics", style={
-                    "color": "#808080", "fontSize": "9px",
+                    "color": COLORS["text_secondary"], "fontSize": "9px",
                     "textTransform": "uppercase", "letterSpacing": "4px",
                     "marginTop": "2px",
                 }),
@@ -367,7 +367,7 @@ def make_header():
             # ── Workspace Presets ──
             html.Div([
                 html.Span("WORKSPACE", style={
-                    "color": "#808080", "fontSize": "9px",
+                    "color": COLORS["text_secondary"], "fontSize": "9px",
                     "letterSpacing": "1px", "marginRight": "6px",
                     "fontWeight": "600",
                 }),
@@ -413,7 +413,7 @@ def make_header():
                 }),
                 html.Div([
                     html.Span("MODEL ", style={
-                        "color": "#808080", "fontSize": "9px",
+                        "color": COLORS["text_secondary"], "fontSize": "9px",
                         "letterSpacing": "1px",
                     }),
                     html.Span("GK/SABR/VV/MC", style={
@@ -424,11 +424,11 @@ def make_header():
                 # ── Last Updated Timestamp ──
                 html.Div([
                     html.Span("UPDATED ", style={
-                        "color": "#808080", "fontSize": "9px",
+                        "color": COLORS["text_secondary"], "fontSize": "9px",
                         "letterSpacing": "1px",
                     }),
                     html.Span(id="header-last-updated", children="—", style={
-                        "color": "#d4d4d4", "fontSize": "9px",
+                        "color": COLORS["text_primary"], "fontSize": "9px",
                         "fontWeight": "600",
                     }),
                 ], style={"marginLeft": "16px"}),
@@ -436,8 +436,8 @@ def make_header():
         ], style={
             "display": "flex", "justifyContent": "space-between",
             "alignItems": "center", "padding": "10px 24px",
-            "backgroundColor": "#000000",
-            "borderBottom": "1px solid #222240",
+            "backgroundColor": COLORS["bg_primary"],
+            "borderBottom": f"1px solid {COLORS['border']}",
             "fontFamily": "'JetBrains Mono', monospace",
         }),
     ])
@@ -454,9 +454,9 @@ def make_watchlist_modal():
         children=[
             html.Div([
                 html.Div("WATCHLIST EDITOR", style={
-                    "color": "#ffffff", "fontSize": "11px", "fontWeight": "700",
+                    "color": COLORS["text_bright"], "fontSize": "11px", "fontWeight": "700",
                     "letterSpacing": "1.5px", "marginBottom": "8px",
-                    "paddingBottom": "4px", "borderBottom": "1px solid #222240",
+                    "paddingBottom": "4px", "borderBottom": f"1px solid {COLORS['border']}",
                     "fontFamily": "'JetBrains Mono', monospace",
                 }),
                 dcc.Dropdown(
@@ -476,16 +476,16 @@ def make_watchlist_modal():
                         "fontWeight": "700", "cursor": "pointer", "marginRight": "8px",
                     }),
                     html.Button("CLOSE", id="watchlist-close-btn", n_clicks=0, style={
-                        "backgroundColor": "#000000", "color": "#808080",
-                        "border": "1px solid #222240", "borderRadius": "0px",
+                        "backgroundColor": COLORS["bg_primary"], "color": COLORS["text_secondary"],
+                        "border": f"1px solid {COLORS['border']}", "borderRadius": "0px",
                         "padding": "6px 16px", "fontSize": "10px",
                         "fontFamily": "'JetBrains Mono', monospace",
                         "fontWeight": "700", "cursor": "pointer",
                     }),
                 ], style={"marginTop": "12px", "display": "flex"}),
             ], style={
-                "backgroundColor": "#000000",
-                "border": "1px solid #222240",
+                "backgroundColor": COLORS["bg_primary"],
+                "border": f"1px solid {COLORS['border']}",
                 "padding": "16px",
                 "width": "500px",
                 "maxWidth": "90vw",
@@ -516,7 +516,7 @@ def make_metric_popup():
                 # Header
                 html.Div([
                     html.Span(id="metric-popup-title", style={
-                        "color": "#ffffff", "fontSize": "13px", "fontWeight": "700",
+                        "color": COLORS["text_bright"], "fontSize": "13px", "fontWeight": "700",
                         "letterSpacing": "1px", "fontFamily": "'JetBrains Mono', monospace",
                     }),
                     html.Button("\u2715", id="metric-popup-close-btn", n_clicks=0,
@@ -561,7 +561,7 @@ def make_command_palette():
             html.Div([
                 html.Div([
                     html.Span("COMMAND PALETTE", style={
-                        "color": "#808080", "fontSize": "9px",
+                        "color": COLORS["text_secondary"], "fontSize": "9px",
                         "letterSpacing": "2px", "fontWeight": "700",
                     }),
                     html.Span("Ctrl+K", style={
@@ -583,16 +583,16 @@ def make_command_palette():
                     searchable=True,
                     clearable=True,
                     style={
-                        "backgroundColor": "#000000",
-                        "color": "#d4d4d4",
+                        "backgroundColor": COLORS["bg_primary"],
+                        "color": COLORS["text_primary"],
                         "fontFamily": "'JetBrains Mono', monospace",
                         "fontSize": "13px",
                         "border": "none",
                     },
                 ),
             ], style={
-                "backgroundColor": "#000000",
-                "border": "1px solid #222240",
+                "backgroundColor": COLORS["bg_primary"],
+                "border": f"1px solid {COLORS['border']}",
                 "padding": "16px 20px",
                 "width": "560px",
                 "maxWidth": "90vw",
@@ -618,10 +618,10 @@ def make_command_palette():
 def _workspace_tab_style(accent):
     return {
         "backgroundColor": "transparent",
-        "border": "1px solid #222240",
+        "border": f"1px solid {COLORS['border']}",
         "borderBottom": "none",
         "borderRadius": "0px",
-        "color": "#808080",
+        "color": COLORS["text_secondary"],
         "fontFamily": "'JetBrains Mono', monospace",
         "fontSize": "10px",
         "fontWeight": "700",
@@ -636,7 +636,7 @@ def _workspace_tab_selected_style(accent):
     base = _workspace_tab_style(accent)
     return {
         **base,
-        "backgroundColor": "#000000",
+        "backgroundColor": COLORS["bg_primary"],
         "color": accent,
         "borderTop": f"2px solid {accent}",
     }
@@ -645,10 +645,10 @@ def _workspace_tab_selected_style(accent):
 def _subtab_style():
     return {
         "backgroundColor": "transparent",
-        "border": "1px solid #222240",
+        "border": f"1px solid {COLORS['border']}",
         "borderBottom": "none",
         "borderRadius": "0px",
-        "color": "#808080",
+        "color": COLORS["text_secondary"],
         "fontFamily": "'JetBrains Mono', monospace",
         "fontSize": "9px",
         "fontWeight": "600",
@@ -663,7 +663,7 @@ def _subtab_selected_style(accent):
     base = _subtab_style()
     return {
         **base,
-        "backgroundColor": "#000000",
+        "backgroundColor": COLORS["bg_primary"],
         "color": accent,
         "borderTop": f"2px solid {accent}",
     }
@@ -704,7 +704,7 @@ def make_sub_tabs_container():
             )
             for tab in ws["tabs"]
         ],
-        style={"marginTop": "2px", "borderBottom": "1px solid #222240"},
+        style={"marginTop": "2px", "borderBottom": f"1px solid {COLORS['border']}"},
     )
     return html.Div(initial_tabs, id="subtab-container", style={"marginTop": "0"})
 
@@ -719,33 +719,33 @@ def make_footer():
     return html.Div([
         html.Div([
             html.Span(f"FX OPTIONS WORKSTATION v{VERSION}", style={
-                "color": "#808080", "fontSize": "9px",
+                "color": COLORS["text_secondary"], "fontSize": "9px",
                 "letterSpacing": "2px",
             }),
             html.Span(" \u2502 ", style={
-                "color": "#222240", "margin": "0 8px",
+                "color": COLORS["border"], "margin": "0 8px",
             }),
             html.Span(f"{total_panels} PANELS", style={
-                "color": "#808080", "fontSize": "9px",
+                "color": COLORS["text_secondary"], "fontSize": "9px",
                 "letterSpacing": "2px",
             }),
             html.Span(" \u2502 ", style={
-                "color": "#222240", "margin": "0 8px",
+                "color": COLORS["border"], "margin": "0 8px",
             }),
             html.Span(data_label, style={
                 "color": status_color(), "fontSize": "9px",
                 "letterSpacing": "2px", "fontWeight": "700",
             }),
             html.Span(" \u2502 ", style={
-                "color": "#222240", "margin": "0 8px",
+                "color": COLORS["border"], "margin": "0 8px",
             }),
             html.Span("GK \u00b7 SABR \u00b7 VV \u00b7 MC", style={
-                "color": "#808080", "fontSize": "9px",
+                "color": COLORS["text_secondary"], "fontSize": "9px",
                 "letterSpacing": "2px",
             }),
         ], style={
             "textAlign": "center", "padding": "12px",
-            "borderTop": "1px solid #222240",
+            "borderTop": f"1px solid {COLORS['border']}",
             "fontFamily": "'JetBrains Mono', monospace",
         }),
     ])
@@ -808,7 +808,7 @@ def serve_layout():
         make_footer(),
 
     ], style={
-        "backgroundColor": "#000000",
+        "backgroundColor": COLORS["bg_primary"],
         "minHeight": "100vh",
         "fontFamily": "'JetBrains Mono', monospace",
     })
@@ -1243,34 +1243,34 @@ def handle_metric_popup(metric_clicks, close_clicks):
         # Stats
         stats_children = [
             html.Div([
-                html.Span("Current: ", style={"color": "#808080", "fontSize": "9px"}),
-                html.Span(f"{current:.2f}v", style={"color": "#d4d4d4", "fontSize": "11px", "fontWeight": "700"}),
+                html.Span("Current: ", style={"color": COLORS["text_secondary"], "fontSize": "9px"}),
+                html.Span(f"{current:.2f}v", style={"color": COLORS["text_primary"], "fontSize": "11px", "fontWeight": "700"}),
             ]),
             html.Div([
-                html.Span("Pctl: ", style={"color": "#808080", "fontSize": "9px"}),
+                html.Span("Pctl: ", style={"color": COLORS["text_secondary"], "fontSize": "9px"}),
                 html.Span(_ordinal(pct), style={
-                    "color": "#00cc66" if pct < 30 else "#ff3333" if pct > 70 else "#d4d4d4",
+                    "color": COLORS["accent_green"] if pct < 30 else COLORS["accent_red"] if pct > 70 else COLORS["text_primary"],
                     "fontSize": "11px", "fontWeight": "700",
                 }),
             ]),
             html.Div([
-                html.Span("Mean: ", style={"color": "#808080", "fontSize": "9px"}),
-                html.Span(f"{mean_val:.2f}v", style={"color": "#d4d4d4", "fontSize": "11px"}),
+                html.Span("Mean: ", style={"color": COLORS["text_secondary"], "fontSize": "9px"}),
+                html.Span(f"{mean_val:.2f}v", style={"color": COLORS["text_primary"], "fontSize": "11px"}),
             ]),
             html.Div([
-                html.Span("Std: ", style={"color": "#808080", "fontSize": "9px"}),
-                html.Span(f"{std_val:.2f}v", style={"color": "#d4d4d4", "fontSize": "11px"}),
+                html.Span("Std: ", style={"color": COLORS["text_secondary"], "fontSize": "9px"}),
+                html.Span(f"{std_val:.2f}v", style={"color": COLORS["text_primary"], "fontSize": "11px"}),
             ]),
             html.Div([
-                html.Span("Z: ", style={"color": "#808080", "fontSize": "9px"}),
+                html.Span("Z: ", style={"color": COLORS["text_secondary"], "fontSize": "9px"}),
                 html.Span(f"{z_score:+.2f}", style={
-                    "color": "#00cc66" if abs(z_score) < 1 else "#ff3333",
+                    "color": COLORS["accent_green"] if abs(z_score) < 1 else COLORS["accent_red"],
                     "fontSize": "11px", "fontWeight": "700",
                 }),
             ]),
             html.Div([
-                html.Span("Min/Max: ", style={"color": "#808080", "fontSize": "9px"}),
-                html.Span(f"{min_val:.2f} / {max_val:.2f}", style={"color": "#d4d4d4", "fontSize": "11px"}),
+                html.Span("Min/Max: ", style={"color": COLORS["text_secondary"], "fontSize": "9px"}),
+                html.Span(f"{min_val:.2f} / {max_val:.2f}", style={"color": COLORS["text_primary"], "fontSize": "11px"}),
             ]),
         ]
 
@@ -1292,7 +1292,7 @@ def handle_metric_popup(metric_clicks, close_clicks):
              "right": "0", "bottom": "0", "backgroundColor": "rgba(0,0,0,0.85)",
              "zIndex": "9000", "justifyContent": "center", "alignItems": "center"},
             f"{pair} \u2014 {metric} {tenor}",
-            [html.Div(f"Error: {exc}", style={"color": "#ff3333", "fontSize": "11px"})],
+            [html.Div(f"Error: {exc}", style={"color": COLORS["accent_red"], "fontSize": "11px"})],
             go.Figure(),
         )
 
@@ -1379,7 +1379,7 @@ def _update_data_source_status(_n):
 
     if mode == "LIVE":
         return html.Span("ALL DATA LIVE", style={
-            "color": "#00cc66", "fontSize": "9px", "fontWeight": "700",
+            "color": COLORS["accent_green"], "fontSize": "9px", "fontWeight": "700",
             "fontFamily": "'JetBrains Mono', monospace", "letterSpacing": "0.5px",
         }), timestamp
     elif mode == "DEGRADED":
@@ -1399,11 +1399,11 @@ def _update_data_source_status(_n):
         )
         return html.Span([
             html.Span("\u26A0 DEGRADED: ", style={
-                "color": "#ff3333", "fontSize": "9px", "fontWeight": "700",
+                "color": COLORS["accent_red"], "fontSize": "9px", "fontWeight": "700",
                 "fontFamily": "'JetBrains Mono', monospace",
             }),
             html.Span(f"{error_summary}", title=detail, style={
-                "color": "#ff3333", "fontSize": "9px",
+                "color": COLORS["accent_red"], "fontSize": "9px",
                 "fontFamily": "'JetBrains Mono', monospace",
                 "cursor": "help",
             }),
@@ -1411,7 +1411,7 @@ def _update_data_source_status(_n):
     else:
         # No Bloomberg connection — show warning
         return html.Span("BLOOMBERG DISCONNECTED — NO LIVE DATA", style={
-            "color": "#ff3333", "fontSize": "9px",
+            "color": COLORS["accent_red"], "fontSize": "9px",
             "fontFamily": "'JetBrains Mono', monospace",
         }), timestamp
 

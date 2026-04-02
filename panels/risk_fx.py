@@ -1094,7 +1094,7 @@ def register_callbacks(app):
                 breach_items.append(html.Div([
                     html.Span(f"{metric}", style={"color": sev_color, "fontWeight": "700"}),
                     html.Span(f"  {_fmt_usd(current)} / {_fmt_usd(limit_val)}"
-                              f"  ({util:.0f}%)", style={"color": "#808080"}),
+                              f"  ({util:.0f}%)", style={"color": COLORS["text_secondary"]}),
                 ], style={"fontSize": "9px", "fontFamily": "'JetBrains Mono', monospace",
                           "padding": "2px 0"}))
             stat_boxes.insert(0, html.Div(breach_items,
@@ -1174,17 +1174,17 @@ def register_callbacks(app):
                     html.Div(className="risk-report-metric", children=[
                         html.Span("VaR 95% (1d)", className="label"),
                         html.Span(_fmt_usd(var_95), className="value",
-                                  style={"color": "#ff3333"}),
+                                  style={"color": COLORS["accent_red"]}),
                     ]),
                     html.Div(className="risk-report-metric", children=[
                         html.Span("CVaR 95%", className="label"),
                         html.Span(_fmt_usd(cvar_95), className="value",
-                                  style={"color": "#ff3333"}),
+                                  style={"color": COLORS["accent_red"]}),
                     ]),
                     html.Div(className="risk-report-metric", children=[
                         html.Span("Limit Breaches", className="label"),
                         html.Span(str(n_breaches), className="value",
-                                  style={"color": "#ff3333" if n_breaches > 0 else "#00cc66"}),
+                                  style={"color": COLORS["accent_red"] if n_breaches > 0 else COLORS["accent_green"]}),
                     ]),
                     html.Div(className="risk-report-metric", children=[
                         html.Span("Delta Util %", className="label"),
@@ -2525,7 +2525,7 @@ def register_callbacks(app):
             _make_stat_box("GAMMA P&L", f"${total_gamma:,.0f}", COLORS["accent_green"]),
             _make_stat_box("THETA P&L", f"${total_theta:,.0f}", COLORS["accent_red"]),
             _make_stat_box("HEDGES", str(n_hedges), COLORS["accent_orange"]),
-            _make_stat_box("STRIKE", f"{K:.5f}" if K < 10 else f"{K:.2f}", "#d4d4d4"),
+            _make_stat_box("STRIKE", f"{K:.5f}" if K < 10 else f"{K:.2f}", COLORS["text_primary"]),
             _make_stat_box("PAIR", pair, COLORS["accent_orange"]),
         ]
 
@@ -2600,7 +2600,7 @@ def register_callbacks(app):
            len(closes_t) < 30 or len(closes_1) < 30 or len(closes_2) < 30:
             stats = [
                 _make_stat_box("TARGET", target, COLORS["accent_orange"]),
-                _make_stat_box("STATUS", "NO DATA", "#808080"),
+                _make_stat_box("STATUS", "NO DATA", COLORS["text_secondary"]),
             ]
             return stats, no_data_fig(height=CHART_SM, msg="NO HISTORICAL DATA FOR CROSS-HEDGE")
 
@@ -2625,9 +2625,9 @@ def register_callbacks(app):
 
         stats = [
             _make_stat_box("TARGET", target, COLORS["accent_orange"]),
-            _make_stat_box(f"\u03b2 ({h1})", f"{beta_1:.2f}", "#d4d4d4"),
-            _make_stat_box(f"\u03b2 ({h2})", f"{beta_2:.2f}", "#d4d4d4"),
-            _make_stat_box("R\u00b2", f"{r_sq:.2f}", "#00cc66" if r_sq > 0.7 else "#ff3333"),
+            _make_stat_box(f"\u03b2 ({h1})", f"{beta_1:.2f}", COLORS["text_primary"]),
+            _make_stat_box(f"\u03b2 ({h2})", f"{beta_2:.2f}", COLORS["text_primary"]),
+            _make_stat_box("R\u00b2", f"{r_sq:.2f}", COLORS["accent_green"] if r_sq > 0.7 else COLORS["accent_red"]),
         ]
 
         # Real PnL comparison
@@ -2679,10 +2679,10 @@ def register_callbacks(app):
                 # No data available for this pair
                 body.append(html.Tr([
                     html.Td(pair, style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
-                    html.Td("N/A", style={**TABLE_CELL_STYLE, "textAlign": "right", "color": "#808080"}),
-                    html.Td("N/A", style={**TABLE_CELL_STYLE, "textAlign": "right", "color": "#808080"}),
-                    html.Td("N/A", style={**TABLE_CELL_STYLE, "textAlign": "right", "color": "#808080"}),
-                    html.Td("NO DATA", style={**TABLE_CELL_STYLE, "color": "#808080", "fontWeight": "600"}),
+                    html.Td("N/A", style={**TABLE_CELL_STYLE, "textAlign": "right", "color": COLORS["text_secondary"]}),
+                    html.Td("N/A", style={**TABLE_CELL_STYLE, "textAlign": "right", "color": COLORS["text_secondary"]}),
+                    html.Td("N/A", style={**TABLE_CELL_STYLE, "textAlign": "right", "color": COLORS["text_secondary"]}),
+                    html.Td("NO DATA", style={**TABLE_CELL_STYLE, "color": COLORS["text_secondary"], "fontWeight": "600"}),
                 ]))
                 continue
 

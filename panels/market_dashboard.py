@@ -716,16 +716,16 @@ def layout():
         html.Div(id=f"{_P}-ctx-menu", children=[
             html.Div("SEND TO VOL", id=f"{_P}-ctx-vol", n_clicks=0,
                      style={"padding": "6px 16px", "cursor": "pointer",
-                            "color": "#e0e0e0", "fontSize": "10px",
+                            "color": COLORS["text_primary"], "fontSize": "10px",
                             "fontFamily": _MONO, "letterSpacing": "1px",
-                            "borderBottom": "1px solid #2d2d50"}),
+                            "borderBottom": f"1px solid {COLORS['border']}"}),
             html.Div("SEND TO TRADE", id=f"{_P}-ctx-trade", n_clicks=0,
                      style={"padding": "6px 16px", "cursor": "pointer",
-                            "color": "#e0e0e0", "fontSize": "10px",
+                            "color": COLORS["text_primary"], "fontSize": "10px",
                             "fontFamily": _MONO, "letterSpacing": "1px"}),
         ], style={
             "display": "none", "position": "fixed", "zIndex": "9999",
-            "backgroundColor": "#111111", "border": "1px solid #ff8800",
+            "backgroundColor": "#111111", "border": f"1px solid {COLORS['accent_orange']}",
             "minWidth": "140px",
         }),
         # Hidden store for context menu target pair
@@ -735,11 +735,11 @@ def layout():
         html.Div([
             html.Div([
                 html.Span("MARKET DASHBOARD", style={
-                    "color": "#ffffff", "fontSize": "13px", "fontWeight": "700",
+                    "color": COLORS["text_bright"], "fontSize": "13px", "fontWeight": "700",
                     "letterSpacing": "2px", "fontFamily": _MONO,
                 }),
                 html.Span(id=f"{_P}-timestamp", style={
-                    "color": "#9a9ab0", "fontSize": "9px", "marginLeft": "16px",
+                    "color": COLORS["text_secondary"], "fontSize": "9px", "marginLeft": "16px",
                     "fontFamily": _MONO,
                 }),
             ]),
@@ -754,7 +754,7 @@ def layout():
                              clearable=False, style={**DROPDOWN_STYLE, "width": "100px"}),
             ], style={"display": "flex", "alignItems": "center", "gap": GAP}),
         ], style={"display": "flex", "justifyContent": "space-between",
-                  "alignItems": "center", "padding": "8px 0", "borderBottom": "1px solid #2d2d50"}),
+                  "alignItems": "center", "padding": "8px 0", "borderBottom": f"1px solid {COLORS['border']}"}),
 
         # ── KPI Row ──
         html.Div(id=f"{_P}-kpis", className="stat-row", style={
@@ -766,7 +766,7 @@ def layout():
             "marginBottom": "8px",
             "maxHeight": "100px",
             "overflowY": "auto",
-            "borderLeft": f"3px solid #ff8800",
+            "borderLeft": f"3px solid {COLORS['accent_orange']}",
             "backgroundColor": "#0a0a12",
             "borderRadius": "0px",
         }),
@@ -776,7 +776,7 @@ def layout():
             # Left column: movers table
             html.Div([
                 html.Div(id=f"{_P}-movers"),
-            ], style={"flex": "3", "minWidth": "600px", "border": "1px solid #2d2d50",
+            ], style={"flex": "3", "minWidth": "600px", "border": f"1px solid {COLORS['border']}",
                        "padding": GAP}),
 
             # Right column: charts stacked
@@ -802,27 +802,27 @@ def layout():
             # Left: vol richness heatmap
             html.Div([
                 html.Div("VOL RICHNESS", style={
-                    "color": "#9a9ab0", "fontSize": "10px", "fontWeight": "700",
+                    "color": COLORS["text_secondary"], "fontSize": "10px", "fontWeight": "700",
                     "letterSpacing": "1.5px", "padding": f"{GAP} 10px",
-                    "fontFamily": _MONO, "borderBottom": "1px solid #2d2d50",
+                    "fontFamily": _MONO, "borderBottom": f"1px solid {COLORS['border']}",
                 }),
                 dcc.Graph(id=f"{_P}-vol-richness", config={"displayModeBar": False, "responsive": True},
                           style={"height": f"{CHART_SM}px"}),
-            ], style={"flex": "1", "border": "1px solid #2d2d50"}),
+            ], style={"flex": "1", "border": f"1px solid {COLORS['border']}"}),
 
             # Right: events + positioning side-by-side
             html.Div([
                 html.Div("EVENTS & POSITIONING", style={
-                    "color": "#9a9ab0", "fontSize": "10px", "fontWeight": "700",
+                    "color": COLORS["text_secondary"], "fontSize": "10px", "fontWeight": "700",
                     "letterSpacing": "1.5px", "padding": f"{GAP} 10px",
-                    "fontFamily": _MONO, "borderBottom": "1px solid #2d2d50",
+                    "fontFamily": _MONO, "borderBottom": f"1px solid {COLORS['border']}",
                 }),
                 html.Div([
                     html.Div(id=f"{_P}-events", style={"flex": "1", "padding": f"{GAP}",
-                             "borderRight": "1px solid #2d2d50"}),
+                             "borderRight": f"1px solid {COLORS['border']}"}),
                     html.Div(id=f"{_P}-positioning", style={"flex": "1", "padding": f"{GAP}"}),
                 ], style={"display": "flex", "gap": "0px"}),
-            ], style={"flex": "1", "border": "1px solid #2d2d50"}),
+            ], style={"flex": "1", "border": f"1px solid {COLORS['border']}"}),
         ], style={"display": "flex", "gap": GAP, "marginTop": SECTION_GAP}),
 
     ], style={"fontFamily": _MONO})
@@ -835,21 +835,21 @@ def _render_kpis(kpis):
     g10_pctile = kpis.get("g10_pctile", 50)
     ivrv_agg = kpis.get("ivrv_agg", 0)
     items = [
-        ("DXY PROXY",      str(kpis.get("dxy", "—")),          "#ff8800"),
-        ("G10 AVG VOL",    f"{kpis.get('g10_vol', 0):.1f}v",   "#ff8800"),
-        ("EM AVG VOL",     f"{kpis.get('em_vol', 0):.1f}v",    "#ff8800"),
+        ("DXY PROXY",      str(kpis.get("dxy", "—")),          COLORS["accent_orange"]),
+        ("G10 AVG VOL",    f"{kpis.get('g10_vol', 0):.1f}v",   COLORS["accent_orange"]),
+        ("EM AVG VOL",     f"{kpis.get('em_vol', 0):.1f}v",    COLORS["accent_orange"]),
         ("G10 %ILE",       _ordinal(g10_pctile),              _pct_color(g10_pctile)),
-        ("BIGGEST MOVER",  kpis.get("biggest", "—"),            "#e0e0e0"),
-        ("IV-RV AGG",      f"{ivrv_agg:+.1f}v",                "#00cc66" if ivrv_agg > 0 else "#ff3333" if ivrv_agg < 0 else "#9a9ab0"),
-        ("BOOK VEGA",      kpis.get("book_vega", "—"),          "#ff8800"),
-        ("EVENTS 48H",     str(kpis.get("events_48h", 0)),      "#ff8800" if kpis.get("events_48h", 0) > 0 else "#9a9ab0"),
+        ("BIGGEST MOVER",  kpis.get("biggest", "—"),            COLORS["text_primary"]),
+        ("IV-RV AGG",      f"{ivrv_agg:+.1f}v",                COLORS["accent_green"] if ivrv_agg > 0 else COLORS["accent_red"] if ivrv_agg < 0 else COLORS["text_secondary"]),
+        ("BOOK VEGA",      kpis.get("book_vega", "—"),          COLORS["accent_orange"]),
+        ("EVENTS 48H",     str(kpis.get("events_48h", 0)),      COLORS["accent_orange"] if kpis.get("events_48h", 0) > 0 else COLORS["text_secondary"]),
     ]
     boxes = []
     for label, value, color in items:
         boxes.append(html.Div([
             html.Div(value, style={"fontSize": "16px", "fontWeight": "700",
                                    "color": color, "fontFamily": _MONO}),
-            html.Div(label, style={"fontSize": "10px", "color": "#9a9ab0",
+            html.Div(label, style={"fontSize": "10px", "color": COLORS["text_secondary"],
                                    "letterSpacing": "1px", "fontFamily": _MONO,
                                    "marginTop": "4px"}),
         ], style={**STAT_BOX_STYLE, "borderLeft": f"3px solid {color}",
@@ -906,7 +906,7 @@ def _render_movers_table(rows, sort_key):
         elif term_spread < -0.5:
             term_color = COLORS["accent_green"]
         else:
-            term_color = "#9a9ab0"
+            term_color = COLORS["text_secondary"]
 
         # IV-RV color: green if sell vol (>1), red if buy vol (<-1)
         if iv_rv > 1:
@@ -914,7 +914,7 @@ def _render_movers_table(rows, sort_key):
         elif iv_rv < -1:
             ivrv_color = COLORS["accent_red"]
         else:
-            ivrv_color = "#9a9ab0"
+            ivrv_color = COLORS["text_secondary"]
 
         # Sparkline colors: green if up, red if down, muted if flat
         spot_spark = r.get("spot_spark", "\u2014")
@@ -922,7 +922,7 @@ def _render_movers_table(rows, sort_key):
 
         body_rows.append(html.Tr(id={"type": f"{_P}-tr", "index": r["pair"]}, children=[
             html.Td(r["pair"], style={**TABLE_CELL_STYLE, "fontWeight": "700",
-                                       "color": "#e0e0e0", "cursor": "pointer"},
+                                       "color": COLORS["text_primary"], "cursor": "pointer"},
                     id={"type": f"{_P}-row-click", "index": r["pair"]}),
             html.Td(_fmt_spot(r['pair'], r['spot']), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r['chg_pct'], "+.2f", "%"), style={**TABLE_CELL_STYLE, "color": chg_color}),
@@ -937,7 +937,7 @@ def _render_movers_table(rows, sort_key):
                      "padding": "2px 3px", "verticalAlign": "middle"}),
             html.Td(_sf_display(r.get('vol_mom', 0), "+.1f", "%"), style={**TABLE_CELL_STYLE,
                      "color": COLORS["accent_red"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) > 2 else
-                              COLORS["accent_green"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) < -2 else "#9a9ab0"}),
+                              COLORS["accent_green"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) < -2 else COLORS["text_secondary"]}),
             html.Td(_sf_display(r['rr25'], "+.1f", "v"), style=TABLE_CELL_STYLE),
             html.Td(_ordinal(pctile), style={**TABLE_CELL_STYLE, "color": _pct_color(pctile)}),
             html.Td(_sf_display(term_spread, "+.1f", "v"), style={**TABLE_CELL_STYLE, "color": term_color}),
@@ -955,18 +955,18 @@ def _render_movers_table(rows, sort_key):
 def _render_events(events):
     """Render events table."""
     if not events:
-        return html.Div("No upcoming events", style={"color": "#9a9ab0", "fontSize": "10px"})
+        return html.Div("No upcoming events", style={"color": COLORS["text_secondary"], "fontSize": "10px"})
 
     header = html.Tr([html.Th(h, style={**TABLE_HEADER_STYLE, "fontSize": "8px"})
                        for h in ["BANK", "DATE", "DAYS", "RATE", "IMPACT"]])
     body = []
     for e in events[:5]:
-        imp_color = {"HIGH": "#ff3333", "MED": "#ff8800", "LOW": "#9a9ab0"}.get(e["impact"], "#9a9ab0")
+        imp_color = {"HIGH": COLORS["accent_red"], "MED": COLORS["accent_orange"], "LOW": COLORS["text_secondary"]}.get(e["impact"], COLORS["text_secondary"])
         body.append(html.Tr([
             html.Td(e["bank"], style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
             html.Td(e["date"], style=TABLE_CELL_STYLE),
             html.Td(f"{e['days_away']}d", style={**TABLE_CELL_STYLE,
-                     "color": "#ff3333" if e["days_away"] <= 2 else "#e0e0e0"}),
+                     "color": COLORS["accent_red"] if e["days_away"] <= 2 else COLORS["text_primary"]}),
             html.Td(e["rate"], style=TABLE_CELL_STYLE),
             html.Td(e["impact"], style={**TABLE_CELL_STYLE, "color": imp_color, "fontWeight": "600"}),
         ]))
@@ -979,7 +979,7 @@ def _render_positioning(extremes):
     """Render positioning extremes as a compact table."""
     if not extremes:
         return html.Div("No positioning extremes",
-                        style={"color": "#9a9ab0", "fontSize": "10px"})
+                        style={"color": COLORS["text_secondary"], "fontSize": "10px"})
 
     _cs = {**TABLE_CELL_STYLE, "fontSize": "9px", "padding": "2px 6px"}
     header = html.Tr([html.Th(h, style={**TABLE_HEADER_STYLE, "fontSize": "8px", "padding": "3px 6px"})
@@ -989,10 +989,10 @@ def _render_positioning(extremes):
         color = COLORS["accent_red"] if e["direction"] == "RICH" else "#1565c0"
         severity = e.get("severity", "NOTABLE")
         body.append(html.Tr([
-            html.Td(e["pair"], style={**_cs, "fontWeight": "700", "color": "#e0e0e0"}),
+            html.Td(e["pair"], style={**_cs, "fontWeight": "700", "color": COLORS["text_primary"]}),
             html.Td(f"{e['z']:+.1f}", style={**_cs, "color": color, "fontWeight": "600"}),
             html.Td(e["direction"], style={**_cs, "color": color}),
-            html.Td(severity[:3], style={**_cs, "color": "#e0e0e0" if severity == "EXTREME" else "#9a9ab0",
+            html.Td(severity[:3], style={**_cs, "color": COLORS["text_primary"] if severity == "EXTREME" else COLORS["text_secondary"],
                                           "fontWeight": "600" if severity == "EXTREME" else "400"}),
         ]))
     return html.Table([html.Thead(header), html.Tbody(body)],
@@ -1038,7 +1038,7 @@ def register_callbacks(app):
                 }))
         else:
             alert_children = [html.Div("No threshold crossings detected",
-                                       style={"color": "#9a9ab0", "fontSize": "10px",
+                                       style={"color": COLORS["text_secondary"], "fontSize": "10px",
                                               "fontFamily": "'JetBrains Mono', monospace"})]
 
         return ts, _render_kpis(kpis), _render_movers_table(rows, sort_key or "spot"), alert_children
@@ -1081,7 +1081,7 @@ def register_callbacks(app):
         except Exception as e:
             import logging
             logging.getLogger(__name__).error("Book/events update failed: %s", e)
-            empty = html.Div("Data unavailable", style={"color": "#9a9ab0", "fontSize": "11px"})
+            empty = html.Div("Data unavailable", style={"color": COLORS["text_secondary"], "fontSize": "11px"})
             return empty, empty
 
     # ── Row click → update store (which app.py propagates to global-pair) ──
