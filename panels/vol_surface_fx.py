@@ -542,20 +542,6 @@ def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
     except Exception:
         pass
 
-    # Forward vol curve (same y-axis — same units as ATM)
-    try:
-        fwd_df = forward_vol_curve(pair, start_tenor="1M")
-        if not fwd_df.empty:
-            fig.add_trace(go.Scatter(
-                x=fwd_df["end_tenor"], y=fwd_df["forward_vol"],
-                mode="lines+markers", name="Forward Vol (from 1M)",
-                line=dict(color=COLORS["accent_orange"], width=2, dash="dashdot"),
-                marker=dict(size=6, symbol="diamond", color=COLORS["accent_orange"]),
-                hovertemplate="<b>%{x}</b><br>Fwd Vol: %{y:.2f}%<extra>Forward</extra>",
-            ))
-    except Exception:
-        pass
-
     _apply_chart_template(fig, f"ATM Term Structure -- {pair}")
     fig.update_layout(
         xaxis=dict(title="Tenor", type="category"),
@@ -593,25 +579,22 @@ def chart_skew_rr(pair, sd, spot, r_dom, r_for, **kw):
 
     fig = go.Figure()
 
-    # 1Y range ribbon (min-max band)
-    fig.add_trace(go.Scatter(
-        x=tenors + tenors[::-1],
-        y=p_maxs + p_mins[::-1],
-        fill="toself", fillcolor="rgba(255,136,0,0.08)",
-        line=dict(width=0), showlegend=True, name="1Y Range",
-        hoverinfo="skip",
-    ))
-
-    # Current RR line with percentile-colored markers
+    # Current RR line with error bars showing 1Y range at each tenor
     fig.add_trace(go.Scatter(
         x=tenors, y=rr_vals, mode="lines+markers+text",
         name="25D RR", line=dict(color=COLORS["accent_orange"], width=2.5),
         marker=dict(size=10, color=colors, line=dict(width=2, color=COLORS["accent_orange"])),
+        error_y=dict(
+            type="data", symmetric=False,
+            array=[p_maxs[i] - rr_vals[i] for i in range(len(rr_vals))],
+            arrayminus=[rr_vals[i] - p_mins[i] for i in range(len(rr_vals))],
+            color=COLORS["text_muted"], thickness=1, width=6,
+        ),
         text=[f"{v:+.2f}" if np.isfinite(v) else "" for v in rr_vals],
         textposition="top center",
         textfont=dict(size=10, color=COLORS["text_secondary"]),
-        hovertemplate="<b>%{x}</b><br>25D RR: %{y:+.2f}<br>%ile: %{customdata:.0f}<extra></extra>",
-        customdata=pctiles,
+        hovertemplate="<b>%{x}</b><br>25D RR: %{y:+.2f}<br>%ile: %{customdata[0]:.0f}<br>1Y Range: %{customdata[1]:+.2f} / %{customdata[2]:+.2f}<extra></extra>",
+        customdata=list(zip(pctiles, p_mins, p_maxs)),
     ))
 
     fig.add_hline(y=0, line=dict(color="#3a3a5c", width=0.8))
@@ -649,25 +632,22 @@ def chart_smile_bf(pair, sd, spot, r_dom, r_for, **kw):
 
     fig = go.Figure()
 
-    # 1Y range ribbon
-    fig.add_trace(go.Scatter(
-        x=tenors + tenors[::-1],
-        y=p_maxs + p_mins[::-1],
-        fill="toself", fillcolor="rgba(255,136,0,0.08)",
-        line=dict(width=0), showlegend=True, name="1Y Range",
-        hoverinfo="skip",
-    ))
-
-    # Current BF line with percentile-colored markers
+    # Current BF line with error bars showing 1Y range at each tenor
     fig.add_trace(go.Scatter(
         x=tenors, y=bf_vals, mode="lines+markers+text",
         name="25D BF", line=dict(color=COLORS["accent_cyan"], width=2.5),
         marker=dict(size=10, color=colors, line=dict(width=2, color=COLORS["accent_cyan"])),
+        error_y=dict(
+            type="data", symmetric=False,
+            array=[p_maxs[i] - bf_vals[i] for i in range(len(bf_vals))],
+            arrayminus=[bf_vals[i] - p_mins[i] for i in range(len(bf_vals))],
+            color=COLORS["text_muted"], thickness=1, width=6,
+        ),
         text=[f"{v:.2f}" if np.isfinite(v) else "" for v in bf_vals],
         textposition="top center",
         textfont=dict(size=10, color=COLORS["text_secondary"]),
-        hovertemplate="<b>%{x}</b><br>25D BF: %{y:.2f}<br>%ile: %{customdata:.0f}<extra></extra>",
-        customdata=pctiles,
+        hovertemplate="<b>%{x}</b><br>25D BF: %{y:.2f}<br>%ile: %{customdata[0]:.0f}<br>1Y Range: %{customdata[1]:.2f} / %{customdata[2]:.2f}<extra></extra>",
+        customdata=list(zip(pctiles, p_mins, p_maxs)),
     ))
 
     _apply_chart_template(fig, f"25D Butterfly -- {pair}")

@@ -294,6 +294,45 @@ div[class*="-clearIndicator"] {
     color: #ff3333 !important;
 }
 
+/* Nuclear dropdown override — catches ALL remaining white elements */
+.dash-dropdown *,
+.Select * {
+    background-color: #000000 !important;
+    color: #e0e0e0 !important;
+    border-color: #2d2d50 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+.dash-dropdown input,
+.dash-dropdown input[type="text"],
+.Select input,
+.Select input[type="text"] {
+    background-color: #000000 !important;
+    color: #e0e0e0 !important;
+    caret-color: #ff8800 !important;
+    border: none !important;
+}
+.dash-dropdown .Select-menu-outer,
+.dash-dropdown [class*="menu"] {
+    border: 1px solid #2d2d50 !important;
+    z-index: 9500 !important;
+}
+/* Hovered/focused option */
+.dash-dropdown *:hover,
+.dash-dropdown [class*="focused"],
+.dash-dropdown [class*="selected"] {
+    background-color: #0a0a1a !important;
+    color: #ff8800 !important;
+}
+/* Keep dropdown arrow/indicator visible */
+.dash-dropdown svg {
+    fill: #9a9ab0 !important;
+}
+.dash-dropdown svg:hover {
+    fill: #ff8800 !important;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    DataTable — Terminal Grid
    ═══════════════════════════════════════════════════════════════════════════ */
