@@ -22,7 +22,8 @@ from core.fx_conventions import (
     get_pair, all_pairs, pair_groups,
     invert_pair, is_usd_base, is_usd_quote,
     pip_value, get_pip_size, get_delta_convention,
-    triangulate_vol,
+    triangulate_vol, smile_arbitrage_check,
+    forward_curve, swap_points_to_rates,
     safe_float,
 )
 
@@ -266,6 +267,61 @@ class TestSafeFloat:
 
     def test_nan_returns_default(self):
         assert safe_float(float("nan"), 0.0) == 0.0
+
+
+# ── Smile Arbitrage Check ────────────────────────────────────────────────
+
+class TestSmileArbitrageCheck:
+
+    def test_clean_surface_no_violations(self):
+        """A monotonically increasing total variance surface has no violations."""
+        T_values = np.array([0.25, 0.5, 1.0])
+        delta_grid = np.array([-0.25, 0.0, 0.25])
+        # Flat smile at 10%, increasing total variance with T
+        vol_matrix = np.full((3, 3), 10.0)
+        surface = {"T_values": T_values, "delta_grid": delta_grid, "vol_matrix": vol_matrix}
+        result = smile_arbitrage_check(surface)
+        assert result["is_arbitrage_free"]
+        assert len(result["butterfly_violations"]) == 0
+        assert len(result["calendar_violations"]) == 0
+
+    def test_calendar_violation_detected(self):
+        """Decreasing total variance should be flagged."""
+        T_values = np.array([0.25, 0.5])
+        delta_grid = np.array([0.0])
+        # Total var at T=0.5 is less than at T=0.25
+        vol_matrix = np.array([[20.0], [10.0]])  # 20²*0.25=100 > 10²*0.5=50
+        surface = {"T_values": T_values, "delta_grid": delta_grid, "vol_matrix": vol_matrix}
+        result = smile_arbitrage_check(surface)
+        assert len(result["calendar_violations"]) > 0
+        assert not result["is_arbitrage_free"]
+
+
+# ── Forward Curve ────────────────────────────────────────────────────────
+
+class TestForwardCurve:
+
+    def test_forward_curve_basic(self):
+        tenors = ["1M", "3M", "6M", "1Y"]
+        r_d = [0.04, 0.04, 0.04, 0.04]
+        r_f = [0.02, 0.02, 0.02, 0.02]
+        result = forward_curve(1.10, r_d, r_f, tenors)
+        assert len(result) == 4
+        # All forwards should be above spot (r_d > r_f)
+        for tenor, fwd in result.items():
+            assert fwd > 1.10
+
+
+# ── Swap Points to Rates ─────────────────────────────────────────────────
+
+class TestSwapPointsToRates:
+
+    def test_basic(self):
+        # 50 pips forward premium on EURUSD at 1.10 for 1Y
+        rate_diff = swap_points_to_rates(1.10, 0.0050, 1.0)
+        assert isinstance(rate_diff, float)
+        # Rate diff should be positive (forward above spot)
+        assert rate_diff > 0
 
 
 if __name__ == "__main__":
