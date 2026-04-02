@@ -750,11 +750,10 @@ def _build_corr_cone(pair_a, pair_b):
 
 
 def _build_corr_network(window=60):
-    """Force-directed correlation network: nodes = FX pairs, edges = significant correlations."""
+    """Force-directed correlation network: clean, readable, only strong links."""
     try:
         from core.fx_analytics import spot_correlation_matrix, vol_percentile
 
-        # ── networkx for layout ──
         try:
             import networkx as nx
             _has_nx = True
@@ -764,37 +763,34 @@ def _build_corr_network(window=60):
         top_pairs = MONITOR_PAIRS[:12]
         matrix = spot_correlation_matrix(top_pairs, window)
         if matrix is None or (hasattr(matrix, 'empty') and matrix.empty):
-            return no_data_fig(msg="NO CORRELATION DATA FOR NETWORK")
+            return no_data_fig(msg="NO CORRELATION DATA")
 
-        if hasattr(matrix, 'values'):
-            corr = matrix.values
-        else:
-            corr = np.array(matrix, dtype=float)
-
+        corr = matrix.values if hasattr(matrix, 'values') else np.array(matrix, dtype=float)
         pairs_used = list(matrix.columns)
         n = len(pairs_used)
         corr = corr[:n, :n]
 
-        # ── Build graph and layout ──
+        # Higher threshold = cleaner chart
+        CORR_THRESHOLD = 0.5
+
+        # Layout
         if _has_nx:
             G = nx.Graph()
-            for i, p in enumerate(pairs_used):
+            for p in pairs_used:
                 G.add_node(p)
             for i in range(n):
                 for j in range(i + 1, n):
                     c = corr[i][j]
-                    if np.isfinite(c) and abs(c) > 0.3:
-                        G.add_edge(pairs_used[i], pairs_used[j], weight=abs(c), corr=c)
-            pos = nx.spring_layout(G, k=2.5 / np.sqrt(max(n, 1)), iterations=80, seed=42)
+                    if np.isfinite(c) and abs(c) > CORR_THRESHOLD:
+                        G.add_edge(pairs_used[i], pairs_used[j], weight=abs(c))
+            pos = nx.spring_layout(G, k=3.0 / np.sqrt(max(n, 1)), iterations=100, seed=42)
         else:
-            # Fallback: circular layout
             pos = {}
             for i, p in enumerate(pairs_used):
                 angle = 2 * np.pi * i / n
                 pos[p] = np.array([np.cos(angle), np.sin(angle)])
 
-        # ── Node colours: vol regime percentile ──
-        node_colors = []
+        # Node vol percentiles
         node_pcts = []
         for p in pairs_used:
             try:
@@ -803,104 +799,83 @@ def _build_corr_network(window=60):
             except Exception:
                 pct = 50
             node_pcts.append(pct)
-            # Green (low vol) → orange (mid) → red (high vol)
-            if pct < 25:
+
+        fig = go.Figure()
+
+        # Edges — batch all positive into one trace, all negative into another
+        pos_x, pos_y = [], []
+        neg_x, neg_y = [], []
+        edge_hovers_pos, edge_hovers_neg = [], []
+        for i in range(n):
+            for j in range(i + 1, n):
+                c = corr[i][j]
+                if not np.isfinite(c) or abs(c) <= CORR_THRESHOLD:
+                    continue
+                x0, y0 = pos[pairs_used[i]]
+                x1, y1 = pos[pairs_used[j]]
+                target = pos_x if c > 0 else neg_x
+                target_y = pos_y if c > 0 else neg_y
+                target.extend([x0, x1, None])
+                target_y.extend([y0, y1, None])
+
+        if pos_x:
+            fig.add_trace(go.Scatter(
+                x=pos_x, y=pos_y, mode="lines",
+                line=dict(color="rgba(0,204,102,0.35)", width=2),
+                name="Positive \u03c1", hoverinfo="skip",
+            ))
+        if neg_x:
+            fig.add_trace(go.Scatter(
+                x=neg_x, y=neg_y, mode="lines",
+                line=dict(color="rgba(255,51,51,0.35)", width=2),
+                name="Negative \u03c1", hoverinfo="skip",
+            ))
+
+        # Nodes — large markers with text inside
+        node_x = [pos[p][0] for p in pairs_used]
+        node_y = [pos[p][1] for p in pairs_used]
+        node_labels = [f"{p[:3]}/{p[3:]}" for p in pairs_used]
+
+        # Color scale: green (low vol) → orange → red (high vol)
+        node_colors = []
+        for pct in node_pcts:
+            if pct < 30:
                 node_colors.append("#00cc66")
-            elif pct < 50:
-                node_colors.append("#4db88a")
-            elif pct < 75:
+            elif pct < 60:
                 node_colors.append("#ff8800")
             else:
                 node_colors.append("#ff3333")
 
-        fig = go.Figure()
-
-        # ── Edge traces (one per edge for individual colour/width) ──
-        for i in range(n):
-            for j in range(i + 1, n):
-                c = corr[i][j]
-                if not np.isfinite(c) or abs(c) <= 0.3:
-                    continue
-                p1, p2 = pairs_used[i], pairs_used[j]
-                x0, y0 = pos[p1]
-                x1, y1 = pos[p2]
-                edge_color = "#00cc66" if c > 0 else "#ff3333"
-                edge_width = max(1, abs(c) * 5)
-                edge_opacity = min(0.9, 0.3 + abs(c) * 0.6)
-                fig.add_trace(go.Scatter(
-                    x=[x0, x1, None], y=[y0, y1, None],
-                    mode="lines",
-                    line=dict(color=edge_color, width=edge_width),
-                    opacity=edge_opacity,
-                    hoverinfo="text",
-                    text=[f"{p1} -- {p2}<br>\u03c1 = {c:+.3f}"],
-                    showlegend=False,
-                ))
-
-        # ── Node trace ──
-        node_x = [pos[p][0] for p in pairs_used]
-        node_y = [pos[p][1] for p in pairs_used]
-        node_labels = [f"{p[:3]}/{p[3:]}" for p in pairs_used]
-        hover_texts = [
-            f"<b>{pairs_used[i][:3]}/{pairs_used[i][3:]}</b><br>"
-            f"Vol Percentile: {node_pcts[i]:.0f}%<br>"
-            f"Regime: {'HIGH' if node_pcts[i] > 75 else 'ELEVATED' if node_pcts[i] > 50 else 'NORMAL' if node_pcts[i] > 25 else 'LOW'}"
-            for i in range(n)
-        ]
         fig.add_trace(go.Scatter(
             x=node_x, y=node_y, mode="markers+text",
-            marker=dict(
-                size=24, color=node_colors,
-                line=dict(width=2, color="#ff8800"),
-                opacity=0.95,
-            ),
+            marker=dict(size=32, color=node_colors, opacity=0.9,
+                        line=dict(width=2, color="#2d2d50")),
             text=node_labels,
-            textposition="top center",
-            textfont=dict(size=9, color="#e0e0e0", family=_MONO),
-            hovertext=hover_texts,
-            hoverinfo="text",
-            showlegend=False,
-        ))
-
-        # ── Legend proxy traces ──
-        fig.add_trace(go.Scatter(
-            x=[None], y=[None], mode="lines", name="Positive \u03c1",
-            line=dict(color="#00cc66", width=2),
-        ))
-        fig.add_trace(go.Scatter(
-            x=[None], y=[None], mode="lines", name="Negative \u03c1",
-            line=dict(color="#ff3333", width=2),
-        ))
-        fig.add_trace(go.Scatter(
-            x=[None], y=[None], mode="markers", name="Low Vol",
-            marker=dict(color="#00cc66", size=8),
-        ))
-        fig.add_trace(go.Scatter(
-            x=[None], y=[None], mode="markers", name="High Vol",
-            marker=dict(color="#ff3333", size=8),
+            textposition="middle center",
+            textfont=dict(size=8, color="#000000", family=_MONO),
+            hovertext=[
+                f"<b>{pairs_used[i][:3]}/{pairs_used[i][3:]}</b><br>"
+                f"Vol %ile: {node_pcts[i]:.0f}<br>"
+                f"{'LOW' if node_pcts[i] < 30 else 'MID' if node_pcts[i] < 60 else 'HIGH'} VOL"
+                for i in range(n)
+            ],
+            hoverinfo="text", showlegend=False,
         ))
 
         fig.update_layout(
             paper_bgcolor="#000000", plot_bgcolor="#000000",
             font=dict(family=_MONO, color="#e0e0e0", size=11),
-            title=dict(
-                text=f"CORRELATION NETWORK ({window}D, |\u03c1| > 0.3)",
-                font=dict(color="#ffffff", size=13),
-            ),
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                       visible=False),
-            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                       visible=False),
-            height=420,
-            margin=dict(l=20, r=20, t=40, b=20),
-            legend=dict(
-                font=dict(color="#9a9ab0", size=9), bgcolor="rgba(0,0,0,0)",
-                x=0.01, y=0.99, bordercolor="#2d2d50", borderwidth=1,
-            ),
-            hoverlabel=dict(
-                bgcolor="#0a0a14", bordercolor="#2d2d50",
-                font=dict(color="#e0e0e0", family=_MONO, size=11),
-            ),
+            title=dict(text=f"CORRELATION NETWORK ({window}D, |\u03c1| > {CORR_THRESHOLD})",
+                       font=dict(color="#ffffff", size=13)),
+            xaxis=dict(showgrid=False, zeroline=False, visible=False,
+                       scaleanchor="y", scaleratio=1),
+            yaxis=dict(showgrid=False, zeroline=False, visible=False),
+            height=480,
+            margin=dict(l=20, r=20, t=45, b=20),
+            legend=dict(font=dict(color="#9a9ab0", size=9), bgcolor="rgba(0,0,0,0)",
+                        x=0.01, y=0.99),
+            hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#2d2d50",
+                            font=dict(color="#e0e0e0", family=_MONO, size=11)),
         )
         return fig
     except Exception:
