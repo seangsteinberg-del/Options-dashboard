@@ -2678,13 +2678,11 @@ def _build_pnl_surface(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
 
 def _build_parallel_coords(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
     """Parallel coordinates: compare current structure's Greeks across legs."""
-    tpl = CHART_TEMPLATE["layout"]
 
     if not processed_legs or T < 1e-6:
         return no_data_fig(height=350, msg="ADD LEGS FOR PARALLEL COORDINATES")
 
     # Compute per-leg metrics
-    dimensions = []
     leg_data = {"leg": [], "delta": [], "gamma": [], "vega": [], "theta": [],
                 "premium": [], "strike": [], "vol": []}
 

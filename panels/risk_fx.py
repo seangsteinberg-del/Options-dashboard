@@ -741,7 +741,7 @@ def _build_risk_treemap(positions):
         textfont=dict(family="'JetBrains Mono', monospace", size=11, color="#e0e0e0"),
         hovertext=hover_texts,
         hovertemplate="%{hovertext}<extra></extra>",
-        branchvalues="total",
+        branchvalues="remainder",
     ))
 
     fig.update_layout(

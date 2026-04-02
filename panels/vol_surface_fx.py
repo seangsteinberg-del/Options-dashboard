@@ -2093,8 +2093,6 @@ def chart_tail_risk(pair, sd, spot, r_dom, r_for, **kw):
 @_safe_chart
 def chart_radar_profile(pair, sd, spot, r_dom, r_for, **kw):
     """Radar chart: 6-axis vol profile for current pair vs a comparison pair."""
-    from core.fx_analytics import (vol_percentile, vol_zscore, iv_rv_percentile,
-                                    vol_of_vol_term_structure, smile_skewness, wing_richness as _wr)
 
     def _get_profile(p):
         """Get 6 normalised metrics (0-100 scale) for radar."""
@@ -2115,7 +2113,8 @@ def chart_radar_profile(pair, sd, spot, r_dom, r_for, **kw):
         vov = vol_of_vol_term_structure(p)
         if vov is not None and not vov.empty and "vov_20d" in vov.columns:
             vov_val = vov.loc[vov["tenor"] == "3M", "vov_20d"]
-            metrics["Vol-of-Vol"] = min(float(vov_val.iloc[0]) * 200, 100) if len(vov_val) > 0 and vov_val.iloc[0] is not None else 50
+            raw = vov_val.iloc[0] if len(vov_val) > 0 else None
+            metrics["Vol-of-Vol"] = min(float(raw) * 200, 100) if raw is not None and np.isfinite(raw) else 50
         else:
             metrics["Vol-of-Vol"] = 50
         # Term structure steepness
@@ -2296,7 +2295,6 @@ def chart_vol_timelapse(pair, sd, spot, r_dom, r_for, **kw):
 @_safe_chart
 def chart_iv_rv_scatter(pair, sd, spot, r_dom, r_for, **kw):
     """IV vs Realized Vol scatter: each point is a historical observation, colored by regime."""
-    from core.fx_analytics import iv_rv_spread, vol_regime_history
 
     df = iv_rv_spread(pair, "3M", rv_window=20, lookback=504)
     if df is None or df.empty or len(df) < 20:
@@ -2360,8 +2358,6 @@ def chart_iv_rv_scatter(pair, sd, spot, r_dom, r_for, **kw):
         ))
 
     # Label the quadrants
-    mid_iv = float(np.nanmedian(iv_vals))
-    mid_rv = float(np.nanmedian(rv_vals))
     for text, x, y in [
         ("IV RICH\n(sell vol)", v_max * 0.95, v_min * 1.05),
         ("IV CHEAP\n(buy vol)", v_min * 1.05, v_max * 0.92),

@@ -765,8 +765,8 @@ def _build_corr_network(window=60):
         else:
             corr = np.array(matrix, dtype=float)
 
-        n = min(len(top_pairs), corr.shape[0])
-        pairs_used = top_pairs[:n]
+        pairs_used = list(matrix.columns)
+        n = len(pairs_used)
         corr = corr[:n, :n]
 
         # ── Build graph and layout ──
