@@ -700,18 +700,7 @@ def _build_vol_richness_heatmap(pairs):
         return _empty_fig("VOL RICHNESS", _SMALL_H, "No percentile data")
 
 
-def _empty_fig(title="", height=_CHART_H, msg="LOADING"):
-    fig = go.Figure()
-    for y in [0.2, 0.4, 0.6, 0.8]:
-        fig.add_shape(type="line", x0=0, x1=1, y0=y, y1=y,
-                      xref="paper", yref="paper", line=dict(color="#0d0d1a", width=1))
-    fig.update_layout(**chart_layout(
-        height=height, margin=dict(l=20, r=10, t=30, b=10),
-        title=dict(text=title, font=dict(size=10, color="#9a9ab0")),
-        annotations=[dict(text=msg, x=0.5, y=0.5, showarrow=False,
-                          font=dict(color="#3a3a5c", size=10, family="'JetBrains Mono', monospace"),
-                          xref="paper", yref="paper")]))
-    return fig
+_empty_fig = no_data_fig
 
 
 # ── Layout ───────────────────────────────────────────────────────────────────

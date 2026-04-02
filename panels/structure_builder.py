@@ -29,7 +29,9 @@ from core.theme import (
     BUTTON_SUCCESS_STYLE, BUTTON_DANGER_STYLE,
     make_stat_style, clickable_stat,
     CSV_BTN_STYLE, no_data_fig,
+    stat_box as _stat_box,
 )
+from core.config import TENORS_TRADING
 from core.csv_export import export_csv
 from core.fx_analytics import (
     vol_percentile, iv_rv_percentile, breakeven_vol,
@@ -49,7 +51,7 @@ logger = logging.getLogger(__name__)
 # Tenor List
 # ============================================================================
 
-TENORS = ["ON", "1W", "2W", "1M", "2M", "3M", "6M", "9M", "1Y", "2Y"]
+TENORS = TENORS_TRADING
 
 
 # ============================================================================
@@ -2203,25 +2205,6 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
         ann.font.color = COLORS["text_primary"]
         ann.font.size = 11
     return fig
-
-
-# ============================================================================
-# Stat Box Helper
-# ============================================================================
-
-def _stat_box(label, value, color=COLORS["accent_cyan"]):
-    """Render a single summary stat box."""
-    return html.Div([
-        html.Div(str(value),
-                 style={"color": color, "fontSize": "16px", "fontWeight": "700",
-                        "fontFamily": "'JetBrains Mono', monospace",
-                        "marginBottom": "4px"}),
-        html.Div(label,
-                 style={"color": COLORS["text_secondary"], "fontSize": "9px",
-                        "fontWeight": "600", "textTransform": "uppercase",
-                        "letterSpacing": "1px",
-                        "fontFamily": "'JetBrains Mono', monospace"}),
-    ], style={**make_stat_style(color), "flex": "1", "minWidth": "110px"})
 
 
 # ============================================================================

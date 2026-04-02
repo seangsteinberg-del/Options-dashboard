@@ -59,8 +59,9 @@ from core.fx_conventions import (
     tenor_to_years, tenor_to_days, spot_delta,
     delta_to_strike, bf_rr_to_smile, FX_PAIR_REGISTRY,
 )
+from core.config import TENORS_FULL, DELTA_LABELS as _DELTA_LABELS
 FX_PAIRS = FX_PAIR_REGISTRY
-TENORS = ["ON", "1W", "2W", "1M", "2M", "3M", "6M", "9M", "1Y", "2Y", "3Y", "5Y"]
+TENORS = TENORS_FULL
 from core.bloomberg_fx import (
     get_fx_spots, get_fx_vol_surface, get_fx_historical_vol,
     get_fx_historical_spot, get_fx_rates, get_fx_realized_vol,
@@ -92,7 +93,7 @@ def _to_close_array(data):
 
 # Delta grid used for surface analytics
 DELTA_GRID = [10, 25, 50, 75, 90]
-DELTA_LABELS = ["10P", "25P", "ATM", "25C", "10C"]
+DELTA_LABELS = _DELTA_LABELS
 
 
 # =========================================================================

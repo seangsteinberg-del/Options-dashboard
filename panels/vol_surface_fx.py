@@ -29,6 +29,7 @@ from core.theme import (
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
     CSV_BTN_STYLE, no_data_fig, chart_layout,
     CS_VOL_SURFACE, CS_DIVERGING_GR, CS_DIVERGING_RG,
+    safe_chart,
 )
 from core.csv_export import export_csv
 from core.bloomberg_fx import (
@@ -60,17 +61,13 @@ from core.fx_conventions import (
     FX_PAIR_REGISTRY,
 )
 from core.vanna_volga import vv_smile, sabr_vol, vv_vs_sabr
+from core.config import TENORS_SURFACE, DELTA_LABELS, DELTA_NUMERIC, HISTORY_METRICS, METRIC_TO_KEY
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-TENORS_LIST = ["ON", "1W", "1M", "2M", "3M", "6M", "9M", "1Y", "2Y", "5Y"]
-DELTA_LABELS = ["10P", "25P", "ATM", "25C", "10C"]
-# Monotonic smile-position values for the 3D surface X-axis.
-# Ordered by strike: 10P (deep OTM put) → ATM → 10C (deep OTM call).
-# NOT actual Black-Scholes delta (which is non-monotonic in smile order).
-DELTA_NUMERIC = [-0.50, -0.25, 0.0, 0.25, 0.50]
+TENORS_LIST = TENORS_SURFACE
 
 CHART_OPTIONS = [
     {"label": "── SURFACE ──────", "value": "_sfc_header", "disabled": True},
@@ -372,18 +369,7 @@ def _empty_fig(msg="No data"):
 logger = logging.getLogger(__name__)
 
 
-def _safe_chart(fn):
-    """Decorator: wrap every chart function in try/except returning a clean
-    empty figure with the error message instead of crashing the panel."""
-    def wrapper(pair, sd, spot, r_dom, r_for, **kw):
-        try:
-            return fn(pair, sd, spot, r_dom, r_for, **kw)
-        except Exception as exc:
-            logger.exception("Chart %s failed for %s", fn.__name__, pair)
-            return _empty_fig(f"{fn.__name__}: {exc}")
-    wrapper.__name__ = fn.__name__
-    wrapper.__doc__ = fn.__doc__
-    return wrapper
+_safe_chart = safe_chart
 
 
 def _ordinal(n):
@@ -422,11 +408,8 @@ def _fmt_pctile(p):
 # History Mode: prefetch & frame helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
-_HISTORY_METRICS = ["ATM", "25D_RR", "25D_BF", "10D_RR", "10D_BF"]
-_METRIC_TO_KEY = {
-    "ATM": "atm", "25D_RR": "rr25", "25D_BF": "bf25",
-    "10D_RR": "rr10", "10D_BF": "bf10",
-}
+_HISTORY_METRICS = HISTORY_METRICS
+_METRIC_TO_KEY = METRIC_TO_KEY
 
 # Charts fully supported in history mode (use sd dict directly or via cache injection)
 _HISTORY_SUPPORTED = {

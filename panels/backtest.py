@@ -1257,19 +1257,7 @@ def _build_trade_log(results):
 # Empty figure helper
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _empty_fig(message="Run backtest to see results"):
-    fig = go.Figure()
-    fig.add_annotation(
-        text=message,
-        xref="paper", yref="paper", x=0.5, y=0.5,
-        showarrow=False,
-        font=dict(size=13, color=COLORS["text_muted"]),
-    )
-    fig.update_layout(
-        **chart_layout(
-        margin=dict(l=20, r=20, t=30, b=20),
-    ))
-    return fig
+_empty_fig = no_data_fig
 
 
 # ═══════════════════════════════════════════════════════════════════════════

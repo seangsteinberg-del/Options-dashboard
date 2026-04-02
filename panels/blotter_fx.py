@@ -33,13 +33,14 @@ from core.fx_conventions import (
     FX_PAIR_REGISTRY, tenor_to_years, tenor_to_days, CUT_TIMES,
     delta_to_strike, atm_dns_strike,
 )
+from core.config import TENORS_TRADING
 
 
 # ============================================================================
 # Constants
 # ============================================================================
 
-TENORS = ["1W", "2W", "1M", "2M", "3M", "6M", "9M", "1Y", "2Y"]
+TENORS = TENORS_TRADING
 FX_PAIRS = sorted(FX_PAIR_REGISTRY.keys())
 
 STRATEGIES = ["RR", "Straddle", "Strangle", "Call Spread", "Put Spread",

@@ -28,7 +28,7 @@ from core.theme import (
     DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
     GAP, SECTION_GAP, CHART_SM, CHART_MD, CHART_LG,
     clickable_stat, chart_layout, CSV_BTN_STYLE,
-    no_data_fig, CS_PNL_DIVERGING,
+    no_data_fig, CS_PNL_DIVERGING, stat_box,
 )
 from core.csv_export import export_csv
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs
@@ -2787,14 +2787,7 @@ def register_callbacks(app):
         raise PreventUpdate
 
 
-def _make_stat_box(label, value, color):
-    return html.Div([
-        html.Div(str(value), style={"fontSize": "16px", "fontWeight": "700",
-                                     "color": color, "fontFamily": "'JetBrains Mono', monospace"}),
-        html.Div(label, style={"fontSize": "10px", "color": "#808080",
-                                "letterSpacing": "1px", "fontFamily": "'JetBrains Mono', monospace",
-                                "marginTop": "4px"}),
-    ], style={**STAT_BOX_STYLE, "borderLeft": f"3px solid {color}"})
+_make_stat_box = stat_box
 
 
 # ---------------------------------------------------------------------------

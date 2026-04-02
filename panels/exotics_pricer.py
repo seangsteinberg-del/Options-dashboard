@@ -20,7 +20,9 @@ from core.theme import (
     COLORS, CARD_STYLE, CHART_TEMPLATE, STAT_BOX_STYLE,
     LABEL_STYLE, DROPDOWN_STYLE, INPUT_STYLE, BUTTON_STYLE,
     make_stat_style, CARD_HEADER_STYLE, CSV_BTN_STYLE,
+    no_data_fig, stat_box as _stat_box,
 )
+from core.config import TENORS_LIQUID
 from core.csv_export import export_csv
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs, get_fx_correlation
 from core.fx_exotics import (
@@ -38,7 +40,7 @@ from core.fx_conventions import (
 # Constants
 # ---------------------------------------------------------------------------
 
-TENORS = ["1M", "2M", "3M", "6M", "9M", "1Y", "18M", "2Y"]
+TENORS = TENORS_LIQUID
 
 PRODUCTS = [
     {"label": "Barrier (KI/KO)",       "value": "barrier"},
@@ -369,30 +371,7 @@ _VIS = {
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _empty_fig(title=""):
-    fig = go.Figure()
-    fig.update_layout(
-        title=dict(text=title, font=dict(color=COLORS["text_primary"], size=14)),
-        paper_bgcolor=TPL["paper_bgcolor"], plot_bgcolor=TPL["plot_bgcolor"],
-        font=TPL["font"], margin=dict(l=50, r=20, t=45, b=40),
-        xaxis=dict(gridcolor="#1a1a30", visible=False),
-        yaxis=dict(gridcolor="#1a1a30", visible=False),
-        hoverlabel=TPL["hoverlabel"],
-    )
-    fig.add_annotation(text="Press PRICE to compute", xref="paper", yref="paper",
-                       x=0.5, y=0.5, showarrow=False,
-                       font=dict(color=COLORS["text_muted"], size=16))
-    return fig
-
-
-def _stat_box(label, value_str, color=COLORS["accent_cyan"]):
-    return html.Div([
-        html.Div(value_str, style={"color": color, "fontSize": "16px",
-                                    "fontWeight": "700", "fontFamily": "monospace"}),
-        html.Div(label, style={"color": COLORS["text_muted"], "fontSize": "10px",
-                                "textTransform": "uppercase", "letterSpacing": "1px",
-                                "marginTop": "4px"}),
-    ], style={**make_stat_style(color), "flex": "1", "minWidth": "110px"})
+_empty_fig = no_data_fig
 
 
 def _get_mkt(pair, tenor):

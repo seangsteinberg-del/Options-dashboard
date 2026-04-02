@@ -5,7 +5,11 @@ PURE BLACK. MONOSPACE ONLY. NO ROUNDED CORNERS. NO SHADOWS. NO BLUR.
 Grid cells separated by thin borders. Every pixel is information.
 """
 
+import logging
+import functools
 from core.bloomberg import is_connected
+
+logger = logging.getLogger(__name__)
 
 # ── Color Palette ──────────────────────────────────────────────────────────
 COLORS = {
@@ -411,3 +415,43 @@ def section_header(text):
         "paddingBottom": "6px",
         "borderBottom": "1px solid #3a3a5c",
     })
+
+
+# ── Simple stat box (non-clickable) ─────────────────────────────────────────
+def stat_box(label, value, color=None):
+    """Render a simple stat box with label + value. Use for KPIs, summaries."""
+    from dash import html
+    return html.Div([
+        html.Div(str(value), style={
+            "fontSize": "15px", "fontWeight": "700",
+            "color": color or COLORS["text_primary"],
+            "fontFamily": "'JetBrains Mono', monospace",
+        }),
+        html.Div(label, style={
+            "fontSize": "9px", "color": COLORS["text_muted"],
+            "textTransform": "uppercase", "letterSpacing": "1px",
+            "fontFamily": "'JetBrains Mono', monospace",
+            "marginTop": "4px",
+        }),
+    ], style=make_stat_style(color))
+
+
+# ── Safe chart decorator ────────────────────────────────────────────────────
+def safe_chart(fn):
+    """Decorator: wrap chart functions so exceptions return a clean empty
+    figure with the error message instead of crashing the panel.
+
+    Usage::
+
+        @safe_chart
+        def chart_my_thing(pair, sd, spot, r_dom, r_for, **kw):
+            ...
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            logger.exception("Chart %s failed", fn.__name__)
+            return no_data_fig(msg=f"{fn.__name__}: {exc}")
+    return wrapper
