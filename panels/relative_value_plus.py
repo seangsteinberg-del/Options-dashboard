@@ -244,6 +244,133 @@ def _build_ivrv_panel(pair, tenor, lookback):
         return _empty_fig(f"{pair} IV-RV")
 
 
+def _build_vol_beta_heatmap():
+    """Vol beta heatmap: how each pair's vol co-moves with others."""
+    try:
+        from core.fx_analytics import vol_beta
+        pairs = ["EURUSD", "USDJPY", "GBPUSD", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "EURGBP"]
+        n = len(pairs)
+        z = np.full((n, n), np.nan)
+        text = [["" for _ in range(n)] for _ in range(n)]
+
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    z[i][j] = 1.0
+                    text[i][j] = "1.00"
+                else:
+                    vb = vol_beta(pairs[i], pairs[j], "3M", 120)
+                    if vb:
+                        z[i][j] = vb["beta"]
+                        text[i][j] = f"{vb['beta']:.2f}"
+
+        fig = go.Figure(data=go.Heatmap(
+            x=pairs, y=pairs, z=z,
+            colorscale=[[0, "#1565c0"], [0.5, "#0e0e0e"], [1.0, "#ff8800"]],
+            text=text, texttemplate="%{text}",
+            textfont=dict(size=10, color="#c0c0c0"),
+            hovertemplate="Y: %{y}<br>X: %{x}<br>Beta: %{z:.2f}<extra></extra>",
+            colorbar=dict(
+                title=dict(text="Vol Beta", font=dict(color="#808080", size=10)),
+                tickfont=dict(color="#808080", size=9),
+                len=0.8, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
+            ),
+            xgap=2, ygap=2,
+        ))
+        fig.update_layout(
+            paper_bgcolor="#000000", plot_bgcolor="#000000",
+            font=dict(family=_MONO, color="#d4d4d4", size=11),
+            title=dict(text="Vol Beta Matrix (3M ATM, 120d)", font=dict(color="#ffffff", size=13)),
+            xaxis=dict(title="", type="category", tickfont=dict(size=9, color="#808080")),
+            yaxis=dict(title="", type="category", autorange="reversed", tickfont=dict(size=9, color="#d4d4d4")),
+            margin=dict(l=70, r=20, t=40, b=40),
+            height=380,
+            hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#222240",
+                            font=dict(color="#d4d4d4", family=_MONO, size=11)),
+        )
+        return fig
+    except Exception:
+        return _empty_fig("VOL BETA MATRIX ERROR")
+
+
+def _build_rr_bf_spreads(pair_a, pair_b, tenor="3M"):
+    """Cross-pair RR & BF spread time series with z-score bands."""
+    try:
+        from core.fx_analytics import cross_pair_rr_spread, cross_pair_bf_spread
+        rr = cross_pair_rr_spread(pair_a, pair_b, tenor, 252)
+        bf = cross_pair_bf_spread(pair_a, pair_b, tenor, 252)
+
+        if rr is None and bf is None:
+            return _empty_fig(f"No RR/BF spread data for {pair_a} vs {pair_b}")
+
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1,
+                            subplot_titles=[f"25D RR Spread ({pair_a} - {pair_b})",
+                                            f"25D BF Spread ({pair_a} - {pair_b})"])
+
+        for row_idx, (data, name, color) in enumerate([
+            (rr, "RR Spread", "#ff8800"),
+            (bf, "BF Spread", "#00b4d8"),
+        ], 1):
+            if data is None:
+                continue
+            ts = data.get("spread_ts", [])
+            mean = data.get("mean", 0)
+            std = data.get("std", 1)
+            current = data.get("current", 0)
+            z_val = data.get("zscore", 0)
+            days = list(range(len(ts)))
+
+            # +/- 2 sigma band
+            fig.add_trace(go.Scatter(
+                x=days + days[::-1],
+                y=[mean + 2*std]*len(days) + [mean - 2*std]*len(days),
+                fill="toself", fillcolor="rgba(255,136,0,0.05)",
+                line=dict(width=0), showlegend=False, hoverinfo="skip",
+            ), row=row_idx, col=1)
+
+            # +/- 1 sigma band
+            fig.add_trace(go.Scatter(
+                x=days + days[::-1],
+                y=[mean + std]*len(days) + [mean - std]*len(days),
+                fill="toself", fillcolor="rgba(255,136,0,0.10)",
+                line=dict(width=0), showlegend=False, hoverinfo="skip",
+            ), row=row_idx, col=1)
+
+            # Mean line
+            fig.add_hline(y=mean, line=dict(color="#808080", width=1, dash="dash"), row=row_idx, col=1)
+
+            # Spread time series
+            fig.add_trace(go.Scatter(
+                x=days, y=ts, mode="lines", name=name,
+                line=dict(color=color, width=2),
+                hovertemplate=f"Day %{{x}}: %{{y:.2f}}<extra>{name}</extra>",
+            ), row=row_idx, col=1)
+
+            # Current marker
+            if ts:
+                fig.add_trace(go.Scatter(
+                    x=[days[-1]], y=[current], mode="markers",
+                    marker=dict(color=color, size=8, symbol="diamond"),
+                    name=f"Current: {current:.2f} (z={z_val:.1f})", showlegend=True,
+                ), row=row_idx, col=1)
+
+        fig.update_layout(
+            paper_bgcolor="#000000", plot_bgcolor="#000000",
+            font=dict(family=_MONO, color="#d4d4d4", size=11),
+            margin=dict(l=50, r=20, t=40, b=30),
+            height=450,
+            xaxis2=dict(title="Trading Days"),
+            yaxis=dict(title="RR Spread", showgrid=True, gridcolor="#1a1a30"),
+            yaxis2=dict(title="BF Spread", showgrid=True, gridcolor="#1a1a30"),
+            legend=dict(font=dict(color="#808080", size=9), bgcolor="rgba(0,0,0,0)"),
+            hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#222240",
+                            font=dict(color="#d4d4d4", family=_MONO, size=11)),
+        )
+        return fig
+    except Exception:
+        return _empty_fig(f"RR/BF SPREAD: {pair_a} vs {pair_b}")
+
+
 def _build_skew_scatter(pair_a, pair_b, tenor, lookback):
     """25D RR scatter with regression."""
     try:
@@ -1041,6 +1168,12 @@ def layout():
             ], style={"display": "flex", "gap": GAP, "marginTop": GAP}),
             # Signal table
             html.Div(id=f"{_P}-signal-table", style={"marginTop": SECTION_GAP}),
+            # RR/BF spread charts
+            dcc.Graph(id=f"{_P}-rr-bf-spread", config={"displayModeBar": False, "responsive": True},
+                      style={"height": "450px", "marginTop": GAP}),
+            # Vol beta heatmap
+            dcc.Graph(id=f"{_P}-vol-beta", config={"displayModeBar": False, "responsive": True},
+                      style={"height": "380px", "marginTop": GAP}),
         ]),
 
         # ══════════ CORRELATION TAB ══════════
@@ -1249,6 +1382,32 @@ def register_callbacks(app):
                  "color": "#00cc66", "fontWeight": "bold"},
             ],
         )
+
+    # ── Vol Beta Heatmap ──
+    @app.callback(
+        Output(f"{_P}-vol-beta", "figure"),
+        [Input(f"{_P}-tabs", "value"), Input(f"{_P}-interval", "n_intervals")],
+    )
+    def update_vol_beta(tab, n):
+        if tab != "cross-pair":
+            raise PreventUpdate
+        return _build_vol_beta_heatmap()
+
+    # ── RR/BF Spread Charts ──
+    @app.callback(
+        Output(f"{_P}-rr-bf-spread", "figure"),
+        [Input(f"{_P}-pair-a", "value"), Input(f"{_P}-pair-b", "value"),
+         Input(f"{_P}-tenor", "value"), Input(f"{_P}-tabs", "value")],
+    )
+    def update_rr_bf(pair_a, pair_b, tenor, tab):
+        if tab != "cross-pair":
+            raise PreventUpdate
+        pa = pair_a or "EURUSD"
+        pb = pair_b or "USDJPY"
+        t = tenor or "3M"
+        if pa == pb:
+            return _empty_fig("Select two different pairs")
+        return _build_rr_bf_spreads(pa, pb, t)
 
     # ══════════ CORRELATION CALLBACKS ══════════
 

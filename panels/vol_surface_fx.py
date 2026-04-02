@@ -51,6 +51,7 @@ from core.fx_analytics import (
     signal_confluence,
     implied_pdf_comparison,
     sticky_delta_monitor,
+    smile_pca, wing_richness, tail_risk_metrics,
 )
 from core.fx_conventions import (
     tenor_to_years, bf_rr_to_smile, build_smile_spline,
@@ -90,6 +91,10 @@ CHART_OPTIONS = [
     {"label": "RV Estimators", "value": "rv_estimators"},
     {"label": "Vol-of-Vol", "value": "vol_of_vol"},
     {"label": "PDF Comparison", "value": "pdf_comparison"},
+    {"label": "Smile PCA", "value": "smile_pca_chart"},
+    {"label": "Wing Richness", "value": "wing_richness_chart"},
+    {"label": "Forward Vol Surface", "value": "fwd_vol_surface"},
+    {"label": "Tail Risk Metrics", "value": "tail_risk_chart"},
     {"label": "── LAB: TIME SERIES ─", "value": "_ts_header", "disabled": True},
     {"label": "TS: ATM Vol",       "value": "lab_atm"},
     {"label": "TS: 25D RR",        "value": "lab_25d_rr"},
@@ -168,6 +173,9 @@ VIEW_PRESETS = {
     "Strategist: RV":      ["rv_estimators", "iv_rv", "vol_cone_chart", "vol_ts"],
     "Strategist: Vol-of-Vol": ["vol_of_vol", "atm_term", "fwd_vol", "implied_dist"],
     "Strategist: Full":    ["skew_term", "rv_estimators", "vol_of_vol", "pdf_comparison"],
+    "Strategist: Smile Deep": ["smile_pca_chart", "wing_richness_chart", "smile_curve", "pdf_comparison"],
+    "Strategist: Surface":    ["fwd_vol_surface", "surface_3d", "heatmap", "rich_cheap"],
+    "Strategist: Tail Risk":  ["tail_risk_chart", "implied_dist", "vol_cone_chart", "rv_estimators"],
 }
 
 _PAIR_GROUPS = {
@@ -1824,6 +1832,264 @@ def chart_pdf_comparison(pair, sd, spot, r_dom, r_for, **kw):
     return fig
 
 
+@_safe_chart
+def chart_smile_pca(pair, sd, spot, r_dom, r_for, **kw):
+    """Smile PCA: Level/Skew/Curvature decomposition of vol surface moves."""
+    from core.fx_analytics import smile_pca
+    result = smile_pca(pair, lookback=252)
+    if result is None:
+        return _empty_fig("No PCA data — need 20+ days of vol history")
+
+    components = result.get("components", {})
+    cum_explained = result.get("cumulative_explained", [])
+
+    fig = make_subplots(rows=1, cols=2, column_widths=[0.6, 0.4],
+                        subplot_titles=["PC Loadings (ATM, 25D_RR, 25D_BF, 10D_RR, 10D_BF)",
+                                        "Variance Explained"])
+
+    metrics = ["ATM", "25D_RR", "25D_BF", "10D_RR", "10D_BF"]
+    pc_colors = [COLORS["accent_orange"], COLORS["accent_cyan"],
+                 COLORS["accent_green"], COLORS["accent_purple"], COLORS["text_muted"]]
+    pc_names = list(components.keys())
+
+    # Left panel: loading bars grouped by PC
+    for pi, pc_name in enumerate(pc_names[:3]):
+        pc = components[pc_name]
+        loadings = [pc["loadings"].get(m, 0) for m in metrics]
+        fig.add_trace(go.Bar(
+            x=metrics, y=loadings, name=f"{pc_name} ({pc['explained_pct']:.1f}%)",
+            marker=dict(color=pc_colors[pi], opacity=0.85,
+                        line=dict(width=1, color=COLORS["border"])),
+            hovertemplate=f"{pc_name}<br>" + "%{x}: %{y:.3f}<extra></extra>",
+        ), row=1, col=1)
+
+    # Right panel: cumulative variance explained
+    fig.add_trace(go.Bar(
+        x=pc_names[:len(cum_explained)], y=cum_explained,
+        marker=dict(color=[pc_colors[i] if i < len(pc_colors) else COLORS["text_muted"]
+                           for i in range(len(cum_explained))],
+                    line=dict(width=1, color=COLORS["border"])),
+        text=[f"{v:.1f}%" for v in cum_explained],
+        textposition="outside", textfont=dict(size=9, color=COLORS["text_secondary"]),
+        hovertemplate="%{x}: %{y:.1f}% cumulative<extra></extra>",
+        showlegend=False,
+    ), row=1, col=2)
+
+    _apply_chart_template(fig, f"Smile PCA Decomposition -- {pair}")
+    fig.update_layout(
+        xaxis=dict(type="category"), xaxis2=dict(type="category"),
+        yaxis=dict(title="Loading"), yaxis2=dict(title="Cumulative %", range=[0, 105]),
+        barmode="group",
+        height=CHART_LG,
+    )
+    return fig
+
+
+@_safe_chart
+def chart_wing_richness(pair, sd, spot, r_dom, r_for, **kw):
+    """Wing Richness: 10D BF / 25D BF ratio across tenors — shows far-wing pricing."""
+    from core.fx_analytics import wing_richness
+    tenors = sd["tenors"]
+    ratios = []
+    bf10_vals = []
+    bf25_vals = []
+    for t in tenors:
+        wr = wing_richness(pair, t)
+        if wr:
+            ratios.append(wr["wing_ratio"])
+            bf10_vals.append(wr["bf_10d"])
+            bf25_vals.append(wr["bf_25d"])
+        else:
+            ratios.append(None)
+            bf10_vals.append(None)
+            bf25_vals.append(None)
+
+    if all(r is None for r in ratios):
+        return _empty_fig("No wing richness data")
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    # BF bars
+    fig.add_trace(go.Bar(
+        x=tenors, y=bf25_vals, name="25D BF",
+        marker=dict(color=COLORS["accent_cyan"], opacity=0.7,
+                    line=dict(width=1, color=COLORS["border"])),
+        hovertemplate="%{x}: %{y:.2f}<extra>25D BF</extra>",
+    ), secondary_y=False)
+    fig.add_trace(go.Bar(
+        x=tenors, y=bf10_vals, name="10D BF",
+        marker=dict(color=COLORS["accent_orange"], opacity=0.7,
+                    line=dict(width=1, color=COLORS["border"])),
+        hovertemplate="%{x}: %{y:.2f}<extra>10D BF</extra>",
+    ), secondary_y=False)
+
+    # Ratio line on secondary axis
+    ratio_colors = [COLORS["accent_red"] if r and r > 3.5
+                    else (COLORS["accent_green"] if r and r < 2.0 else COLORS["text_muted"])
+                    for r in ratios]
+    fig.add_trace(go.Scatter(
+        x=tenors, y=ratios, mode="lines+markers+text",
+        name="Wing Ratio (10D/25D)",
+        line=dict(color=COLORS["accent_purple"], width=2.5),
+        marker=dict(size=10, color=ratio_colors, symbol="diamond",
+                    line=dict(width=1, color=COLORS["text_secondary"])),
+        text=[f"{r:.1f}x" if r and np.isfinite(r) else "" for r in ratios],
+        textposition="top center", textfont=dict(size=9, color=COLORS["text_secondary"]),
+        hovertemplate="%{x}: %{y:.2f}x<extra>Wing Ratio</extra>",
+    ), secondary_y=True)
+
+    # Threshold lines
+    fig.add_hline(y=3.5, line=dict(color=COLORS["accent_red"], width=1, dash="dot"),
+                  annotation_text="EXPENSIVE", annotation_position="top right",
+                  annotation_font=dict(size=8, color=COLORS["accent_red"]),
+                  secondary_y=True)
+    fig.add_hline(y=2.0, line=dict(color=COLORS["accent_green"], width=1, dash="dot"),
+                  annotation_text="CHEAP", annotation_position="bottom right",
+                  annotation_font=dict(size=8, color=COLORS["accent_green"]),
+                  secondary_y=True)
+
+    _apply_chart_template(fig, f"Wing Richness -- {pair}")
+    fig.update_layout(
+        xaxis=dict(title="Tenor", type="category"),
+        yaxis=dict(title="Butterfly (vol pts)"),
+        yaxis2=dict(title="Wing Ratio (10D/25D)", overlaying="y", side="right",
+                    gridcolor="#1a1a30",
+                    tickfont=dict(size=10, color=COLORS["accent_purple"]),
+                    title_font=dict(color=COLORS["accent_purple"], size=11)),
+        barmode="group",
+    )
+    return fig
+
+
+@_safe_chart
+def chart_fwd_vol_surface(pair, sd, spot, r_dom, r_for, **kw):
+    """Forward Vol Surface: 2D heatmap of forward vols (start tenor x end tenor)."""
+    from core.fx_analytics import forward_vol_surface
+    df = forward_vol_surface(pair)
+    if df is None or df.empty:
+        return _empty_fig("No forward vol surface data")
+
+    # Replace NaN with None for cleaner display
+    z_vals = df.values
+    tenors = df.index.tolist()
+
+    text_vals = [[f"{v:.2f}" if np.isfinite(v) else "" for v in row] for row in z_vals]
+
+    fig = go.Figure(data=go.Heatmap(
+        x=tenors, y=tenors, z=z_vals,
+        colorscale=[[0, "#0e0e0e"], [0.25, "#1a1a2e"], [0.5, "#bf5b00"],
+                    [0.75, "#ff8800"], [1.0, "#ffbb55"]],
+        text=text_vals,
+        texttemplate="%{text}",
+        textfont=dict(size=10, color="#c0c0c0"),
+        hovertemplate="Start: %{y}<br>End: %{x}<br>Fwd Vol: %{z:.2f}%<extra></extra>",
+        colorbar=dict(
+            title=dict(text="Fwd Vol %", font=dict(color=COLORS["text_muted"], size=10)),
+            tickfont=dict(color=COLORS["text_muted"], size=9),
+            len=0.8, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
+        ),
+        xgap=2, ygap=2,
+    ))
+
+    _apply_chart_template(fig, f"Forward Vol Surface -- {pair}")
+    fig.update_layout(
+        xaxis=dict(title="End Tenor", type="category"),
+        yaxis=dict(title="Start Tenor", type="category"),
+    )
+    return fig
+
+
+@_safe_chart
+def chart_tail_risk(pair, sd, spot, r_dom, r_for, **kw):
+    """Tail Risk Metrics: skewness, kurtosis, Hill index from spot return distribution."""
+    from core.fx_analytics import tail_risk_metrics
+    from core.bloomberg_fx import get_fx_historical_spot
+
+    spot_hist_raw = get_fx_historical_spot(pair, 504)
+    if spot_hist_raw is None or (isinstance(spot_hist_raw, pd.DataFrame) and spot_hist_raw.empty):
+        return _empty_fig("No spot history for tail risk")
+
+    if isinstance(spot_hist_raw, pd.DataFrame):
+        for c in ("close", "Close"):
+            if c in spot_hist_raw.columns:
+                closes = spot_hist_raw[c].values.astype(float)
+                break
+        else:
+            closes = spot_hist_raw.iloc[:, -1].values.astype(float)
+    elif isinstance(spot_hist_raw, pd.Series):
+        closes = spot_hist_raw.values.astype(float)
+    else:
+        closes = np.asarray(spot_hist_raw, dtype=float)
+
+    if len(closes) < 30:
+        return _empty_fig("Insufficient data for tail risk")
+
+    log_ret = np.diff(np.log(closes))
+    metrics = tail_risk_metrics(log_ret)
+
+    fig = make_subplots(rows=1, cols=2, column_widths=[0.55, 0.45],
+                        subplot_titles=["Return Distribution vs Normal", "Tail Metrics"])
+
+    # Left: histogram of returns with normal overlay
+    fig.add_trace(go.Histogram(
+        x=log_ret * 100, nbinsx=60, name="Actual Returns",
+        marker=dict(color=COLORS["accent_orange"], opacity=0.7,
+                    line=dict(width=1, color=COLORS["border"])),
+        hovertemplate="Return: %{x:.2f}%<br>Count: %{y}<extra></extra>",
+    ), row=1, col=1)
+
+    # Normal overlay
+    from scipy.stats import norm as norm_dist
+    mu, sigma = np.mean(log_ret * 100), np.std(log_ret * 100)
+    x_norm = np.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
+    y_norm = norm_dist.pdf(x_norm, mu, sigma) * len(log_ret) * (log_ret.max() - log_ret.min()) * 100 / 60
+    fig.add_trace(go.Scatter(
+        x=x_norm, y=y_norm, mode="lines", name="Normal",
+        line=dict(color=COLORS["text_muted"], width=2, dash="dash"),
+    ), row=1, col=1)
+
+    # Right: metrics bar chart
+    metric_names = ["Skewness", "Excess Kurt.", "Hill Index"]
+    metric_vals = [metrics["skewness"], metrics["excess_kurtosis"], metrics["hill_tail_index"]]
+    metric_colors = []
+    for nm, v in zip(metric_names, metric_vals):
+        if nm == "Skewness":
+            metric_colors.append(COLORS["accent_red"] if abs(v) > 0.5 else COLORS["accent_green"])
+        elif nm == "Excess Kurt.":
+            metric_colors.append(COLORS["accent_red"] if v > 1.0 else COLORS["accent_green"])
+        else:
+            metric_colors.append(COLORS["accent_red"] if v < 3 else COLORS["accent_green"])
+
+    fig.add_trace(go.Bar(
+        x=metric_names, y=metric_vals, name="Metrics",
+        marker=dict(color=metric_colors, line=dict(width=1, color=COLORS["border"])),
+        text=[f"{v:.2f}" for v in metric_vals],
+        textposition="outside", textfont=dict(size=11, color=COLORS["text_primary"]),
+        hovertemplate="%{x}: %{y:.3f}<extra></extra>",
+        showlegend=False,
+    ), row=1, col=2)
+
+    # Normality badge annotation
+    normality = metrics.get("normality", "UNKNOWN")
+    badge_color = COLORS["accent_red"] if normality == "REJECTED" else (
+        COLORS["accent_orange"] if normality == "BORDERLINE" else COLORS["accent_green"])
+    tail_assess = metrics.get("tail_assessment", "")
+    fig.add_annotation(
+        x=0.78, y=0.95, xref="paper", yref="paper",
+        text=f"Normality: {normality} | Tails: {tail_assess}",
+        showarrow=False, font=dict(color=badge_color, size=10, family="'JetBrains Mono', monospace"),
+        bgcolor="rgba(0,0,0,0.8)", bordercolor=badge_color, borderwidth=1, borderpad=4,
+    )
+
+    _apply_chart_template(fig, f"Tail Risk -- {pair}")
+    fig.update_layout(
+        xaxis=dict(title="Daily Return (%)"), xaxis2=dict(type="category"),
+        yaxis=dict(title="Frequency"), yaxis2=dict(title="Value"),
+        height=CHART_LG,
+    )
+    return fig
+
+
 # Chart dispatch table
 CHART_DISPATCH = {
     # Surface charts
@@ -1846,6 +2112,10 @@ CHART_DISPATCH = {
     "rv_estimators": chart_rv_estimators,
     "vol_of_vol": chart_vol_of_vol,
     "pdf_comparison": chart_pdf_comparison,
+    "smile_pca_chart": chart_smile_pca,
+    "wing_richness_chart": chart_wing_richness,
+    "fwd_vol_surface": chart_fwd_vol_surface,
+    "tail_risk_chart": chart_tail_risk,
     # Lab study charts
     "lab_study_vol_cone": _lab_study_vol_cone,
     "lab_study_smile": _lab_study_smile,

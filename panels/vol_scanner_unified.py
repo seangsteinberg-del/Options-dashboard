@@ -1077,6 +1077,10 @@ def layout():
                     html.Div(id=f"{_P}-tail-table"),
                 ], style={"flex": "2", "padding": GAP, "border": "1px solid #222240"}),
             ], style={"display": "flex", "gap": GAP, "marginTop": GAP}),
+
+            # Skew slope heatmap
+            dcc.Graph(id=f"{_P}-skew-slope", config={"displayModeBar": False},
+                      style={"marginTop": GAP}),
         ]),
 
         # ── Signals View Container ──
@@ -1403,6 +1407,55 @@ def register_callbacks(app):
         if pair in ALL_PAIRS:
             return pair
         raise PreventUpdate
+
+    # ── SKEW VIEW: skew slope heatmap ──
+    @app.callback(
+        Output(f"{_P}-skew-slope", "figure"),
+        [Input(f"{_P}-view-tabs", "value"), Input(f"{_P}-interval", "n_intervals")],
+    )
+    def _update_skew_slope(tab, n):
+        if tab != "skew":
+            raise PreventUpdate
+
+        from core.fx_analytics import skew_slope_heatmap
+        df = skew_slope_heatmap()
+        if df is None or df.empty:
+            return no_data_fig(height=400, msg="NO SKEW SLOPE DATA")
+
+        pairs = df["pair"].tolist()
+        cols = ["near_slope", "mid_slope", "far_slope"]
+        col_labels = ["NEAR (1M\u21923M)", "MID (3M\u21926M)", "FAR (6M\u21921Y)"]
+
+        z_vals = df[cols].values.astype(float)
+        text = [[f"{v:+.3f}" if np.isfinite(v) else "\u2014" for v in row] for row in z_vals]
+
+        fig = go.Figure(data=go.Heatmap(
+            x=col_labels, y=pairs, z=z_vals,
+            colorscale=[
+                [0.0, "#c62828"],
+                [0.5, "#0e0e0e"],
+                [1.0, "#1e88e5"],
+            ],
+            text=text, texttemplate="%{text}",
+            textfont=dict(size=10, color="#c0c0c0"),
+            hovertemplate="Pair: %{y}<br>Segment: %{x}<br>Slope: %{z:+.4f}<extra></extra>",
+            colorbar=dict(
+                title=dict(text="Slope", font=dict(color="#808080", size=10)),
+                tickfont=dict(color="#808080", size=9),
+                len=0.8, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
+            ),
+            xgap=2, ygap=2,
+        ))
+
+        fig.update_layout(**_chart_layout(
+            title=dict(text="SKEW SLOPE HEATMAP (Norm. RR change across tenors)",
+                       font=dict(color="#ffffff", size=13)),
+            margin=dict(l=80, r=30, t=50, b=30),
+            height=max(350, len(pairs) * 24 + 80),
+            xaxis=dict(title="", type="category", side="top", tickfont=dict(size=9, color="#808080")),
+            yaxis=dict(title="", type="category", autorange="reversed", tickfont=dict(size=10, color="#d4d4d4")),
+        ))
+        return fig
 
     # ── SIGNALS VIEW: signal confluence heatmap ──
     @app.callback(
