@@ -2,9 +2,6 @@
 Unit tests for core/config.py — verify centralized constants are consistent.
 """
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 import pytest
 from core.config import (
     TENORS_FULL, TENORS_LIQUID, TENORS_TRADING, TENORS_SURFACE,
