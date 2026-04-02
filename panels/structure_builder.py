@@ -1660,11 +1660,8 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
 
     fig = go.Figure()
 
-    # 1-sigma / 2-sigma expected move shading
+    # 1-sigma expected move shading
     move_1s = S * atm_vol * np.sqrt(max(T, 1e-4))
-    move_2s = 2.0 * move_1s
-    fig.add_vrect(x0=S - move_2s, x1=S + move_2s,
-                  fillcolor="rgba(255,136,0,0.02)", line_width=0)
     fig.add_vrect(x0=S - move_1s, x1=S + move_1s,
                   fillcolor="rgba(255,136,0,0.04)", line_width=0,
                   annotation_text="1\u03c3", annotation_position="top left",
@@ -1704,59 +1701,16 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
                       annotation_text=f"BE {be:.4f} ({pct_from_spot:+.1f}%)",
                       annotation_font=dict(color=COLORS["accent_orange"], size=8))
 
-    # Probability density overlay: implied (risk-neutral) vs historical (physical)
-    # Clip density data to the payoff chart's spot range so it doesn't stretch the x-axis
-    spot_lo, spot_hi = spot_range[0], spot_range[-1]
-    if ev_data and "pdf_strikes" in ev_data:
-        # Clip both PDFs to the payoff chart's x-range
-        def _clip_pdf(x, y):
-            mask = (x >= spot_lo) & (x <= spot_hi)
-            return x[mask], y[mask]
-
-        pdf_x_impl, pdf_y_impl = _clip_pdf(
-            np.asarray(ev_data["pdf_strikes"]), np.asarray(ev_data["pdf_vals"]))
-        pdf_x_hist = ev_data.get("hist_pdf_strikes")
-        pdf_y_hist = ev_data.get("hist_pdf")
-        if pdf_x_hist is not None and pdf_y_hist is not None:
-            pdf_x_hist, pdf_y_hist = _clip_pdf(
-                np.asarray(pdf_x_hist), np.asarray(pdf_y_hist))
-
-        # Implied density (orange) — plotted on secondary y-axis (density units)
-        # Note: fill="tozeroy" doesn't work correctly with yaxis="y2" in Plotly
-        # (it fills to y1's zero, not y2's), so we omit the fill.
-        if len(pdf_x_impl) > 0:
-            fig.add_trace(go.Scatter(
-                x=pdf_x_impl, y=pdf_y_impl, mode="lines",
-                line=dict(color="rgba(255,136,0,0.45)", width=1.5),
-                name="Implied Density", showlegend=True, yaxis="y2",
-                hovertemplate="Spot: %{x:.4f}<br>Density: %{y:.4f}<extra>Implied</extra>",
-            ))
-
-        # Historical density (purple) — gap between curves shows edge
-        if pdf_y_hist is not None and pdf_x_hist is not None and len(pdf_x_hist) > 0:
-            fig.add_trace(go.Scatter(
-                x=pdf_x_hist, y=pdf_y_hist, mode="lines",
-                line=dict(color="rgba(128,128,128,0.50)", width=1.5, dash="dash"),
-                name="Historical Density", showlegend=True, yaxis="y2",
-                hovertemplate="Spot: %{x:.4f}<br>Density: %{y:.4f}<extra>Historical</extra>",
-            ))
-
     fig.update_layout(
         title=dict(text="PAYOFF DIAGRAM", font=dict(color=COLORS["text_primary"], size=13)),
         xaxis_title="Spot", yaxis_title="P&L ($)",
         paper_bgcolor=tpl["paper_bgcolor"], plot_bgcolor=tpl["plot_bgcolor"],
-        font=tpl["font"], margin=dict(l=55, r=50, t=40, b=35),
+        font=tpl["font"], margin=dict(l=55, r=20, t=40, b=35),
         legend=dict(font=dict(color=COLORS["text_secondary"], size=10),
                     bgcolor="rgba(0,0,0,0)", x=0.01, y=0.99),
         hoverlabel=tpl["hoverlabel"],
         xaxis=dict(gridcolor="#1a1a30"),
         yaxis=dict(gridcolor="#1a1a30"),
-        yaxis2=dict(
-            title=dict(text="Density", font=dict(size=9, color="#9a9ab0")),
-            overlaying="y", side="right",
-            showgrid=False, zeroline=False,
-            tickfont=dict(size=8, color="#9a9ab0"),
-        ),
         height=380,
     )
     return fig
