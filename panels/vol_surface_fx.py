@@ -2556,6 +2556,7 @@ def layout():
                     html.Label("PAIR", style=SIDEBAR_LABEL),
                     dcc.Dropdown(id="vsfx-pair", options=pair_opts,
                                  value="EURUSD", clearable=False,
+                                 persistence=True, persistence_type="local",
                                  style={"fontSize": "11px"}),
                 ], style=SIDEBAR_SECTION),
 
@@ -2567,6 +2568,7 @@ def layout():
                         {"label": " SABR", "value": "sabr"},
                         {"label": " Vanna-Volga", "value": "vv"},
                     ], value="market",
+                    persistence=True, persistence_type="local",
                     style={"color": COLORS["text_secondary"], "fontSize": "10px",
                            "fontFamily": "'JetBrains Mono', monospace"},
                     inputStyle={"marginRight": "4px"},
@@ -2606,6 +2608,7 @@ def layout():
                         {"label": " vs History", "value": "history"},
                         {"label": " vs Pair", "value": "cross"},
                     ], value="none",
+                    persistence=True, persistence_type="local",
                     style={"color": COLORS["text_secondary"], "fontSize": "10px",
                            "fontFamily": "'JetBrains Mono', monospace"},
                     inputStyle={"marginRight": "4px"},
@@ -2625,6 +2628,7 @@ def layout():
                     html.Label("CROSS PAIR", style=SIDEBAR_LABEL),
                     dcc.Dropdown(id="vsfx-cross-pair", options=pair_opts,
                                  value="USDJPY", clearable=False,
+                                 persistence=True, persistence_type="local",
                                  style={"fontSize": "10px"}),
                 ], style=SIDEBAR_SECTION),
 
@@ -2637,6 +2641,7 @@ def layout():
                     dcc.Checklist(id="vsfx-tenors",
                         options=[{"label": f" {t}", "value": t} for t in TENORS_LIST],
                         value=["1W", "1M", "3M", "6M", "1Y"],
+                        persistence=True, persistence_type="local",
                         style={"color": COLORS["text_secondary"], "fontSize": "10px",
                                "fontFamily": "'JetBrains Mono', monospace"},
                         inputStyle={"marginRight": "3px"},
@@ -2651,6 +2656,7 @@ def layout():
                         {"label": "10D - 50D", "value": "10-50"},
                         {"label": "25D - 50D", "value": "25-50"},
                     ], value="10-50", clearable=False,
+                    persistence=True, persistence_type="local",
                     style={"fontSize": "10px"}),
                 ], style=SIDEBAR_SECTION),
 
@@ -2659,18 +2665,22 @@ def layout():
                     html.Label("CHART Q1", style=SIDEBAR_LABEL),
                     dcc.Dropdown(id="vsfx-q1", options=CHART_OPTIONS,
                                  value="surface_3d", clearable=False,
+                                 persistence=True, persistence_type="local",
                                  style={"fontSize": "10px", "marginBottom": "6px"}),
                     html.Label("CHART Q2", style=SIDEBAR_LABEL),
                     dcc.Dropdown(id="vsfx-q2", options=CHART_OPTIONS,
                                  value="atm_term", clearable=False,
+                                 persistence=True, persistence_type="local",
                                  style={"fontSize": "10px", "marginBottom": "6px"}),
                     html.Label("CHART Q3", style=SIDEBAR_LABEL),
                     dcc.Dropdown(id="vsfx-q3", options=CHART_OPTIONS,
                                  value="skew_rr", clearable=False,
+                                 persistence=True, persistence_type="local",
                                  style={"fontSize": "10px", "marginBottom": "6px"}),
                     html.Label("CHART Q4", style=SIDEBAR_LABEL),
                     dcc.Dropdown(id="vsfx-q4", options=CHART_OPTIONS,
                                  value="iv_rv", clearable=False,
+                                 persistence=True, persistence_type="local",
                                  style={"fontSize": "10px", "marginBottom": "6px"}),
                 ], style=SIDEBAR_SECTION),
 
@@ -2680,6 +2690,7 @@ def layout():
                     dcc.Dropdown(id="vsfx-smile-tenor", options=[
                         {"label": t, "value": t} for t in TENORS_LIST
                     ], value="3M", clearable=False,
+                    persistence=True, persistence_type="local",
                     style={"fontSize": "10px"}),
                 ], style=SIDEBAR_SECTION),
 
