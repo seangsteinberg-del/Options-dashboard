@@ -152,6 +152,19 @@ def _pct_color(p):
     return COLORS["text_primary"]
 
 
+def _spark_chars(values, width=8):
+    """Unicode block sparkline: \u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"""
+    blocks = " \u2581\u2582\u2583\u2584\u2585\u2586\u2587"
+    if not values or len(values) < 2:
+        return "\u2014"
+    vals = [v for v in values if v is not None and isinstance(v, (int, float)) and np.isfinite(v)]
+    if len(vals) < 2:
+        return "\u2014"
+    mn, mx = min(vals), max(vals)
+    rng = mx - mn if mx > mn else 1
+    return "".join(blocks[min(int((v - mn) / rng * 7), 7)] for v in vals[-width:])
+
+
 # ── Data builders ────────────────────────────────────────────────────────────
 
 def _build_movers(pairs):
@@ -238,18 +251,36 @@ def _build_movers(pairs):
             except Exception:
                 pass
 
+            # 5-day sparklines (spot + vol)
+            spot_spark = "\u2014"
+            vol_spark = "\u2014"
+            try:
+                from core.bloomberg_fx import get_fx_historical_spot, get_fx_historical_vol
+                hist_spot = get_fx_historical_spot(pair, days=7)
+                if hist_spot is not None and not hist_spot.empty and "close" in hist_spot.columns:
+                    spot_vals = hist_spot["close"].dropna().tolist()[-5:]
+                    spot_spark = _spark_chars(spot_vals, width=5)
+                hist_vol = get_fx_historical_vol(pair, "1M", "atm", days=7)
+                if hist_vol is not None and len(hist_vol) >= 2:
+                    vol_vals = hist_vol.dropna().tolist()[-5:]
+                    vol_spark = _spark_chars(vol_vals, width=5)
+            except Exception:
+                pass
+
             rows.append({
                 "pair": pair, "spot": spot, "chg_pct": chg,
                 "atm_1m": atm_1m, "vol_chg": vol_chg, "rr25": rr25,
                 "atm_3m": atm_3m, "pctile": pctile,
                 "term_spread": term_spread, "breakeven_pips": breakeven_pips,
                 "iv_rv": iv_rv, "vol_mom": vol_mom,
+                "spot_spark": spot_spark, "vol_spark": vol_spark,
             })
         except Exception:
             rows.append({"pair": pair, "spot": 0, "chg_pct": 0,
                          "atm_1m": 0, "vol_chg": 0, "rr25": 0,
                          "atm_3m": 0, "pctile": 50, "term_spread": 0,
-                         "breakeven_pips": 0, "iv_rv": 0, "vol_mom": 0})
+                         "breakeven_pips": 0, "iv_rv": 0, "vol_mom": 0,
+                         "spot_spark": "\u2014", "vol_spark": "\u2014"})
     return rows
 
 
@@ -848,7 +879,7 @@ def _render_movers_table(rows, sort_key):
 
     header = html.Tr([
         html.Th(h, style=TABLE_HEADER_STYLE)
-        for h in ["PAIR", "SPOT", "\u0394%", "ATM 1M", "ATM 3M", "\u0394Vol", "MOM", "RR25", "%ILE", "TERM", "IV-RV", "BEV"]
+        for h in ["PAIR", "SPOT", "\u0394%", "SPT5D", "ATM 1M", "ATM 3M", "\u0394Vol", "VOL5D", "MOM", "RR25", "%ILE", "TERM", "IV-RV", "BEV"]
     ])
 
     body_rows = []
@@ -876,15 +907,23 @@ def _render_movers_table(rows, sort_key):
         else:
             ivrv_color = "#808080"
 
+        # Sparkline colors: green if up, red if down, muted if flat
+        spot_spark = r.get("spot_spark", "\u2014")
+        vol_spark = r.get("vol_spark", "\u2014")
+
         body_rows.append(html.Tr([
             html.Td(r["pair"], style={**TABLE_CELL_STYLE, "fontWeight": "700",
                                        "color": "#d4d4d4", "cursor": "pointer"},
                     id={"type": f"{_P}-row-click", "index": r["pair"]}),
             html.Td(_fmt_spot(r['pair'], r['spot']), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r['chg_pct'], "+.2f", "%"), style={**TABLE_CELL_STYLE, "color": chg_color}),
+            html.Td(spot_spark, style={**TABLE_CELL_STYLE, "color": chg_color,
+                     "fontSize": "10px", "letterSpacing": "1px"}),
             html.Td(_sf_display(r['atm_1m'], ".1f", "v"), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r.get('atm_3m', 0), ".1f", "v"), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r['vol_chg'], "+.2f", "v"), style={**TABLE_CELL_STYLE, "color": vol_color}),
+            html.Td(vol_spark, style={**TABLE_CELL_STYLE, "color": COLORS["accent_orange"],
+                     "fontSize": "10px", "letterSpacing": "1px"}),
             html.Td(_sf_display(r.get('vol_mom', 0), "+.1f", "%"), style={**TABLE_CELL_STYLE,
                      "color": COLORS["accent_red"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) > 2 else
                               COLORS["accent_green"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) < -2 else "#808080"}),

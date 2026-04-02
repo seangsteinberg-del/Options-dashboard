@@ -551,6 +551,71 @@ def _build_rolling_chart(pair_a, pair_b):
         return _empty_fig(f"ROLLING CORR: {pair_a} vs {pair_b}")
 
 
+def _build_corr_cone(pair_a, pair_b):
+    """Correlation cone: percentile bands across rolling windows."""
+    try:
+        from core.fx_analytics import correlation_cone
+        df = correlation_cone(pair_a, pair_b)
+        if df is None or df.empty:
+            return no_data_fig(height=320, msg="NO CORRELATION CONE DATA")
+
+        fig = go.Figure()
+        windows = df["window"].tolist()
+
+        # p10-p90 band (light fill)
+        fig.add_trace(go.Scatter(
+            x=windows + windows[::-1],
+            y=df["p90"].tolist() + df["p10"].tolist()[::-1],
+            fill="toself", fillcolor="rgba(255,136,0,0.08)",
+            line=dict(width=0), showlegend=True, name="10th-90th %ile",
+            hoverinfo="skip",
+        ))
+
+        # p25-p75 band (darker fill)
+        fig.add_trace(go.Scatter(
+            x=windows + windows[::-1],
+            y=df["p75"].tolist() + df["p25"].tolist()[::-1],
+            fill="toself", fillcolor="rgba(255,136,0,0.15)",
+            line=dict(width=0), showlegend=True, name="25th-75th %ile",
+            hoverinfo="skip",
+        ))
+
+        # Median line
+        fig.add_trace(go.Scatter(
+            x=windows, y=df["median"], mode="lines",
+            name="Median", line=dict(color="#808080", width=1.5, dash="dash"),
+        ))
+
+        # Current values
+        fig.add_trace(go.Scatter(
+            x=windows, y=df["current"], mode="lines+markers+text",
+            name="Current", line=dict(color="#ff8800", width=3),
+            marker=dict(size=10, color="#ff8800", line=dict(width=2, color="#ffffff")),
+            text=[f"{v:.2f}" for v in df["current"]],
+            textposition="top center", textfont=dict(size=10, color="#ff8800"),
+        ))
+
+        # Apply theme
+        fig.update_layout(
+            paper_bgcolor="#000000", plot_bgcolor="#000000",
+            font=dict(family=_MONO, color="#d4d4d4", size=11),
+            title=dict(text=f"Correlation Cone -- {pair_a} vs {pair_b}",
+                       font=dict(color="#ffffff", size=13)),
+            xaxis=dict(title="Rolling Window (days)", showgrid=True, gridcolor="#1a1a30",
+                       tickfont=dict(size=9, color="#808080")),
+            yaxis=dict(title="Correlation", showgrid=True, gridcolor="#1a1a30",
+                       tickfont=dict(size=9, color="#808080"), range=[-1, 1]),
+            margin=dict(l=50, r=20, t=40, b=40),
+            height=320,
+            legend=dict(font=dict(color="#808080", size=10), bgcolor="rgba(0,0,0,0)"),
+            hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#222240",
+                            font=dict(color="#d4d4d4", family=_MONO, size=11)),
+        )
+        return fig
+    except Exception:
+        return _empty_fig(f"CORR CONE: {pair_a} vs {pair_b}")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # MACRO TAB (from macro_regime.py)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1007,6 +1072,8 @@ def layout():
             html.Button("CSV", id=f"{_P}-csv-rolling", n_clicks=0, style=CSV_BTN_STYLE),
             dcc.Graph(id=f"{_P}-rolling-chart", config={"displayModeBar": False, "responsive": True},
                       style={"height": f"{CHART_SM}px", "marginTop": GAP}),
+            dcc.Graph(id=f"{_P}-corr-cone", config={"displayModeBar": False, "responsive": True},
+                      style={"height": f"{CHART_MD}px", "marginTop": GAP}),
         ]),
 
         # ══════════ MACRO TAB ══════════
@@ -1235,6 +1302,20 @@ def register_callbacks(app):
         if pa == pb:
             return _empty_fig("Select two different pairs")
         return _build_rolling_chart(pa, pb)
+
+    @app.callback(
+        Output(f"{_P}-corr-cone", "figure"),
+        [Input(f"{_P}-corr-pair-a", "data"), Input(f"{_P}-corr-pair-b", "data"),
+         Input(f"{_P}-tabs", "value")],
+    )
+    def update_corr_cone(pair_a, pair_b, tab):
+        if tab != "correlation":
+            raise PreventUpdate
+        pa = pair_a or "EURUSD"
+        pb = pair_b or "USDJPY"
+        if pa == pb:
+            return _empty_fig("Select two different pairs")
+        return _build_corr_cone(pa, pb)
 
     # ══════════ MACRO CALLBACKS ══════════
 

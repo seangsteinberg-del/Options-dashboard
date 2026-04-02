@@ -2585,6 +2585,19 @@ def layout():
                 ], style={"display": "flex", "gap": "12px", "flexWrap": "wrap",
                           "marginBottom": "12px"}),
 
+                # P&L Surface (Spot x Vol)
+                html.Div([
+                    html.Div("3D P&L SURFACE (SPOT \u00d7 VOL)", style={
+                        "color": "#ffffff", "fontSize": "11px", "fontWeight": "700",
+                        "fontFamily": "'JetBrains Mono', monospace", "letterSpacing": "1px",
+                        "textTransform": "uppercase", "marginBottom": "6px",
+                        "paddingBottom": "4px", "borderBottom": f"1px solid {COLORS['border_subtle']}",
+                    }),
+                    dcc.Graph(id="stb-pnl-surface", config={"displayModeBar": True, "scrollZoom": True},
+                              style={"height": "400px"}),
+                ], style={**CARD_STYLE, "padding": "14px", "marginBottom": "12px"},
+                   className="dashboard-card"),
+
                 # Chart grid row 2 (4 charts: smile, 3D, premium table, scenario)
                 html.Div([
                     html.Div([
@@ -2632,6 +2645,83 @@ def layout():
 
         ], style={"display": "flex", "gap": "16px", "alignItems": "flex-start"}),
     ])
+
+
+# ============================================================================
+# P&L Surface (Spot x Vol)
+# ============================================================================
+
+def _build_pnl_surface(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
+    """Chart: 3D P&L surface -- Spot (x) x Vol (y) -> P&L (z)."""
+    tpl = CHART_TEMPLATE["layout"]
+
+    if not processed_legs or T < 1e-6:
+        return no_data_fig(height=400, msg="ADD LEGS TO SEE P&L SURFACE")
+
+    n_spots = 40
+    n_vols = 30
+    atm_vol_safe = max(atm_vol, 0.01)
+    implied_move = atm_vol_safe * np.sqrt(max(T, 1.0 / 365.0))
+    half_range = max(0.05, min(2.5 * implied_move, 0.30))
+    spot_range = np.linspace(S * (1 - half_range), S * (1 + half_range), n_spots)
+    vol_range = np.linspace(max(atm_vol_safe * 0.5, 0.01), atm_vol_safe * 1.5, n_vols)
+
+    # Entry premium per unit at current market conditions
+    net_prem_per_unit = sum(
+        lg["price_unit"] * lg["side_sign"] * lg["ratio"]
+        for lg in processed_legs
+    )
+
+    pnl_grid = np.zeros((n_vols, n_spots))
+    for vi, vol in enumerate(vol_range):
+        row_pnl = np.zeros(n_spots)
+        for lg in processed_legs:
+            qty = lg["side_sign"] * lg["ratio"]
+            row_pnl += _gk_price(spot_range, lg["strike"], max(lg["T"], 1e-6),
+                                 r_d, r_f, vol, lg["cp_sign"]) * qty
+        pnl_grid[vi, :] = (row_pnl - net_prem_per_unit) * notional
+
+    fig = go.Figure(data=go.Surface(
+        x=spot_range,
+        y=vol_range * 100,
+        z=pnl_grid,
+        colorscale=[
+            [0.0, "#ff3333"],
+            [0.3, "#330000"],
+            [0.5, "#0e0e0e"],
+            [0.7, "#003300"],
+            [1.0, "#00cc66"],
+        ],
+        cmid=0,
+        opacity=0.92,
+        colorbar=dict(
+            title=dict(text="P&L", font=dict(color=COLORS["text_secondary"], size=10)),
+            tickfont=dict(color=COLORS["text_secondary"], size=9),
+            len=0.6, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
+        ),
+        contours=dict(z=dict(show=True, usecolormap=True, project_z=True, width=1)),
+        lighting=dict(ambient=0.6, diffuse=0.7, specular=0.3, roughness=0.5),
+        hovertemplate="Spot: %{x:.4f}<br>Vol: %{y:.1f}%<br>P&L: %{z:,.0f}<extra></extra>",
+    ))
+
+    fig.update_layout(
+        scene=dict(
+            xaxis=dict(title="Spot", backgroundcolor=COLORS["bg_primary"],
+                       gridcolor=COLORS["border"], color=COLORS["text_secondary"]),
+            yaxis=dict(title="Vol (%)", backgroundcolor=COLORS["bg_primary"],
+                       gridcolor=COLORS["border"], color=COLORS["text_secondary"]),
+            zaxis=dict(title="P&L", backgroundcolor=COLORS["bg_primary"],
+                       gridcolor=COLORS["border"], color=COLORS["text_secondary"]),
+            bgcolor=COLORS["bg_primary"],
+            camera=dict(eye=dict(x=1.6, y=-1.6, z=0.85)),
+        ),
+        paper_bgcolor=tpl["paper_bgcolor"],
+        font=tpl["font"],
+        title=dict(text="P&L SURFACE (SPOT \u00d7 VOL)", font=dict(color=COLORS["text_primary"], size=13)),
+        margin=dict(l=10, r=10, t=40, b=10),
+        height=400,
+    )
+    return fig
 
 
 # ============================================================================
@@ -2741,7 +2831,8 @@ def register_callbacks(app):
          Output("stb-scenario-chart", "figure"),
          Output("struct-smile-chart", "figure"),
          Output("stb-tenor-scan", "children"),
-         Output("stb-trade-analysis", "children")] +
+         Output("stb-trade-analysis", "children"),
+         Output("stb-pnl-surface", "figure")] +
         [Output({"type": "stb-strike-disp", "index": i}, "children") for i in range(MAX_LEGS)] +
         [Output({"type": "stb-vol-disp", "index": i}, "children") for i in range(MAX_LEGS)] +
         [Output({"type": "stb-prem-disp", "index": i}, "children") for i in range(MAX_LEGS)],
@@ -2784,8 +2875,8 @@ def register_callbacks(app):
                 "tenor_mult": float(tenor_mult_vals[i]) if tenor_mult_vals[i] is not None else 1.0,
             })
 
-        # Number of new outputs before per-leg displays: 11
-        n_new = 11
+        # Number of new outputs before per-leg displays: 13
+        n_new = 13
         empty_div = html.Div()
 
         # Fetch market data
@@ -2799,8 +2890,9 @@ def register_callbacks(app):
             empty_table = html.Div("No market data", style={"color": COLORS["text_muted"],
                                    "fontSize": "11px", "padding": "8px"})
             empty_stats = [html.Div("--", style=STAT_BOX_STYLE) for _ in range(10)]
+            ndf_surface = no_data_fig(height=400, msg="NO MARKET DATA")
             return ([empty_div, [], empty_stats, ndf, ndf, ndf, ndf, empty_table, ndf, ndf,
-                     empty_div, empty_div]
+                     empty_div, empty_div, ndf_surface]
                     + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 
         try:
@@ -2931,6 +3023,7 @@ def register_callbacks(app):
             greeks_fig = _build_greeks_chart(processed, S, T, r_d, r_f, notional, atm_vol)
             heatmap_fig = _build_pnl_heatmap(processed, S, T, r_d, r_f, notional, atm_vol)
             surface_fig = _build_3d_surface(processed, S, T, r_d, r_f, notional, atm_vol)
+            pnl_surface_fig = _build_pnl_surface(processed, S, T, r_d, r_f, notional, atm_vol)
             premium_table = _build_premium_table(processed, pair, pip_size, notional)
             scenario_fig = _build_scenario_chart(processed, S, T, r_d, r_f, notional)
             smile_fig = _build_smile_chart(processed, vol_surface, tenor)
@@ -3042,17 +3135,18 @@ def register_callbacks(app):
 
             return ([suggestions_div, sugg_store_data, stats, payoff_fig, greeks_fig,
                      heatmap_fig, surface_fig, premium_table, scenario_fig, smile_fig,
-                     tenor_scan_div, trade_analysis_div]
+                     tenor_scan_div, trade_analysis_div, pnl_surface_fig]
                     + strike_disps + vol_disps + prem_disps)
 
         except Exception as e:
             logger.error("Structure builder callback failed: %s", e, exc_info=True)
             err_fig = no_data_fig(height=380, msg=f"Error: {type(e).__name__}: {str(e)[:100]}")
+            err_surface = no_data_fig(height=400, msg=f"Error: {type(e).__name__}")
             empty_table = html.Div(f"Error: {e}", style={"color": COLORS["accent_red"],
                                    "fontSize": "11px", "padding": "8px"})
             empty_stats = [html.Div("--", style=STAT_BOX_STYLE) for _ in range(10)]
             return ([empty_div, [], empty_stats, err_fig, err_fig, err_fig, err_fig,
-                     empty_table, err_fig, err_fig, empty_div, empty_div]
+                     empty_table, err_fig, err_fig, empty_div, empty_div, err_surface]
                     + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 
     # -- Historical cost context callback --

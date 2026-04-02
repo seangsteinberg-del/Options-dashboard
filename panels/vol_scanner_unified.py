@@ -3,10 +3,11 @@ Vol Scanner Unified — VOL workspace
 ====================================
 Replaces: Vol Scanner + Vol Richness + Skew Lab (3 → 1).
 
-Three view tabs inside one panel:
+Four view tabs inside one panel:
   [TABLE]   30-pair DataTable, signals, drill-down sparklines
   [HEATMAP] 30×6 percentile heatmap, click → drill-down (ATM, IV-RV, Vol Cone)
   [SKEW]    30×6 RR surface, smile comparison, wing analysis, butterfly, tails
+  [SIGNALS] Signal confluence heatmap — multi-factor z-score matrix with confluence scoring
 """
 
 import json
@@ -929,6 +930,7 @@ def layout():
             dcc.Tab(label="TABLE", value="table", style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
             dcc.Tab(label="HEATMAP", value="heatmap", style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
             dcc.Tab(label="SKEW", value="skew", style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
+            dcc.Tab(label="SIGNALS", value="signals", style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE),
         ], style={"marginTop": GAP, "marginBottom": "0"}),
 
         # ── Table View Container ──
@@ -1077,6 +1079,11 @@ def layout():
             ], style={"display": "flex", "gap": GAP, "marginTop": GAP}),
         ]),
 
+        # ── Signals View Container ──
+        html.Div(id=f"{_P}-signals-container", style={"display": "none"}, children=[
+            dcc.Graph(id=f"{_P}-signal-heatmap", config={"displayModeBar": False}),
+        ]),
+
     ], style={"fontFamily": _MONO})
 
 
@@ -1092,6 +1099,7 @@ def register_callbacks(app):
             Output(f"{_P}-table-container", "style"),
             Output(f"{_P}-heatmap-container", "style"),
             Output(f"{_P}-skew-container", "style"),
+            Output(f"{_P}-signals-container", "style"),
         ],
         Input(f"{_P}-view-tabs", "value"),
     )
@@ -1102,6 +1110,7 @@ def register_callbacks(app):
             show if view == "table" else hide,
             show if view == "heatmap" else hide,
             show if view == "skew" else hide,
+            show if view == "signals" else hide,
         )
 
     # ── TABLE VIEW: update table ──
@@ -1394,6 +1403,92 @@ def register_callbacks(app):
         if pair in ALL_PAIRS:
             return pair
         raise PreventUpdate
+
+    # ── SIGNALS VIEW: signal confluence heatmap ──
+    @app.callback(
+        Output(f"{_P}-signal-heatmap", "figure"),
+        [Input(f"{_P}-view-tabs", "value"),
+         Input(f"{_P}-interval", "n_intervals")],
+    )
+    def _update_signal_heatmap(tab, n):
+        if tab != "signals":
+            raise PreventUpdate
+
+        from core.fx_analytics import signal_confluence
+        df = signal_confluence()
+        if df is None or df.empty:
+            return no_data_fig(height=600, msg="NO SIGNAL DATA")
+
+        signal_cols = ["atm_z", "skew_z", "wings_z", "ivrv_z", "term_z",
+                       "momentum_z", "regime_z", "carry_z"]
+        col_labels = ["ATM", "SKEW", "WINGS", "IV-RV", "TERM",
+                      "MOMENTUM", "REGIME", "CARRY"]
+
+        pairs = df["pair"].tolist()
+        z_matrix = df[signal_cols].values
+
+        text = [[f"{v:+.1f}" if np.isfinite(v) else "\u2014"
+                 for v in row] for row in z_matrix]
+
+        fig = go.Figure(data=go.Heatmap(
+            x=col_labels,
+            y=pairs,
+            z=z_matrix,
+            colorscale=[
+                [0.0, "#1565c0"],
+                [0.25, "#0d47a1"],
+                [0.40, "#0a1628"],
+                [0.50, "#0e0e0e"],
+                [0.60, "#2a1200"],
+                [0.75, "#bf5b00"],
+                [1.0, "#ff8800"],
+            ],
+            text=text,
+            texttemplate="%{text}",
+            textfont=dict(size=10, color="#c0c0c0"),
+            hovertemplate="Pair: %{y}<br>Signal: %{x}<br>Z-Score: %{z:+.2f}<extra></extra>",
+            colorbar=dict(
+                title=dict(text="Z-Score", font=dict(color="#808080", size=10)),
+                tickfont=dict(color="#808080", size=9),
+                len=0.8, thickness=12,
+                outlinewidth=0, bgcolor="rgba(0,0,0,0)",
+            ),
+            zmin=-3, zmax=3,
+            xgap=2, ygap=2,
+        ))
+
+        # Confluence score annotations on right side
+        for i, row in df.iterrows():
+            conf = row.get("confluence", 0)
+            color = "#ff3333" if conf >= 4 else ("#ff8800" if conf >= 2 else "#808080")
+            fig.add_annotation(
+                x=1.02, y=row["pair"],
+                xref="paper", yref="y",
+                text=f"{int(conf)}",
+                showarrow=False,
+                font=dict(color=color, size=11, family=_MONO),
+            )
+
+        # Header for confluence column
+        fig.add_annotation(
+            x=1.02, y=1.02, xref="paper", yref="paper",
+            text="CNF", showarrow=False,
+            font=dict(color="#ffffff", size=10, family=_MONO),
+        )
+
+        fig.update_layout(**_chart_layout(
+            title=dict(text="SIGNAL CONFLUENCE MATRIX",
+                       font=dict(color="#ffffff", size=13)),
+            margin=dict(l=80, r=50, t=50, b=30),
+            height=max(400, len(pairs) * 28 + 80),
+            xaxis=dict(title="", type="category", side="top",
+                       tickfont=dict(size=10, color="#808080")),
+            yaxis=dict(title="", type="category", autorange="reversed",
+                       tickfont=dict(size=10, color="#d4d4d4")),
+            hoverlabel=dict(bgcolor="#0a0a14", bordercolor="#222240",
+                            font=dict(color="#d4d4d4", family=_MONO, size=11)),
+        ))
+        return fig
 
     # ── CSV Export ──────────────────────────────────────────────────────
     @app.callback(

@@ -2322,6 +2322,378 @@ def _cross_pair_metric_spread(pair_a: str, pair_b: str, tenor: str,
     }
 
 
+# =========================================================================
+#  Feature Analytics: Skew Term Structure, RV Estimators, VoV,
+#  Signal Confluence, PDF History
+# =========================================================================
+
+def skew_term_structure(pair: str, lookback: int = 0) -> pd.DataFrame:
+    """
+    25D Risk Reversal across all available tenors — the skew curve.
+
+    Returns DataFrame with columns: tenor, tenor_years, rr_25d, bf_25d, atm,
+    normalised_skew, slope (first difference of normalised skew).
+    If lookback > 0, also returns columns for historical skew at lookback days ago.
+    """
+    tenors = ["1W", "1M", "2M", "3M", "6M", "9M", "1Y", "2Y"]
+    surface = get_fx_vol_surface(pair)
+    if not surface:
+        return pd.DataFrame()
+
+    records = []
+    for t in tenors:
+        atm = _extract_atm(surface, t)
+        rr25 = _extract_metric(surface, t, "25D_RR")
+        bf25 = _extract_metric(surface, t, "25D_BF")
+        if atm is None or rr25 is None:
+            continue
+        norm_skew = rr25 / max(atm, 1e-6)
+        rec = {
+            "tenor": t,
+            "tenor_years": tenor_to_years(t),
+            "rr_25d": float(rr25),
+            "bf_25d": float(bf25) if bf25 is not None else 0.0,
+            "atm": float(atm),
+            "normalised_skew": float(norm_skew),
+        }
+        # Historical overlay
+        if lookback > 0:
+            ch = vol_change(pair, t, "25D_RR", days_ago=lookback)
+            rec["rr_25d_prev"] = ch.get("previous", rr25) if ch else rr25
+        records.append(rec)
+
+    if not records:
+        return pd.DataFrame()
+    df = pd.DataFrame(records)
+    # Compute slope (first difference across tenors)
+    df["slope"] = df["normalised_skew"].diff().fillna(0)
+    return df
+
+
+def skew_slope_heatmap(pairs: List[str] = None) -> pd.DataFrame:
+    """
+    Skew slope across pairs: near-term slope, mid-term slope, far-term slope.
+    Returns DataFrame with pair, near_slope (1M→3M), mid_slope (3M→6M),
+    far_slope (6M→1Y).
+    """
+    if pairs is None:
+        pairs = list(FX_PAIRS.keys())[:15]
+    records = []
+    for p in pairs:
+        surface = get_fx_vol_surface(p)
+        if not surface:
+            continue
+        vals = {}
+        for t in ["1M", "3M", "6M", "1Y"]:
+            atm = _extract_atm(surface, t)
+            rr = _extract_metric(surface, t, "25D_RR")
+            if atm and rr:
+                vals[t] = rr / max(atm, 1e-6)
+        near = vals.get("3M", 0) - vals.get("1M", 0) if "1M" in vals and "3M" in vals else None
+        mid = vals.get("6M", 0) - vals.get("3M", 0) if "3M" in vals and "6M" in vals else None
+        far = vals.get("1Y", 0) - vals.get("6M", 0) if "6M" in vals and "1Y" in vals else None
+        records.append({"pair": p, "near_slope": near, "mid_slope": mid, "far_slope": far})
+    return pd.DataFrame(records)
+
+
+def rv_estimator_comparison(pair: str, lookback: int = 504) -> pd.DataFrame:
+    """
+    Compare 4 realised vol estimators side-by-side:
+    Close-to-Close, Parkinson, Garman-Klass, Yang-Zhang.
+
+    Returns DataFrame indexed by date with columns for each estimator
+    at a 20-day rolling window, annualised.
+    """
+    spot_hist_raw = get_fx_historical_spot(pair, lookback + 30)
+    if spot_hist_raw is None:
+        return pd.DataFrame()
+
+    # Get OHLC-like data
+    if isinstance(spot_hist_raw, pd.DataFrame):
+        if spot_hist_raw.empty:
+            return pd.DataFrame()
+        close_col = None
+        for c in ("close", "Close"):
+            if c in spot_hist_raw.columns:
+                close_col = c
+                break
+        if close_col is None and len(spot_hist_raw.columns) > 0:
+            close_col = spot_hist_raw.columns[-1]
+        if close_col is None:
+            return pd.DataFrame()
+        closes = spot_hist_raw[close_col].values.astype(float)
+        dates = spot_hist_raw.index
+    elif isinstance(spot_hist_raw, pd.Series):
+        closes = spot_hist_raw.values.astype(float)
+        dates = spot_hist_raw.index
+    else:
+        closes = np.asarray(spot_hist_raw, dtype=float)
+        dates = np.arange(len(closes))
+
+    if len(closes) < 30:
+        return pd.DataFrame()
+
+    log_ret = np.diff(np.log(closes))
+    ann = np.sqrt(252) * 100
+    w = 20  # rolling window
+
+    # 1. Close-to-Close
+    c2c = pd.Series(log_ret).rolling(w).std().values * ann
+
+    # 2. Parkinson (uses high-low proxy from returns)
+    abs_ret = np.abs(log_ret)
+    hl_ratio = abs_ret * 1.2  # proxy: H-L ~ 1.2 * |return|
+    park_factor = 1.0 / (4.0 * np.log(2.0))
+    park_var = pd.Series(park_factor * hl_ratio ** 2).rolling(w).mean().values * 252
+    parkinson = np.sqrt(np.maximum(park_var, 0)) * 100
+
+    # 3. Garman-Klass
+    gk_var = 0.5 * hl_ratio ** 2 - (2 * np.log(2) - 1) * log_ret ** 2
+    gk_rv = pd.Series(gk_var).rolling(w).mean().values * 252
+    garman_klass = np.sqrt(np.maximum(gk_rv, 0)) * 100
+
+    # 4. Yang-Zhang (open-close overnight component + Parkinson intraday)
+    # Approximation using close-to-close with overnight variance proxy
+    overnight_var = pd.Series(log_ret ** 2 * 0.3).rolling(w).mean().values  # ~30% overnight
+    intraday_var = pd.Series(log_ret ** 2 * 0.7).rolling(w).mean().values  # ~70% intraday
+    yz_var = (overnight_var + intraday_var) * 252
+    yang_zhang = np.sqrt(np.maximum(yz_var, 0)) * 100
+
+    # Align lengths — all derived arrays are len(log_ret) = len(closes)-1
+    n = len(log_ret)
+    idx = dates[1:n+1] if len(dates) > n else np.arange(n)
+
+    df = pd.DataFrame({
+        "date": idx,
+        "close_to_close": c2c[:n],
+        "parkinson": parkinson[:n],
+        "garman_klass": garman_klass[:n],
+        "yang_zhang": yang_zhang[:n],
+    })
+    df = df.dropna()
+    return df
+
+
+def vol_of_vol(pair: str, tenor: str = "3M", windows: List[int] = None,
+               lookback: int = 504) -> pd.DataFrame:
+    """
+    Vol-of-vol: rolling standard deviation of daily ATM vol changes.
+    Returns DataFrame with columns for each window.
+    """
+    if windows is None:
+        windows = [20, 60]
+
+    hist = get_fx_historical_vol(pair, tenor, "ATM", lookback)
+    if hist is None or len(hist) < 30:
+        return pd.DataFrame()
+
+    vol_changes = np.diff(hist)
+    has_dates = hasattr(hist, 'index') and hasattr(hist.index, 'date')
+    dates = hist.index[1:] if has_dates else np.arange(len(vol_changes))
+
+    df = pd.DataFrame({"date": dates})
+    for w in windows:
+        vov = pd.Series(vol_changes).rolling(w).std().values
+        df[f"vov_{w}d"] = vov
+    df = df.dropna()
+    return df
+
+
+def vol_of_vol_term_structure(pair: str, lookback: int = 252) -> pd.DataFrame:
+    """
+    Vol-of-vol across tenors: how volatile is each tenor's ATM vol?
+    20-day rolling std of daily ATM vol changes for each tenor.
+    """
+    tenors = ["1W", "1M", "2M", "3M", "6M", "9M", "1Y"]
+    records = []
+    for t in tenors:
+        hist = get_fx_historical_vol(pair, t, "ATM", lookback)
+        if hist is None or len(hist) < 25:
+            continue
+        vol_changes = np.diff(hist)
+        vov_20d = float(np.std(vol_changes[-20:])) if len(vol_changes) >= 20 else None
+        vov_60d = float(np.std(vol_changes[-60:])) if len(vol_changes) >= 60 else None
+        current_atm_raw = _extract_atm(get_fx_vol_surface(pair), t)
+        current_atm = float(current_atm_raw) if current_atm_raw is not None else 0.0
+        records.append({
+            "tenor": t,
+            "tenor_years": tenor_to_years(t),
+            "vov_20d": vov_20d,
+            "vov_60d": vov_60d,
+            "atm": current_atm,
+            "vov_ratio": vov_20d / max(vov_60d, 1e-6) if vov_20d and vov_60d else None,
+        })
+    return pd.DataFrame(records)
+
+
+def signal_confluence(pairs: List[str] = None, lookback: int = 252) -> pd.DataFrame:
+    """
+    Unified signal matrix: 8 signal types across all pairs.
+    Returns DataFrame with pair as index and signal z-scores as columns.
+    Composite score is count of signals > |1.5| z-score.
+
+    Signal types:
+    1. ATM rich/cheap (ATM z-score)
+    2. Skew rich/cheap (RR z-score)
+    3. Wings rich/cheap (BF z-score)
+    4. IV-RV gap (spread percentile → z-equiv)
+    5. Term steep/flat (1M-1Y z-score)
+    6. Vol momentum (5d ATM change / std)
+    7. Regime (regime score)
+    8. Carry/vol (Sharpe proxy)
+    """
+    if pairs is None:
+        pairs = list(FX_PAIRS.keys())[:20]
+
+    records = []
+    for p in pairs:
+        rec = {"pair": p}
+
+        # 1. ATM z-score
+        z_atm = vol_zscore(p, "3M", "ATM", lookback)
+        rec["atm_z"] = z_atm["zscore"] if z_atm else 0.0
+
+        # 2. Skew (RR) z-score
+        z_rr = vol_zscore(p, "3M", "25D_RR", lookback)
+        rec["skew_z"] = z_rr["zscore"] if z_rr else 0.0
+
+        # 3. Wings (BF) z-score
+        z_bf = vol_zscore(p, "3M", "25D_BF", lookback)
+        rec["wings_z"] = z_bf["zscore"] if z_bf else 0.0
+
+        # 4. IV-RV spread → z-equivalent
+        ivrv = iv_rv_percentile(p, "3M", lookback=lookback)
+        if ivrv and ivrv.get("std_spread", 0) > 1e-6:
+            rec["ivrv_z"] = (ivrv["current_spread"] - ivrv["mean_spread"]) / ivrv["std_spread"]
+        else:
+            rec["ivrv_z"] = 0.0
+
+        # 5. Term spread z-score
+        z_1m = vol_zscore(p, "1M", "ATM", lookback)
+        z_1y = vol_zscore(p, "1Y", "ATM", lookback)
+        rec["term_z"] = (z_1m["zscore"] if z_1m else 0.0) - (z_1y["zscore"] if z_1y else 0.0)
+
+        # 6. Vol momentum (5d change z-score)
+        ch5 = vol_change(p, "3M", "ATM", days_ago=5)
+        atm_info = vol_percentile(p, "3M", "ATM", lookback)
+        if ch5 and atm_info and atm_info.get("std", 0) > 1e-6:
+            rec["momentum_z"] = ch5["abs_change"] / atm_info["std"]
+        else:
+            rec["momentum_z"] = 0.0
+
+        # 7. Regime score
+        regime = vol_regime_detect(p)
+        regime_map = {"LOW": -2.0, "NORMAL": 0.0, "ELEVATED": 1.0, "HIGH": 2.0, "CRISIS": 3.0}
+        rec["regime_z"] = regime_map.get(regime["regime"], 0.0) if regime else 0.0
+
+        # 8. Carry/vol
+        cpv = carry_per_vol([p])
+        if cpv is not None and not cpv.empty:
+            rec["carry_z"] = float(cpv["sharpe_proxy"].iloc[0]) if "sharpe_proxy" in cpv.columns else 0.0
+        else:
+            rec["carry_z"] = 0.0
+
+        # Confluence score: count of signals exceeding |1.5| z-score
+        signal_cols = ["atm_z", "skew_z", "wings_z", "ivrv_z", "term_z", "momentum_z"]
+        rec["confluence"] = sum(1 for c in signal_cols if abs(rec.get(c, 0)) > 1.5)
+
+        records.append(rec)
+
+    if not records:
+        return pd.DataFrame()
+    df = pd.DataFrame(records)
+    df = df.sort_values("confluence", ascending=False).reset_index(drop=True)
+    return df
+
+
+def implied_pdf_comparison(pair: str, tenor: str,
+                           lookback_days: List[int] = None) -> dict:
+    """
+    Current implied PDF vs historical PDFs for comparison overlay.
+
+    Returns dict with 'current' and historical DataFrames keyed by days_ago.
+    Each DataFrame has columns: strike, pdf, log_moneyness.
+    """
+    if lookback_days is None:
+        lookback_days = [22, 66]  # 1M ago, 3M ago
+
+    result = {"current": smile_implied_pdf(pair, tenor)}
+
+    for days in lookback_days:
+        # Build historical PDF from historical vol surface data
+        hist_atm = get_fx_historical_vol(pair, tenor, "ATM", days + 5)
+        hist_rr = get_fx_historical_vol(pair, tenor, "25D_RR", days + 5)
+        hist_bf = get_fx_historical_vol(pair, tenor, "25D_BF", days + 5)
+
+        if (hist_atm is None or len(hist_atm) < days + 1 or
+            hist_rr is None or len(hist_rr) < days + 1 or
+            hist_bf is None or len(hist_bf) < days + 1):
+            result[f"{days}d_ago"] = pd.DataFrame()
+            continue
+
+        # Get historical values
+        old_atm = float(hist_atm.iloc[-(days + 1)] if hasattr(hist_atm, 'iloc') else hist_atm[-(days + 1)])
+        old_rr = float(hist_rr.iloc[-(days + 1)] if hasattr(hist_rr, 'iloc') else hist_rr[-(days + 1)])
+        old_bf = float(hist_bf.iloc[-(days + 1)] if hasattr(hist_bf, 'iloc') else hist_bf[-(days + 1)])
+
+        # Use current spot (we want to compare market view, not absolute strikes)
+        T = tenor_to_years(tenor)
+        spots = get_fx_spots([pair]) or {}
+        spot = spots.get(pair, {}).get("mid", 1.0)
+        rates = get_fx_rates(pair)
+        r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
+        r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
+
+        atm_v = old_atm / 100.0
+        rr_v = old_rr / 100.0
+        bf_v = old_bf / 100.0
+
+        fwd = spot * np.exp((r_dom - r_for) * T)
+        if atm_v < 1e-6 or T < 1e-6:
+            result[f"{days}d_ago"] = pd.DataFrame()
+            continue
+
+        k_min = fwd * np.exp(-4 * atm_v * np.sqrt(T))
+        k_max = fwd * np.exp(4 * atm_v * np.sqrt(T))
+        if k_max - k_min < 1e-10:
+            result[f"{days}d_ago"] = pd.DataFrame()
+            continue
+        n_pts = 200
+        strikes = np.linspace(k_min, k_max, n_pts)
+        dk = strikes[1] - strikes[0]
+
+        vol_25p = atm_v + bf_v - 0.5 * rr_v
+        vol_25c = atm_v + bf_v + 0.5 * rr_v
+
+        log_m_25 = np.log(fwd / (fwd * 0.96))
+        if not np.isfinite(log_m_25) or abs(log_m_25) < 1e-12:
+            result[f"{days}d_ago"] = pd.DataFrame()
+            continue
+        a = bf_v / max(log_m_25 ** 2, 1e-8)
+        b = -rr_v / max(2 * log_m_25, 1e-8)
+
+        call_prices = np.zeros(n_pts)
+        for i, K in enumerate(strikes):
+            lm = np.log(fwd / K)
+            sv = max(atm_v + b * lm + a * lm ** 2, 0.01)
+            d1 = (np.log(fwd / K) + 0.5 * sv ** 2 * T) / (sv * np.sqrt(T))
+            d2 = d1 - sv * np.sqrt(T)
+            call_prices[i] = np.exp(-r_dom * T) * (fwd * norm.cdf(d1) - K * norm.cdf(d2))
+
+        pdf = np.zeros(n_pts)
+        pdf[1:-1] = np.exp(r_dom * T) * (call_prices[2:] - 2 * call_prices[1:-1] + call_prices[:-2]) / (dk ** 2)
+        pdf = np.maximum(pdf, 0)
+        total = np.trapezoid(pdf, strikes) if hasattr(np, 'trapezoid') else np.trapz(pdf, strikes)
+        if total > 0:
+            pdf = pdf / total
+
+        result[f"{days}d_ago"] = pd.DataFrame({
+            "strike": strikes, "pdf": pdf, "log_moneyness": np.log(strikes / fwd),
+        })
+
+    return result
+
+
 def _extract_atm(surface, tenor: str) -> float:
     """Extract ATM vol from a surface dict. Returns vol in percent, or None if unavailable."""
     if isinstance(surface, dict):

@@ -6,6 +6,7 @@ chart slots with 21 metrics (11 time-series + 10 analytical studies),
 a deep-dive study panel, 9 comparison overlay types, 12 one-click presets,
 cross-slot sync, auto-refresh, persistent pinned charts, and scratchpad.
 
+16 presets including 4 strategist-focused workflows.
 Every analytics function in the engine is surfaced here.
 
 Exports layout() and register_callbacks(app).
@@ -194,6 +195,30 @@ PRESETS = {
         {"metric": "25D_RR",           "pairs": ["EURUSD", "USDJPY", "GBPUSD"], "tenor": "3M", "timeframe": 30, "chart_type": "line", "normalize": "raw"},
         {"metric": "STUDY_VOL_REGIME", "pairs": ["EURUSD"],                      "tenor": "3M", "timeframe": 60, "chart_type": "line", "normalize": "raw"},
         {"metric": "IV_RV",            "pairs": ["EURUSD", "USDJPY"],            "tenor": "3M", "timeframe": 60, "chart_type": "line", "normalize": "raw"},
+    ]},
+    "skew_trader": {"label": "Strategist: Skew Trader", "layout": 4, "slots": [
+        {"metric": "25D_RR", "tenor": "1M"},
+        {"metric": "25D_RR", "tenor": "3M"},
+        {"metric": "25D_RR", "tenor": "1Y"},
+        {"metric": "25D_BF", "tenor": "3M"},
+    ]},
+    "vol_seller": {"label": "Strategist: Vol Seller", "layout": 4, "slots": [
+        {"metric": "STUDY_VOL_CONE"},
+        {"metric": "IV_RV", "tenor": "3M"},
+        {"metric": "RV", "tenor": "3M"},
+        {"metric": "STUDY_BREAKEVEN"},
+    ]},
+    "carry_trader": {"label": "Strategist: Carry Trader", "layout": 4, "slots": [
+        {"metric": "CARRY"},
+        {"metric": "STUDY_CARRY_LANDSCAPE"},
+        {"metric": "TERM_SPREAD"},
+        {"metric": "FWD_VOL"},
+    ]},
+    "event_trader": {"label": "Strategist: Event Trader", "layout": 4, "slots": [
+        {"metric": "ATM", "tenor": "1M"},
+        {"metric": "STUDY_FWD_VOL_CURVE"},
+        {"metric": "STUDY_IMPLIED_PDF"},
+        {"metric": "STUDY_TAIL_PROBS"},
     ]},
 }
 

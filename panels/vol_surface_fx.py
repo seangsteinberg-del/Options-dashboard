@@ -45,6 +45,12 @@ from core.fx_analytics import (
     carry_per_vol, carry_momentum, rate_differential_history,
     spot_correlation_matrix, vol_correlation_matrix,
     rv_scanner,
+    skew_term_structure, skew_slope_heatmap,
+    rv_estimator_comparison,
+    vol_of_vol, vol_of_vol_term_structure,
+    signal_confluence,
+    implied_pdf_comparison,
+    sticky_delta_monitor,
 )
 from core.fx_conventions import (
     tenor_to_years, bf_rr_to_smile, build_smile_spline,
@@ -79,6 +85,11 @@ CHART_OPTIONS = [
     {"label": "Surface Change", "value": "surface_change"},
     {"label": "SABR Parameters", "value": "sabr_params"},
     {"label": "Implied Distribution", "value": "implied_dist"},
+    {"label": "── ADVANCED ─────", "value": "_adv_header", "disabled": True},
+    {"label": "Skew Term Structure", "value": "skew_term"},
+    {"label": "RV Estimators", "value": "rv_estimators"},
+    {"label": "Vol-of-Vol", "value": "vol_of_vol"},
+    {"label": "PDF Comparison", "value": "pdf_comparison"},
     {"label": "── LAB: TIME SERIES ─", "value": "_ts_header", "disabled": True},
     {"label": "TS: ATM Vol",       "value": "lab_atm"},
     {"label": "TS: 25D RR",        "value": "lab_25d_rr"},
@@ -153,6 +164,10 @@ VIEW_PRESETS = {
     "Lab: Smile":       ["lab_study_smile", "lab_study_implied_pdf", "lab_study_tail_probs", "lab_25d_rr"],
     "Lab: RV":          ["lab_study_vol_cone", "lab_iv_rv", "lab_study_breakeven", "lab_rv"],
     "Lab: Carry":       ["lab_carry", "lab_study_carry_landscape", "lab_term_spread", "lab_fwd_vol"],
+    "Strategist: Skew":    ["skew_term", "skew_rr", "smile_curve", "smile_bf"],
+    "Strategist: RV":      ["rv_estimators", "iv_rv", "vol_cone_chart", "vol_ts"],
+    "Strategist: Vol-of-Vol": ["vol_of_vol", "atm_term", "fwd_vol", "implied_dist"],
+    "Strategist: Full":    ["skew_term", "rv_estimators", "vol_of_vol", "pdf_comparison"],
 }
 
 _PAIR_GROUPS = {
@@ -1605,6 +1620,210 @@ def _lab_study_carry_landscape(pair, sd, spot, r_dom, r_for, **kw):
     return fig
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Advanced chart functions
+# ═══════════════════════════════════════════════════════════════════════════
+
+@_safe_chart
+def chart_skew_term(pair, sd, spot, r_dom, r_for, **kw):
+    """Skew Term Structure: 25D RR plotted across tenors with historical overlay and slope."""
+    from core.fx_analytics import skew_term_structure
+    df = skew_term_structure(pair, lookback=22)
+    if df is None or df.empty:
+        return _empty_fig("No skew term structure data")
+
+    fig = make_subplots(rows=2, cols=1, row_heights=[0.65, 0.35],
+                        shared_xaxes=True, vertical_spacing=0.08,
+                        subplot_titles=["25D RR Term Structure", "Skew Slope (\u0394 normalised skew)"])
+
+    # Current skew curve
+    fig.add_trace(go.Scatter(
+        x=df["tenor"], y=df["rr_25d"], mode="lines+markers",
+        name="25D RR (current)", line=dict(color=COLORS["accent_orange"], width=3),
+        marker=dict(size=7, color=COLORS["accent_orange"]),
+        hovertemplate="%{x}: %{y:+.2f}<extra>Current RR</extra>",
+    ), row=1, col=1)
+
+    # Historical overlay (1M ago)
+    if "rr_25d_prev" in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df["tenor"], y=df["rr_25d_prev"], mode="lines",
+            name="1M ago", line=dict(color=COLORS["accent_purple"], width=1.5, dash="dash"),
+            hovertemplate="%{x}: %{y:+.2f}<extra>1M ago</extra>",
+        ), row=1, col=1)
+
+    # Zero line
+    fig.add_hline(y=0, line=dict(color=COLORS["border"], width=1), row=1, col=1)
+
+    # Slope subplot (bar chart)
+    slope_colors = [COLORS["accent_green"] if s > 0 else COLORS["accent_red"] for s in df["slope"]]
+    fig.add_trace(go.Bar(
+        x=df["tenor"], y=df["slope"], name="Slope",
+        marker=dict(color=slope_colors, line=dict(width=1, color=COLORS["border"])),
+        text=[f"{s:+.3f}" for s in df["slope"]],
+        textposition="outside", textfont=dict(size=9, color=COLORS["text_secondary"]),
+        hovertemplate="%{x}: %{y:+.4f}<extra>Slope</extra>",
+    ), row=2, col=1)
+    fig.add_hline(y=0, line=dict(color=COLORS["border"], width=1), row=2, col=1)
+
+    _apply_chart_template(fig, f"Skew Term Structure -- {pair}")
+    fig.update_layout(
+        xaxis=dict(type="category"), xaxis2=dict(title="Tenor", type="category"),
+        yaxis=dict(title="25D RR (vol pts)"), yaxis2=dict(title="Slope"),
+        height=CHART_LG + 60,
+    )
+    return fig
+
+
+@_safe_chart
+def chart_rv_estimators(pair, sd, spot, r_dom, r_for, **kw):
+    """RV Estimator Comparison: 4 estimators side-by-side with IV overlay."""
+    from core.fx_analytics import rv_estimator_comparison
+    df = rv_estimator_comparison(pair, lookback=504)
+    if df is None or df.empty:
+        return _empty_fig("No RV estimator data")
+
+    fig = go.Figure()
+
+    estimators = [
+        ("close_to_close", "Close-to-Close", COLORS["accent_cyan"], 2.5),
+        ("parkinson", "Parkinson", COLORS["accent_orange"], 1.5),
+        ("garman_klass", "Garman-Klass", COLORS["accent_green"], 1.5),
+        ("yang_zhang", "Yang-Zhang", COLORS["accent_purple"], 1.5),
+    ]
+
+    for col, name, color, width in estimators:
+        if col in df.columns:
+            fig.add_trace(go.Scatter(
+                x=df["date"], y=df[col], mode="lines", name=name,
+                line=dict(color=color, width=width),
+                hovertemplate=f"{name}: " + "%{y:.2f}%<extra></extra>",
+            ))
+
+    # IV overlay (ATM 3M)
+    try:
+        iv_hist = get_fx_historical_vol(pair, "3M", "ATM", len(df) + 10)
+        if iv_hist is not None and len(iv_hist) >= len(df):
+            iv_aligned = iv_hist[-len(df):]
+            iv_dates = df["date"]
+            fig.add_trace(go.Scatter(
+                x=iv_dates, y=iv_aligned, mode="lines", name="ATM 3M IV",
+                line=dict(color="#ffffff", width=2, dash="dot"),
+                hovertemplate="IV: %{y:.2f}%<extra></extra>",
+            ))
+    except Exception:
+        pass
+
+    _apply_chart_template(fig, f"Realized Vol Estimators -- {pair}")
+    fig.update_layout(
+        xaxis=dict(title="Date"),
+        yaxis=dict(title="Vol (%)"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    return fig
+
+
+@_safe_chart
+def chart_vol_of_vol(pair, sd, spot, r_dom, r_for, **kw):
+    """Vol-of-Vol: how volatile is vol itself, across tenors."""
+    from core.fx_analytics import vol_of_vol_term_structure
+    df = vol_of_vol_term_structure(pair)
+    if df is None or df.empty:
+        return _empty_fig("No vol-of-vol data")
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    # VoV 20d bars
+    fig.add_trace(go.Bar(
+        x=df["tenor"], y=df["vov_20d"], name="VoV 20d",
+        marker=dict(color=COLORS["accent_orange"], opacity=0.85,
+                    line=dict(width=1, color=COLORS["border"])),
+        text=[f"{v:.2f}" if v and np.isfinite(v) else "\u2014" for v in df["vov_20d"]],
+        textposition="outside", textfont=dict(size=10, color=COLORS["text_secondary"]),
+        hovertemplate="%{x}: %{y:.3f}<extra>VoV 20d</extra>",
+    ), secondary_y=False)
+
+    # VoV 60d line
+    if "vov_60d" in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df["tenor"], y=df["vov_60d"], mode="lines+markers",
+            name="VoV 60d", line=dict(color=COLORS["accent_cyan"], width=2, dash="dash"),
+            marker=dict(size=5),
+            hovertemplate="%{x}: %{y:.3f}<extra>VoV 60d</extra>",
+        ), secondary_y=False)
+
+    # VoV ratio on secondary axis
+    if "vov_ratio" in df.columns:
+        ratios = [r if r and np.isfinite(r) else None for r in df["vov_ratio"]]
+        ratio_colors = [COLORS["accent_red"] if r and r > 1.2
+                        else (COLORS["accent_green"] if r and r < 0.8 else COLORS["text_muted"])
+                        for r in ratios]
+        fig.add_trace(go.Scatter(
+            x=df["tenor"], y=ratios, mode="markers+text",
+            name="VoV Ratio (20d/60d)",
+            marker=dict(size=10, color=ratio_colors, symbol="diamond",
+                        line=dict(width=1, color=COLORS["text_secondary"])),
+            text=[f"{r:.2f}" if r and np.isfinite(r) else "" for r in ratios],
+            textposition="top center", textfont=dict(size=9, color=COLORS["text_secondary"]),
+            hovertemplate="%{x}: %{y:.2f}x<extra>Ratio</extra>",
+        ), secondary_y=True)
+
+    _apply_chart_template(fig, f"Vol-of-Vol Term Structure -- {pair}")
+    fig.update_layout(
+        xaxis=dict(title="Tenor", type="category"),
+        yaxis=dict(title="VoV (daily vol change std)"),
+        yaxis2=dict(title="VoV Ratio (20d/60d)", overlaying="y", side="right",
+                    gridcolor="#1a1a30",
+                    tickfont=dict(size=10, color=COLORS["accent_cyan"]),
+                    title_font=dict(color=COLORS["accent_cyan"], size=11)),
+    )
+    return fig
+
+
+@_safe_chart
+def chart_pdf_comparison(pair, sd, spot, r_dom, r_for, **kw):
+    """Implied PDF Comparison: current vs 1M ago vs 3M ago overlays."""
+    from core.fx_analytics import implied_pdf_comparison
+    sel_tenor = kw.get("smile_tenor", "3M")
+    result = implied_pdf_comparison(pair, sel_tenor, lookback_days=[22, 66])
+
+    if not result:
+        return _empty_fig("No PDF comparison data")
+
+    fig = go.Figure()
+
+    pdf_configs = [
+        ("current", "Current", COLORS["accent_orange"], 3, None),
+        ("22d_ago", "1M ago", COLORS["accent_cyan"], 2, "dash"),
+        ("66d_ago", "3M ago", COLORS["accent_purple"], 1.5, "dot"),
+    ]
+
+    for key, name, color, width, dash in pdf_configs:
+        pdf_df = result.get(key, pd.DataFrame())
+        if pdf_df is not None and not pdf_df.empty:
+            line_style = dict(color=color, width=width)
+            if dash:
+                line_style["dash"] = dash
+            fig.add_trace(go.Scatter(
+                x=pdf_df["log_moneyness"], y=pdf_df["pdf"],
+                mode="lines", name=name, line=line_style,
+                hovertemplate=f"{name}<br>Log(K/F): " + "%{x:.3f}<br>Density: %{y:.4f}<extra></extra>",
+            ))
+
+    # Add vertical line at forward (log_moneyness = 0)
+    fig.add_vline(x=0, line=dict(color=COLORS["text_muted"], width=1, dash="dot"))
+    fig.add_annotation(x=0, y=0, yref="paper", text="FWD", showarrow=False,
+                       font=dict(color=COLORS["text_muted"], size=9), yshift=10)
+
+    _apply_chart_template(fig, f"Implied PDF Comparison -- {pair} {sel_tenor}")
+    fig.update_layout(
+        xaxis=dict(title="Log Moneyness (ln K/F)"),
+        yaxis=dict(title="Probability Density"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    return fig
+
+
 # Chart dispatch table
 CHART_DISPATCH = {
     # Surface charts
@@ -1622,6 +1841,11 @@ CHART_DISPATCH = {
     "surface_change": chart_surface_change,
     "sabr_params": chart_sabr_params,
     "implied_dist": chart_implied_dist,
+    # Advanced charts
+    "skew_term": chart_skew_term,
+    "rv_estimators": chart_rv_estimators,
+    "vol_of_vol": chart_vol_of_vol,
+    "pdf_comparison": chart_pdf_comparison,
     # Lab study charts
     "lab_study_vol_cone": _lab_study_vol_cone,
     "lab_study_smile": _lab_study_smile,
@@ -1754,6 +1978,22 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
     except Exception:
         pass
 
+    # Sticky-delta/strike regime
+    sticky_text = "\u2014"
+    sticky_color = COLORS["text_muted"]
+    try:
+        sticky = sticky_delta_monitor(pair, "3M")
+        if sticky:
+            sticky_text = sticky["regime"].replace("_", " ")
+            if sticky["regime"] == "STICKY_DELTA":
+                sticky_color = COLORS["accent_green"]
+            elif sticky["regime"] == "STICKY_STRIKE":
+                sticky_color = COLORS["accent_red"]
+            else:
+                sticky_color = COLORS["accent_orange"]
+    except Exception:
+        pass
+
     # -- Build boxes with proper formatting --
     def _box(label, value_str, color):
         """Plain stat box for values without a vol-history context."""
@@ -1792,6 +2032,8 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
         _cbox("IV-RV SPREAD", f"{iv_rv_spr:+.2f}v", pair, "IV_RV", "3M", delta_color),
         _box("TERM 1Y-1M", f"{term_spr:+.2f}v", COLORS["accent_teal"]),
         _cbox("SKEW %ILE", _fmt_pctile(skew_pctile), pair, "25D_RR", "3M", COLORS["accent_indigo"]),
+        # Sticky-delta/strike regime badge
+        _box("SMILE REGIME", sticky_text, sticky_color),
         # Regime badge with colored background indicator
         html.Div([
             html.Div(regime_text, style={
