@@ -19,11 +19,11 @@ Bloomberg Terminal on localhost:8194 is **required** — the app has no syntheti
 ## Testing
 
 ```bash
-python -m pytest tests/ -v    # 278 unit tests (no Bloomberg required)
+python -m pytest tests/ -v    # 521 unit tests (no Bloomberg required)
 python test_bbg.py             # Bloomberg connectivity test (requires Terminal running)
 ```
 
-Unit tests cover pricing (BS, GK, Monte Carlo, binomial), exotic options (11 products), analytics (VaR, drawdown, tail risk), Vanna-Volga/SABR models, FX conventions (tenor math, delta/strike, forwards), and config validation. All tests are pure computation — no Bloomberg connection needed.
+Unit tests cover pricing (BS, GK, Monte Carlo, binomial), exotic options (11 products), analytics (VaR, drawdown, tail risk), Vanna-Volga/SABR models, FX conventions (tenor math, delta/strike, forwards, arbitrage checks), stress scenarios (15+ named scenarios), portfolio management (CRUD, validation, persistence), CSV export (figure-to-DataFrame extraction), data helpers (mocked Bloomberg wrappers), and config validation. All tests are pure computation — no Bloomberg connection needed.
 
 ## Architecture
 
