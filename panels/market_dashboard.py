@@ -783,8 +783,9 @@ def layout():
         html.Div([
             # Left column: movers table
             html.Div([
-                html.Div(id=f"{_P}-movers", style={"overflowY": "auto", "maxHeight": "520px"}),
-            ], style={"flex": "1", "minWidth": "400px", "border": "1px solid #2d2d50",
+                html.Div(id=f"{_P}-movers", style={"overflowY": "auto", "overflowX": "auto",
+                                                     "maxHeight": "620px"}),
+            ], style={"flex": "3", "minWidth": "600px", "border": "1px solid #2d2d50",
                        "padding": GAP}),
 
             # Right column: charts stacked
@@ -918,12 +919,14 @@ def _render_movers_table(rows, sort_key):
             html.Td(_fmt_spot(r['pair'], r['spot']), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r['chg_pct'], "+.2f", "%"), style={**TABLE_CELL_STYLE, "color": chg_color}),
             html.Td(spot_spark, style={**TABLE_CELL_STYLE, "color": chg_color,
-                     "fontSize": "14px", "letterSpacing": "0px", "lineHeight": "1", "padding": "2px 4px"}),
+                     "fontSize": "20px", "letterSpacing": "-1px", "lineHeight": "0.8", "padding": "0px 3px",
+                     "verticalAlign": "bottom"}),
             html.Td(_sf_display(r['atm_1m'], ".1f", "v"), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r.get('atm_3m', 0), ".1f", "v"), style=TABLE_CELL_STYLE),
             html.Td(_sf_display(r['vol_chg'], "+.2f", "v"), style={**TABLE_CELL_STYLE, "color": vol_color}),
             html.Td(vol_spark, style={**TABLE_CELL_STYLE, "color": COLORS["accent_orange"],
-                     "fontSize": "14px", "letterSpacing": "0px", "lineHeight": "1", "padding": "2px 4px"}),
+                     "fontSize": "20px", "letterSpacing": "-1px", "lineHeight": "0.8", "padding": "0px 3px",
+                     "verticalAlign": "bottom"}),
             html.Td(_sf_display(r.get('vol_mom', 0), "+.1f", "%"), style={**TABLE_CELL_STYLE,
                      "color": COLORS["accent_red"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) > 2 else
                               COLORS["accent_green"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) < -2 else "#9a9ab0"}),
@@ -935,8 +938,10 @@ def _render_movers_table(rows, sort_key):
         ]))
 
     return html.Table([html.Thead(header), html.Tbody(body_rows)],
-                      style={"width": "100%", "borderCollapse": "collapse",
-                             "fontFamily": _MONO, "fontSize": "11px"})
+                      style={"width": "max-content", "minWidth": "100%",
+                             "borderCollapse": "collapse",
+                             "fontFamily": _MONO, "fontSize": "11px",
+                             "whiteSpace": "nowrap"})
 
 
 def _render_events(events):
