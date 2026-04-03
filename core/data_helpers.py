@@ -6,6 +6,10 @@ pattern once, so panels don't each need to repeat it.
 """
 
 import logging
+from typing import Dict, Optional, Tuple
+
+import pandas as pd
+
 from core.bloomberg_fx import (
     get_fx_spots, get_fx_vol_surface, get_fx_rates,
     get_fx_historical_spot, get_fx_historical_vol,
@@ -14,7 +18,7 @@ from core.bloomberg_fx import (
 logger = logging.getLogger(__name__)
 
 
-def fetch_spots_safe(pairs):
+def fetch_spots_safe(pairs) -> Dict:
     """Fetch spot rates for a list of pairs. Returns dict (may be empty)."""
     try:
         result = get_fx_spots(pairs)
@@ -24,7 +28,7 @@ def fetch_spots_safe(pairs):
         return {}
 
 
-def fetch_vol_surface_safe(pair):
+def fetch_vol_surface_safe(pair) -> Optional[Dict]:
     """Fetch vol surface for a pair. Returns dict or None."""
     try:
         result = get_fx_vol_surface(pair)
@@ -34,7 +38,7 @@ def fetch_vol_surface_safe(pair):
         return None
 
 
-def fetch_rates_safe(pair):
+def fetch_rates_safe(pair) -> Optional[Dict]:
     """Fetch interest rates for a pair. Returns dict or None."""
     try:
         result = get_fx_rates(pair)
@@ -44,7 +48,7 @@ def fetch_rates_safe(pair):
         return None
 
 
-def fetch_spot_and_rates(pair):
+def fetch_spot_and_rates(pair) -> Tuple[Optional[float], float, float]:
     """Convenience: fetch spot + rates together. Returns (spot, r_dom, r_for) tuple.
 
     spot is a float (or None if unavailable).
@@ -60,7 +64,7 @@ def fetch_spot_and_rates(pair):
     return spot, r_dom, r_for
 
 
-def fetch_historical_spot_safe(pair, days=800):
+def fetch_historical_spot_safe(pair, days=800) -> Optional[pd.DataFrame]:
     """Fetch historical spot data. Returns DataFrame or None."""
     try:
         result = get_fx_historical_spot(pair, days=days)
@@ -72,7 +76,7 @@ def fetch_historical_spot_safe(pair, days=800):
         return None
 
 
-def fetch_historical_vol_safe(pair, tenor, metric, days=800):
+def fetch_historical_vol_safe(pair, tenor, metric, days=800) -> Optional[pd.Series]:
     """Fetch historical vol data. Returns Series or None."""
     try:
         result = get_fx_historical_vol(pair, tenor, metric, days)

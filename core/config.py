@@ -42,11 +42,18 @@ METRIC_TO_KEY = {
 }
 
 
+# ── Calendar & Trading Constants ───────────────────────────────────────────
+TRADING_DAYS_PER_YEAR = 252
+CALENDAR_DAYS_PER_YEAR = 365
+
 # ── Default Lookback Windows ────────────────────────────────────────────────
-RV_WINDOWS = [5, 10, 20, 60, 90, 120, 252]
-PERCENTILE_LOOKBACK = 252
+RV_WINDOWS = [5, 10, 20, 60, 90, 120, TRADING_DAYS_PER_YEAR]
+PERCENTILE_LOOKBACK = TRADING_DAYS_PER_YEAR
 HISTORY_LOOKBACK_DEFAULT = 800
 
+# ── Monte Carlo / VaR Defaults ─────────────────────────────────────────────
+MC_DEFAULT_PATHS = 100_000
+VAR_CONFIDENCE = 0.95
 
 # ── Monospace Font ───────────────────────────────────────────────────────────
 MONO_FONT = "'JetBrains Mono', monospace"

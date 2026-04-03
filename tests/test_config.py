@@ -8,6 +8,7 @@ from core.config import (
     TENORS_HEATMAP, TENORS_HEATMAP_COMPACT,
     DELTA_LABELS, DELTA_NUMERIC,
     VOL_METRICS, HISTORY_METRICS, METRIC_TO_KEY,
+    TRADING_DAYS_PER_YEAR, CALENDAR_DAYS_PER_YEAR, RV_WINDOWS,
 )
 from core.theme import ordinal
 
@@ -64,6 +65,21 @@ class TestMetrics:
 
     def test_history_metrics_match_vol_metrics(self):
         assert set(HISTORY_METRICS) == set(VOL_METRICS)
+
+
+class TestConstants:
+
+    def test_trading_days(self):
+        assert TRADING_DAYS_PER_YEAR == 252
+
+    def test_calendar_days(self):
+        assert CALENDAR_DAYS_PER_YEAR == 365
+
+    def test_rv_windows_sorted(self):
+        assert RV_WINDOWS == sorted(RV_WINDOWS)
+
+    def test_rv_windows_ends_with_trading_days(self):
+        assert RV_WINDOWS[-1] == TRADING_DAYS_PER_YEAR
 
 
 class TestOrdinal:

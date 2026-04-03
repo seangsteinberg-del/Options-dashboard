@@ -18,7 +18,7 @@ from typing import Tuple, Optional
 # Black-Scholes Closed-Form
 # ═══════════════════════════════════════════════════════════════════════════
 
-def bs_d1_d2(S, K, T, r, q, sigma):
+def bs_d1_d2(S, K, T, r, q, sigma) -> Tuple[float, float]:
     if T <= 0 or sigma <= 1e-10 or S <= 0 or K <= 0 or not np.isfinite(sigma):
         return 0.0, 0.0
     d1 = (np.log(S / K) + (r - q + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
@@ -26,7 +26,7 @@ def bs_d1_d2(S, K, T, r, q, sigma):
     return d1, d2
 
 
-def bs_price(S, K, T, r, q, sigma, option_type="call"):
+def bs_price(S, K, T, r, q, sigma, option_type="call") -> float:
     if T <= 0 or S <= 0 or K <= 0 or sigma <= 1e-10:
         if T > 0 and sigma <= 1e-10:
             # Zero-vol with time remaining: use discounted intrinsic
@@ -53,7 +53,7 @@ def bs_price(S, K, T, r, q, sigma, option_type="call"):
 
 def monte_carlo_price(S, K, T, r, q, sigma, option_type="call",
                       n_paths=50000, n_steps=100, antithetic=True,
-                      return_paths=False, seed=None):
+                      return_paths=False, seed=None) -> dict:
     """
     GBM Monte Carlo pricer with antithetic variance reduction.
     Optionally returns sample paths for visualization.
@@ -113,7 +113,7 @@ def monte_carlo_price(S, K, T, r, q, sigma, option_type="call",
 # ═══════════════════════════════════════════════════════════════════════════
 
 def binomial_tree_price(S, K, T, r, q, sigma, option_type="call",
-                        n_steps=200, american=False):
+                        n_steps=200, american=False) -> float:
     """Cox-Ross-Rubinstein binomial tree. Supports American exercise."""
     if T <= 0 or sigma <= 1e-10 or S <= 0 or K <= 0:
         if option_type == "call":
@@ -150,7 +150,7 @@ def binomial_tree_price(S, K, T, r, q, sigma, option_type="call",
 # Greeks (full suite)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def delta(S, K, T, r, q, sigma, option_type="call"):
+def delta(S, K, T, r, q, sigma, option_type="call") -> float:
     if T <= 0:
         if option_type == "call":
             return 1.0 if S > K else 0.0
@@ -161,14 +161,14 @@ def delta(S, K, T, r, q, sigma, option_type="call"):
     return np.exp(-q * T) * (norm.cdf(d1) - 1)
 
 
-def gamma(S, K, T, r, q, sigma):
+def gamma(S, K, T, r, q, sigma) -> float:
     if T <= 1e-10 or sigma <= 1e-10:
         return 0.0
     d1, _ = bs_d1_d2(S, K, T, r, q, sigma)
     return np.exp(-q * T) * norm.pdf(d1) / (S * sigma * np.sqrt(T))
 
 
-def theta(S, K, T, r, q, sigma, option_type="call"):
+def theta(S, K, T, r, q, sigma, option_type="call") -> float:
     if T <= 0 or sigma <= 1e-10:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
@@ -180,14 +180,14 @@ def theta(S, K, T, r, q, sigma, option_type="call"):
             - q * S * np.exp(-q * T) * norm.cdf(-d1)) / 365.0
 
 
-def vega(S, K, T, r, q, sigma):
+def vega(S, K, T, r, q, sigma) -> float:
     if T <= 0:
         return 0.0
     d1, _ = bs_d1_d2(S, K, T, r, q, sigma)
     return S * np.exp(-q * T) * norm.pdf(d1) * np.sqrt(T) / 100.0
 
 
-def rho(S, K, T, r, q, sigma, option_type="call"):
+def rho(S, K, T, r, q, sigma, option_type="call") -> float:
     if T <= 0:
         return 0.0
     _, d2 = bs_d1_d2(S, K, T, r, q, sigma)
@@ -196,14 +196,14 @@ def rho(S, K, T, r, q, sigma, option_type="call"):
     return -K * T * np.exp(-r * T) * norm.cdf(-d2) / 100.0
 
 
-def vanna(S, K, T, r, q, sigma):
+def vanna(S, K, T, r, q, sigma) -> float:
     if T <= 1e-10 or sigma <= 1e-10:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     return -np.exp(-q * T) * norm.pdf(d1) * d2 / sigma
 
 
-def volga(S, K, T, r, q, sigma):
+def volga(S, K, T, r, q, sigma) -> float:
     if T <= 1e-10 or sigma <= 1e-10:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
@@ -211,7 +211,7 @@ def volga(S, K, T, r, q, sigma):
     return v * d1 * d2 / sigma
 
 
-def charm(S, K, T, r, q, sigma, option_type="call"):
+def charm(S, K, T, r, q, sigma, option_type="call") -> float:
     if T <= 0 or sigma <= 1e-10:
         return 0.0
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
@@ -225,7 +225,7 @@ def charm(S, K, T, r, q, sigma, option_type="call"):
     return charm_val / 365.0
 
 
-def speed(S, K, T, r, q, sigma):
+def speed(S, K, T, r, q, sigma) -> float:
     if T <= 0 or sigma <= 1e-10 or S <= 0:
         return 0.0
     d1, _ = bs_d1_d2(S, K, T, r, q, sigma)
@@ -233,7 +233,7 @@ def speed(S, K, T, r, q, sigma):
     return -g / S * (d1 / (sigma * np.sqrt(T)) + 1)
 
 
-def color_greek(S, K, T, r, q, sigma):
+def color_greek(S, K, T, r, q, sigma) -> float:
     """Rate of change of gamma w.r.t. time."""
     if T <= 0 or sigma <= 1e-10:
         return 0.0
@@ -243,7 +243,7 @@ def color_greek(S, K, T, r, q, sigma):
     return g * (q + d1 * dd1dT + 1.0 / (2.0 * T)) / 365.0
 
 
-def ultima(S, K, T, r, q, sigma):
+def ultima(S, K, T, r, q, sigma) -> float:
     """Third derivative of option price w.r.t. vol."""
     if T <= 0 or sigma <= 1e-10:
         return 0.0
@@ -252,7 +252,7 @@ def ultima(S, K, T, r, q, sigma):
     return -v / (sigma ** 2) * (d1 * d2 * (1 - d1 * d2) + d1 ** 2 + d2 ** 2)
 
 
-def dual_delta(S, K, T, r, q, sigma, option_type="call"):
+def dual_delta(S, K, T, r, q, sigma, option_type="call") -> float:
     """Derivative of price w.r.t. strike."""
     if T <= 0:
         if option_type == "call":
@@ -289,7 +289,7 @@ def compute_all_greeks(S, K, T, r, q, sigma, option_type="call") -> dict:
 # Implied Volatility
 # ═══════════════════════════════════════════════════════════════════════════
 
-def implied_vol(price, S, K, T, r, q, option_type="call"):
+def implied_vol(price, S, K, T, r, q, option_type="call") -> Optional[float]:
     if T <= 0:
         return None
     intrinsic = max(S * np.exp(-q * T) - K * np.exp(-r * T), 0) if option_type == "call" \
@@ -307,7 +307,7 @@ def implied_vol(price, S, K, T, r, q, option_type="call"):
 # SABR Stochastic Alpha Beta Rho Model
 # ═══════════════════════════════════════════════════════════════════════════
 
-def sabr_vol(F, K, T, alpha, beta, rho_sabr, nu):
+def sabr_vol(F, K, T, alpha, beta, rho_sabr, nu) -> float:
     """
     Hagan's SABR implied vol approximation.
     F = forward, K = strike, T = expiry, alpha = vol-of-vol base,
@@ -351,7 +351,7 @@ def sabr_vol(F, K, T, alpha, beta, rho_sabr, nu):
     return max(prefix * z / x_z * correction, 1e-6)
 
 
-def fit_sabr(strikes, market_vols, F, T, beta=0.5):
+def fit_sabr(strikes, market_vols, F, T, beta=0.5) -> dict:
     """Fit SABR parameters (alpha, rho, nu) to market smile for a given expiry."""
     strikes = np.asarray(strikes, dtype=float)
     market_vols = np.asarray(market_vols, dtype=float)
@@ -386,7 +386,7 @@ def fit_sabr(strikes, market_vols, F, T, beta=0.5):
 # Probability Analytics
 # ═══════════════════════════════════════════════════════════════════════════
 
-def probability_itm(S, K, T, r, q, sigma, option_type="call"):
+def probability_itm(S, K, T, r, q, sigma, option_type="call") -> float:
     """Risk-neutral probability of finishing ITM."""
     if T <= 0:
         if option_type == "call":
@@ -398,7 +398,7 @@ def probability_itm(S, K, T, r, q, sigma, option_type="call"):
     return norm.cdf(-d2)
 
 
-def probability_of_profit(S, K, T, r, q, sigma, option_type="call", premium=None):
+def probability_of_profit(S, K, T, r, q, sigma, option_type="call", premium=None) -> float:
     """Probability that the option trade is profitable at expiry."""
     if premium is None:
         premium = bs_price(S, K, T, r, q, sigma, option_type)
@@ -419,7 +419,7 @@ def probability_of_profit(S, K, T, r, q, sigma, option_type="call", premium=None
         return norm.cdf(-d2_be)
 
 
-def expected_move(S, T, sigma, confidence=0.68):
+def expected_move(S, T, sigma, confidence=0.68) -> float:
     """Expected move at a given confidence level."""
     z = norm.ppf(0.5 + confidence / 2)
     return S * sigma * np.sqrt(T) * z

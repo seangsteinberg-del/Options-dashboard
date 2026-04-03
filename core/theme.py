@@ -7,6 +7,11 @@ Grid cells separated by thin borders. Every pixel is information.
 
 import logging
 import functools
+from typing import Callable
+
+import plotly.graph_objects as go
+from dash import html
+
 from core.bloomberg import is_connected
 
 logger = logging.getLogger(__name__)
@@ -70,11 +75,11 @@ COLORS = {
 }
 
 
-def status_color():
+def status_color() -> str:
     return COLORS["accent_green"] if is_connected() else COLORS["accent_orange"]
 
 
-def status_text():
+def status_text() -> str:
     return "BLOOMBERG LIVE" if is_connected() else "DISCONNECTED"
 
 
@@ -160,9 +165,8 @@ AXIS_DEFAULTS = {
 TITLE_DEFAULTS = {"font": {"color": "#ffffff", "size": 13}}
 
 
-def no_data_fig(height=300, msg="NO DATA"):
+def no_data_fig(height=300, msg="NO DATA") -> go.Figure:
     """Return a polished empty Plotly figure with skeleton grid lines and centered label."""
-    import plotly.graph_objects as go
     fig = go.Figure()
     # Add faux grid lines to give skeleton chart appearance
     for y in [0.2, 0.4, 0.6, 0.8]:
@@ -183,9 +187,8 @@ def no_data_fig(height=300, msg="NO DATA"):
     return fig
 
 
-def skeleton_chart(height=300, label="LOADING"):
+def skeleton_chart(height=300, label="LOADING") -> html.Div:
     """Return an HTML skeleton placeholder with shimmer animation for loading states."""
-    from dash import html
     return html.Div(className="skeleton-chart", style={"height": f"{height}px"}, children=[
         html.Div(className="skeleton-grid", children=[
             html.Div(className="skeleton-grid-line") for _ in range(5)
@@ -194,7 +197,7 @@ def skeleton_chart(height=300, label="LOADING"):
     ])
 
 
-def chart_layout(**overrides):
+def chart_layout(**overrides) -> dict:
     """Build a complete chart layout dict from CHART_TEMPLATE + axis defaults + overrides.
 
     Usage: fig.update_layout(**chart_layout(height=300, title=dict(text="My Chart")))
@@ -363,7 +366,7 @@ TABLE_CELL_STYLE = {
 
 
 # ── Helper: stat box with optional color accent ────────────────────────────
-def make_stat_style(color=None):
+def make_stat_style(color=None) -> dict:
     style = {**STAT_BOX_STYLE}
     if color:
         style["borderLeft"] = f"3px solid {color}"
@@ -371,9 +374,8 @@ def make_stat_style(color=None):
 
 
 # ── Clickable metric helper ────────────────────────────────────────────────
-def clickable_stat(value, label, pair, metric, tenor, color=None):
+def clickable_stat(value, label, pair, metric, tenor, color=None) -> html.Div:
     """Renders a stat value with color accent."""
-    from dash import html
     return html.Div([
         html.Div(str(value), className="stat-value", style={
             "fontSize": "16px", "fontWeight": "700", "color": color or "#d4d4d4",
@@ -388,9 +390,8 @@ def clickable_stat(value, label, pair, metric, tenor, color=None):
 
 
 # ── Grid cell helper ───────────────────────────────────────────────────────
-def grid_cell(children, **kwargs):
+def grid_cell(children, **kwargs) -> html.Div:
     """Wrap content in a terminal grid cell."""
-    from dash import html
     style = {
         "backgroundColor": "#000000",
         "border": "1px solid #2d2d50",
@@ -401,9 +402,8 @@ def grid_cell(children, **kwargs):
 
 
 # ── Section header helper ──────────────────────────────────────────────────
-def section_header(text):
+def section_header(text) -> html.Div:
     """Render a section header in terminal style."""
-    from dash import html
     return html.Div(text, style={
         "color": "#ffffff",
         "fontSize": "12px",
@@ -418,9 +418,8 @@ def section_header(text):
 
 
 # ── Simple stat box (non-clickable) ─────────────────────────────────────────
-def stat_box(label, value, color=None):
+def stat_box(label, value, color=None) -> html.Div:
     """Render a simple stat box with label + value. Use for KPIs, summaries."""
-    from dash import html
     return html.Div([
         html.Div(str(value), style={
             "fontSize": "15px", "fontWeight": "700",
@@ -436,7 +435,7 @@ def stat_box(label, value, color=None):
     ], style=make_stat_style(color))
 
 
-def ordinal(n):
+def ordinal(n) -> str:
     """Return an integer as an ordinal string: 1 -> '1st', 23 -> '23rd'."""
     n = int(n)
     if 11 <= n % 100 <= 13:
@@ -447,7 +446,7 @@ def ordinal(n):
 
 
 # ── Safe chart decorator ────────────────────────────────────────────────────
-def safe_chart(fn):
+def safe_chart(fn) -> Callable:
     """Decorator: wrap chart functions so exceptions return a clean empty
     figure with the error message instead of crashing the panel.
 
@@ -458,7 +457,7 @@ def safe_chart(fn):
             ...
     """
     @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args, **kwargs) -> go.Figure:
         try:
             return fn(*args, **kwargs)
         except Exception as exc:

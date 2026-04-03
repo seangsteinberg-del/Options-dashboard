@@ -59,7 +59,7 @@ from core.fx_conventions import (
     tenor_to_years, tenor_to_days, spot_delta,
     delta_to_strike, bf_rr_to_smile, FX_PAIR_REGISTRY,
 )
-from core.config import TENORS_FULL, DELTA_LABELS as _DELTA_LABELS
+from core.config import TENORS_FULL, DELTA_LABELS as _DELTA_LABELS, RV_WINDOWS, TRADING_DAYS_PER_YEAR
 FX_PAIRS = FX_PAIR_REGISTRY
 TENORS = TENORS_FULL
 from core.bloomberg_fx import (
@@ -419,7 +419,7 @@ def vol_cone(pair: str,
     and current level for each window.
     """
     if windows is None:
-        windows = [5, 10, 20, 60, 90, 120, 252]
+        windows = list(RV_WINDOWS)
 
     spot_hist_raw = get_fx_historical_spot(pair, lookback + max(windows) + 10)
     if spot_hist_raw is None or (isinstance(spot_hist_raw, pd.DataFrame) and spot_hist_raw.empty):
