@@ -13,6 +13,8 @@ from scipy.interpolate import RectBivariateSpline
 import pandas as pd
 from typing import Tuple, Optional
 
+from core.config import TRADING_DAYS_PER_YEAR, CALENDAR_DAYS_PER_YEAR
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Black-Scholes Closed-Form
@@ -425,7 +427,7 @@ def expected_move(S, T, sigma, confidence=0.68) -> float:
     return S * sigma * np.sqrt(T) * z
 
 
-def probability_touch(S, K, T, r, q, sigma):
+def probability_touch(S, K, T, r, q, sigma) -> float:
     """Probability that spot touches K at any point before expiry."""
     if T <= 0 or sigma <= 1e-10 or S <= 0 or K <= 0:
         return 0.0
@@ -455,7 +457,7 @@ def probability_touch(S, K, T, r, q, sigma):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def portfolio_var_cvar(positions, S, r, q, horizon_days=1,
-                       n_sims=50000, confidence=0.95, seed=42):
+                       n_sims=50000, confidence=0.95, seed=42) -> dict:
     """
     Monte Carlo VaR and CVaR for an options portfolio.
     Returns dict with var, cvar, pnl_distribution.
@@ -520,7 +522,7 @@ def portfolio_var_cvar(positions, S, r, q, horizon_days=1,
 def generate_vol_surface(S=100.0, base_vol=0.20, skew_slope=-0.15,
                          skew_convexity=0.10, term_slope=0.02,
                          num_strikes=40, num_expiries=20,
-                         strike_range=(0.70, 1.30), expiry_range=(0.02, 2.0)):
+                         strike_range=(0.70, 1.30), expiry_range=(0.02, 2.0)) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Parametric vol surface for analytical use (no random noise)."""
     moneyness = np.linspace(strike_range[0], strike_range[1], num_strikes)
     strikes = S * moneyness
@@ -541,7 +543,7 @@ def generate_vol_surface(S=100.0, base_vol=0.20, skew_slope=-0.15,
 def generate_sabr_vol_surface(S=100.0, r=0.05, q=0.015,
                                alpha=0.3, beta=0.5, rho_sabr=-0.3, nu=0.4,
                                num_strikes=50, num_expiries=25,
-                               strike_range=(0.70, 1.30), expiry_range=(0.02, 2.0)):
+                               strike_range=(0.70, 1.30), expiry_range=(0.02, 2.0)) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Generate vol surface using the SABR model."""
     moneyness = np.linspace(strike_range[0], strike_range[1], num_strikes)
     strikes = S * moneyness
@@ -556,7 +558,7 @@ def generate_sabr_vol_surface(S=100.0, r=0.05, q=0.015,
     return strikes, expiries, vol_matrix
 
 
-def interpolate_vol_surface(strikes, expiries, vol_matrix):
+def interpolate_vol_surface(strikes, expiries, vol_matrix) -> RectBivariateSpline:
     return RectBivariateSpline(expiries, strikes, vol_matrix, kx=3, ky=3)
 
 
@@ -568,14 +570,14 @@ def interpolate_vol_surface(strikes, expiries, vol_matrix):
 # generate_price_history removed — use Bloomberg historical data via get_fx_historical_spot()
 
 
-def realized_vol_close_to_close(prices, window=20):
+def realized_vol_close_to_close(prices, window=20) -> np.ndarray:
     """Close-to-close realized volatility."""
     log_ret = np.diff(np.log(prices))
     rv = pd.Series(log_ret).rolling(window).std() * np.sqrt(252)
     return rv.values
 
 
-def realized_vol_parkinson(highs, lows, window=20):
+def realized_vol_parkinson(highs, lows, window=20) -> np.ndarray:
     """Parkinson (high-low) estimator."""
     hl = np.log(highs / lows)
     factor = 1.0 / (4.0 * np.log(2.0))
@@ -583,7 +585,7 @@ def realized_vol_parkinson(highs, lows, window=20):
     return np.sqrt(var.values)
 
 
-def realized_vol_garman_klass(opens, highs, lows, closes, window=20):
+def realized_vol_garman_klass(opens, highs, lows, closes, window=20) -> np.ndarray:
     """Garman-Klass estimator using OHLC data."""
     log_hl = np.log(highs / lows) ** 2
     log_co = np.log(closes / opens) ** 2
@@ -597,7 +599,7 @@ def realized_vol_garman_klass(opens, highs, lows, closes, window=20):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def generate_options_chain(S, r, q, base_vol=0.20, skew=-0.10,
-                           expiry_days=30, strike_step=2.5, num_strikes=20):
+                           expiry_days=30, strike_step=2.5, num_strikes=20) -> list:
     """Generate an analytical options chain for structure analysis (no synthetic volume/OI)."""
     T = expiry_days / 365.0
     center = round(S / strike_step) * strike_step
@@ -650,7 +652,7 @@ def generate_options_chain(S, r, q, base_vol=0.20, skew=-0.10,
 # ═══════════════════════════════════════════════════════════════════════════
 
 def scenario_grid(S, K, T, r, q, sigma, option_type="call",
-                  spot_shocks=None, vol_shocks=None, metric="pnl"):
+                  spot_shocks=None, vol_shocks=None, metric="pnl") -> pd.DataFrame:
     if spot_shocks is None:
         spot_shocks = np.linspace(-0.20, 0.20, 9)
     if vol_shocks is None:
@@ -687,7 +689,7 @@ def scenario_grid(S, K, T, r, q, sigma, option_type="call",
 # Portfolio Risk Aggregation
 # ═══════════════════════════════════════════════════════════════════════════
 
-def aggregate_portfolio_greeks(positions, S, r, q):
+def aggregate_portfolio_greeks(positions, S, r, q) -> dict:
     totals = {"delta": 0, "gamma": 0, "theta": 0, "vega": 0, "rho": 0,
               "vanna": 0, "volga": 0, "pnl": 0, "notional": 0}
 

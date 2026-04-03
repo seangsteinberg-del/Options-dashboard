@@ -33,7 +33,7 @@ def _gk_d1_d2(S, K, T, r_d, r_f, sigma):
     return d1, d2
 
 
-def gk_price(S, K, T, r_d, r_f, sigma, cp):
+def gk_price(S, K, T, r_d, r_f, sigma, cp) -> float:
     """Garman-Kohlhagen price for an FX option.
 
     Parameters
@@ -54,7 +54,7 @@ def gk_price(S, K, T, r_d, r_f, sigma, cp):
     return cp * (S * df_f * norm.cdf(cp * d1) - K * df_d * norm.cdf(cp * d2))
 
 
-def gk_vega(S, K, T, r_d, r_f, sigma):
+def gk_vega(S, K, T, r_d, r_f, sigma) -> float:
     """Garman-Kohlhagen vega (dPrice / dSigma)."""
     if T <= 0:
         return 0.0
@@ -62,7 +62,7 @@ def gk_vega(S, K, T, r_d, r_f, sigma):
     return S * np.exp(-r_f * T) * norm.pdf(d1) * np.sqrt(T)
 
 
-def gk_vanna(S, K, T, r_d, r_f, sigma):
+def gk_vanna(S, K, T, r_d, r_f, sigma) -> float:
     """Garman-Kohlhagen vanna: d(delta)/d(sigma) = d(vega)/d(spot)."""
     if T <= 0 or sigma <= 1e-10:
         return 0.0
@@ -70,7 +70,7 @@ def gk_vanna(S, K, T, r_d, r_f, sigma):
     return -np.exp(-r_f * T) * norm.pdf(d1) * d2 / sigma
 
 
-def gk_volga(S, K, T, r_d, r_f, sigma):
+def gk_volga(S, K, T, r_d, r_f, sigma) -> float:
     """Garman-Kohlhagen volga: d(vega)/d(sigma) = vega * d1 * d2 / sigma."""
     if T <= 0 or sigma <= 1e-10:
         return 0.0
@@ -132,7 +132,7 @@ def _atm_dns_strike(S, T, r_d, r_f, sigma):
 # Vanna-Volga core
 # =========================================================================
 
-def vv_price(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol, cp):
+def vv_price(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol, cp) -> float:
     """Castagna-Mercurio Vanna-Volga price.
 
     The three market pivots are:
@@ -204,7 +204,7 @@ def vv_price(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol, cp):
     return gk_price(S, K, T, r_d, r_f, sigma_atm, cp) + adjustment
 
 
-def vv_implied_vol(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol):
+def vv_implied_vol(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol) -> float:
     """Invert the VV call price to obtain the VV-interpolated implied vol."""
     if T <= 1e-10:
         return atm_vol
@@ -225,7 +225,7 @@ def vv_implied_vol(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol):
         return atm_vol
 
 
-def vv_smile(S, T, r_d, r_f, atm_vol, p25_vol, c25_vol, n_strikes=50):
+def vv_smile(S, T, r_d, r_f, atm_vol, p25_vol, c25_vol, n_strikes=50) -> dict:
     """Generate the full VV smile from ~10-delta put to ~10-delta call.
 
     Returns
@@ -255,7 +255,7 @@ def vv_smile(S, T, r_d, r_f, atm_vol, p25_vol, c25_vol, n_strikes=50):
     return {"strikes": strikes, "vols": vols, "deltas": deltas}
 
 
-def vv_greeks(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol, cp):
+def vv_greeks(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol, cp) -> dict:
     """Full Greeks under Vanna-Volga pricing (numerical bump-and-reprice).
 
     Returns
@@ -339,7 +339,7 @@ def vv_greeks(S, K, T, r_d, r_f, atm_vol, p25_vol, c25_vol, cp):
 # SABR helper (Hagan et al. 2002 formula)
 # =========================================================================
 
-def sabr_vol(F, K, T, alpha, beta, rho, nu):
+def sabr_vol(F, K, T, alpha, beta, rho, nu) -> float:
     """SABR implied volatility via the Hagan et al. (2002) approximation."""
     if F <= 0 or K <= 0 or T <= 0 or alpha <= 0:
         return 1e-6
@@ -388,7 +388,7 @@ def sabr_vol(F, K, T, alpha, beta, rho, nu):
 # =========================================================================
 
 def vv_vs_sabr(S, T, r_d, r_f, atm_vol, p25_vol, c25_vol,
-               sabr_alpha, sabr_rho, sabr_nu, sabr_beta=0.5):
+               sabr_alpha, sabr_rho, sabr_nu, sabr_beta=0.5) -> pd.DataFrame:
     """Compare the VV smile against a SABR smile.
 
     Returns a DataFrame with columns:

@@ -25,6 +25,8 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from core.config import TRADING_DAYS_PER_YEAR, CALENDAR_DAYS_PER_YEAR
+
 logger = logging.getLogger(__name__)
 
 # ── Bloomberg connection reuse ───────────────────────────────────────────
@@ -323,7 +325,7 @@ _ALL_TENORS = list(_TENOR_DAYS.keys())
 
 
 def tenor_to_years(tenor: str) -> float:
-    return _TENOR_DAYS.get(tenor.upper(), 30) / 365.0
+    return _TENOR_DAYS.get(tenor.upper(), 30) / CALENDAR_DAYS_PER_YEAR
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1001,7 +1003,7 @@ def get_fx_realized_vol(pair: str, window: int = 20,
     if hist.empty or len(hist) < window + 1:
         return pd.Series(dtype=float)
     log_ret = np.log(hist["close"] / hist["close"].shift(1)).dropna()
-    rv = log_ret.rolling(window).std() * np.sqrt(252) * 100.0
+    rv = log_ret.rolling(window).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100.0
     rv.name = f"{pair}_RV{window}"
     return rv.dropna()
 

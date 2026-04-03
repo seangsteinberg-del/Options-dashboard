@@ -5,6 +5,17 @@ All shared constants live here. Panels and core modules import from this
 file instead of defining their own copies.
 """
 
+__all__ = [
+    "TENORS_FULL", "TENORS_LIQUID", "TENORS_TRADING", "TENORS_SURFACE",
+    "TENORS_HEATMAP", "TENORS_HEATMAP_COMPACT",
+    "DELTA_LABELS", "DELTA_NUMERIC",
+    "VOL_METRICS", "HISTORY_METRICS", "METRIC_TO_KEY",
+    "TRADING_DAYS_PER_YEAR", "CALENDAR_DAYS_PER_YEAR",
+    "RV_WINDOWS", "PERCENTILE_LOOKBACK", "HISTORY_LOOKBACK_DEFAULT",
+    "MC_DEFAULT_PATHS", "VAR_CONFIDENCE",
+    "MONO_FONT",
+]
+
 # ── Tenor Lists ──────────────────────────────────────────────────────────────
 # Full tenor ladder (all available tenors, ON → 5Y)
 TENORS_FULL = ["ON", "1W", "2W", "1M", "2M", "3M", "6M", "9M", "1Y", "2Y", "3Y", "5Y"]

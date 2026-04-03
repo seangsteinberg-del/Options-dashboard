@@ -3,6 +3,8 @@
 import logging
 import os
 from datetime import datetime
+from typing import Any, Union
+
 import numpy as np
 import pandas as pd
 from dash import dcc, no_update
@@ -13,7 +15,7 @@ logger = logging.getLogger(__name__)
 _DOWNLOADS_DIR = None
 
 
-def set_downloads_dir(path):
+def set_downloads_dir(path) -> None:
     """Set the directory where CSV files are written to disk."""
     global _DOWNLOADS_DIR
     _DOWNLOADS_DIR = path
@@ -29,7 +31,7 @@ def _trace_get(trace, key, default=None):
     return val if val is not None else default
 
 
-def figure_to_dataframe(fig_dict):
+def figure_to_dataframe(fig_dict) -> pd.DataFrame:
     """Extract data from a Plotly figure dict or Figure object into a pandas DataFrame.
 
     Handles scatter/bar (columnar), heatmap/surface (matrix), and histogram traces.
@@ -127,7 +129,7 @@ def figure_to_dataframe(fig_dict):
     return df
 
 
-def export_csv(fig_dict, panel_name, chart_type):
+def export_csv(fig_dict, panel_name, chart_type) -> Union[dict, Any]:
     """Return a dcc.send_data_frame dict for downloading CSV from a figure.
 
     Parameters

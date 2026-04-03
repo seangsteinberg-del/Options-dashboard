@@ -59,7 +59,7 @@ from core.fx_conventions import (
     tenor_to_years, tenor_to_days, spot_delta,
     delta_to_strike, bf_rr_to_smile, FX_PAIR_REGISTRY,
 )
-from core.config import TENORS_FULL, DELTA_LABELS as _DELTA_LABELS, RV_WINDOWS, TRADING_DAYS_PER_YEAR
+from core.config import TENORS_FULL, DELTA_LABELS as _DELTA_LABELS, RV_WINDOWS, TRADING_DAYS_PER_YEAR, CALENDAR_DAYS_PER_YEAR
 FX_PAIRS = FX_PAIR_REGISTRY
 TENORS = TENORS_FULL
 from core.bloomberg_fx import (
@@ -436,7 +436,7 @@ def vol_cone(pair: str,
             continue
 
         # Close-to-close estimator
-        c2c = pd.Series(log_ret).rolling(w).std() * np.sqrt(252) * 100
+        c2c = pd.Series(log_ret).rolling(w).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100
         c2c_clean = c2c.dropna().values
 
         if len(c2c_clean) < 5:
@@ -447,12 +447,12 @@ def vol_cone(pair: str,
         low_proxy = spot_hist[1:] * np.exp(-np.abs(log_ret) * 0.6)
         hl_ratio = np.log(high_proxy / low_proxy)
         parkinson_factor = 1.0 / (4.0 * np.log(2.0))
-        parkinson_var = pd.Series(parkinson_factor * hl_ratio ** 2).rolling(w).mean() * 252
+        parkinson_var = pd.Series(parkinson_factor * hl_ratio ** 2).rolling(w).mean() * TRADING_DAYS_PER_YEAR
         parkinson = np.sqrt(parkinson_var.dropna().values) * 100
 
         # Garman-Klass estimator
         gk_var = 0.5 * hl_ratio ** 2 - (2 * np.log(2) - 1) * log_ret ** 2
-        gk_rv = pd.Series(gk_var).rolling(w).mean() * 252
+        gk_rv = pd.Series(gk_var).rolling(w).mean() * TRADING_DAYS_PER_YEAR
         gk_vals = gk_rv.dropna().values
         gk = np.sqrt(np.maximum(gk_vals, 0.0)) * 100  # Floor at zero instead of abs()
 
@@ -563,7 +563,7 @@ def breakeven_vol(pair: str, tenor: str, days_to_expiry: int) -> dict:
     What realised vol is needed for a long ATM straddle to break even.
     Accounts for time decay (theta) vs gamma P&L.
     """
-    T = days_to_expiry / 365.0
+    T = days_to_expiry / CALENDAR_DAYS_PER_YEAR
     spots = get_fx_spots([pair]) or {}
     spot = spots.get(pair, {}).get("mid", 1.0)
 
@@ -595,10 +595,10 @@ def breakeven_vol(pair: str, tenor: str, days_to_expiry: int) -> dict:
     # Simplified: breakeven_rv ~ atm_vol * sqrt(1 + straddle_premium / (0.5 * vega * atm_vol))
     # For FX ATM straddle: breakeven_rv ~ atm_vol * (1 - small adjustment)
     vega_val = spot * np.sqrt(T) * norm.pdf(d1)
-    theta_val = -0.5 * spot * atm_vol * norm.pdf(d1) / np.sqrt(T) / 365.0
+    theta_val = -0.5 * spot * atm_vol * norm.pdf(d1) / np.sqrt(T) / CALENDAR_DAYS_PER_YEAR
 
     daily_theta = abs(theta_val)
-    daily_gamma_per_vol2 = 0.5 * norm.pdf(d1) / (spot * atm_vol * np.sqrt(T)) * spot ** 2 / 252.0
+    daily_gamma_per_vol2 = 0.5 * norm.pdf(d1) / (spot * atm_vol * np.sqrt(T)) * spot ** 2 / TRADING_DAYS_PER_YEAR
 
     breakeven_rv_sq = daily_theta / max(daily_gamma_per_vol2, 1e-12)
     breakeven_rv = np.sqrt(max(breakeven_rv_sq, 0)) * 100
@@ -643,7 +643,7 @@ def theta_gamma_ratio(pair: str, tenor: str) -> dict:
     df_d = np.exp(-r_dom * T)
     gamma_val = df_f * norm.pdf(d1) / (spot * atm_vol * np.sqrt(T))
     theta_val = (-(spot * df_f * norm.pdf(d1) * atm_vol) / (2 * np.sqrt(T))
-                 - r_dom * spot * df_d * norm.cdf(d2) + r_for * spot * df_f * norm.cdf(d1)) / 365.0
+                 - r_dom * spot * df_d * norm.cdf(d2) + r_for * spot * df_f * norm.cdf(d1)) / CALENDAR_DAYS_PER_YEAR
 
     ratio = gamma_val / max(abs(theta_val), 1e-12)
 
@@ -682,8 +682,8 @@ def vol_carry(pair: str, tenor: str) -> dict:
     df_f = np.exp(-r_for * T)
     df_d = np.exp(-r_dom * T)
     daily_theta = (-(spot * df_f * norm.pdf(d1) * atm_vol) / (2 * np.sqrt(T))
-                   - r_dom * spot * df_d * norm.cdf(d2) + r_for * spot * df_f * norm.cdf(d1)) / 365.0
-    annualised_carry = daily_theta * 365.0
+                   - r_dom * spot * df_d * norm.cdf(d2) + r_for * spot * df_f * norm.cdf(d1)) / CALENDAR_DAYS_PER_YEAR
+    annualised_carry = daily_theta * CALENDAR_DAYS_PER_YEAR
 
     return {
         "pair": pair,
@@ -2027,7 +2027,7 @@ def parametric_var(sigma: float, notional: float, confidence: float = 0.95,
     if sigma > 1.0:
         sigma = sigma / 100.0
     z = norm.ppf(confidence)
-    daily_vol = sigma / np.sqrt(252)
+    daily_vol = sigma / np.sqrt(TRADING_DAYS_PER_YEAR)
     var_val = z * daily_vol * np.sqrt(horizon) * notional
 
     return {
@@ -2435,7 +2435,7 @@ def rv_estimator_comparison(pair: str, lookback: int = 504) -> pd.DataFrame:
         return pd.DataFrame()
 
     log_ret = np.diff(np.log(closes))
-    ann = np.sqrt(252) * 100
+    ann = np.sqrt(TRADING_DAYS_PER_YEAR) * 100
     w = 20  # rolling window
 
     # 1. Close-to-Close
@@ -2445,19 +2445,19 @@ def rv_estimator_comparison(pair: str, lookback: int = 504) -> pd.DataFrame:
     abs_ret = np.abs(log_ret)
     hl_ratio = abs_ret * 1.2  # proxy: H-L ~ 1.2 * |return|
     park_factor = 1.0 / (4.0 * np.log(2.0))
-    park_var = pd.Series(park_factor * hl_ratio ** 2).rolling(w).mean().values * 252
+    park_var = pd.Series(park_factor * hl_ratio ** 2).rolling(w).mean().values * TRADING_DAYS_PER_YEAR
     parkinson = np.sqrt(np.maximum(park_var, 0)) * 100
 
     # 3. Garman-Klass
     gk_var = 0.5 * hl_ratio ** 2 - (2 * np.log(2) - 1) * log_ret ** 2
-    gk_rv = pd.Series(gk_var).rolling(w).mean().values * 252
+    gk_rv = pd.Series(gk_var).rolling(w).mean().values * TRADING_DAYS_PER_YEAR
     garman_klass = np.sqrt(np.maximum(gk_rv, 0)) * 100
 
     # 4. Yang-Zhang (open-close overnight component + Parkinson intraday)
     # Approximation using close-to-close with overnight variance proxy
     overnight_var = pd.Series(log_ret ** 2 * 0.3).rolling(w).mean().values  # ~30% overnight
     intraday_var = pd.Series(log_ret ** 2 * 0.7).rolling(w).mean().values  # ~70% intraday
-    yz_var = (overnight_var + intraday_var) * 252
+    yz_var = (overnight_var + intraday_var) * TRADING_DAYS_PER_YEAR
     yang_zhang = np.sqrt(np.maximum(yz_var, 0)) * 100
 
     # Align lengths — all derived arrays are len(log_ret) = len(closes)-1

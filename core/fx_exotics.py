@@ -99,7 +99,7 @@ def _correlated_mc_paths(S1, S2, T, r_d1, r_d2, sigma1, sigma2, rho,
 # 1. Single Barrier Options  (Reiner-Rubinstein 1991)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def barrier_price(S, K, B, T, r_d, r_f, sigma, cp, barrier_type, rebate=0.0):
+def barrier_price(S, K, B, T, r_d, r_f, sigma, cp, barrier_type, rebate=0.0) -> float:
     """Analytical single-barrier FX option price.
 
     Parameters
@@ -230,7 +230,7 @@ def barrier_price(S, K, B, T, r_d, r_f, sigma, cp, barrier_type, rebate=0.0):
 
 def double_barrier_price(S, K, B_up, B_down, T, r_d, r_f, sigma, cp,
                           barrier_type='knock-out', n_paths=50000, n_steps=252,
-                          seed=None):
+                          seed=None) -> dict:
     """Double barrier option priced via MC with Brownian-bridge barrier correction.
 
     barrier_type : 'knock-out' or 'knock-in'
@@ -284,7 +284,7 @@ def double_barrier_price(S, K, B_up, B_down, T, r_d, r_f, sigma, cp,
 # 3. Digital (Binary) Options
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def digital_price(S, K, T, r_d, r_f, sigma, cp, payout=1.0):
+def digital_price(S, K, T, r_d, r_f, sigma, cp, payout=1.0) -> float:
     """Cash-or-nothing digital option (analytical).  cp: 1 call, -1 put."""
     if T <= 0:
         return payout if cp * (S - K) > 0 else 0.0
@@ -292,7 +292,7 @@ def digital_price(S, K, T, r_d, r_f, sigma, cp, payout=1.0):
     return payout * np.exp(-r_d * T) * norm.cdf(cp * d2)
 
 
-def digital_greeks(S, K, T, r_d, r_f, sigma, cp, payout=1.0):
+def digital_greeks(S, K, T, r_d, r_f, sigma, cp, payout=1.0) -> dict:
     """Full Greeks for a cash-or-nothing digital via analytical derivatives."""
     if T <= 0 or sigma <= 1e-10:
         return {'delta': 0.0, 'gamma': 0.0, 'vega': 0.0, 'theta': 0.0}
@@ -325,7 +325,7 @@ def digital_greeks(S, K, T, r_d, r_f, sigma, cp, payout=1.0):
 # 4. One-Touch / No-Touch
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def one_touch_price(S, B, T, r_d, r_f, sigma, payout=1.0):
+def one_touch_price(S, B, T, r_d, r_f, sigma, payout=1.0) -> float:
     """One-touch: pays *payout* if barrier B is ever breached during [0, T].
 
     Analytical closed form using the reflection principle for GBM.
@@ -379,13 +379,13 @@ def one_touch_price(S, B, T, r_d, r_f, sigma, payout=1.0):
     return payout * np.exp(-r_d * T) * prob
 
 
-def no_touch_price(S, B, T, r_d, r_f, sigma, payout=1.0):
+def no_touch_price(S, B, T, r_d, r_f, sigma, payout=1.0) -> float:
     """No-touch: pays if barrier is never hit.  = payout*DF - one_touch."""
     return payout * np.exp(-r_d * T) - one_touch_price(S, B, T, r_d, r_f, sigma, payout)
 
 
 def double_no_touch_price(S, B_up, B_down, T, r_d, r_f, sigma, payout=1.0,
-                           n_paths=50000, n_steps=252, seed=None):
+                           n_paths=50000, n_steps=252, seed=None) -> dict:
     """Double no-touch: pays if spot stays within [B_down, B_up].  MC simulation
     with Brownian bridge correction for barrier crossing between discrete steps."""
     if abs(B_up - B_down) < 1e-10 or B_up <= B_down:
@@ -431,7 +431,7 @@ def double_no_touch_price(S, B_up, B_down, T, r_d, r_f, sigma, payout=1.0,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def range_accrual_price(S, B_low, B_high, T, r_d, r_f, sigma, payout=1.0,
-                         fixing_freq='daily', n_paths=50000, seed=None):
+                         fixing_freq='daily', n_paths=50000, seed=None) -> dict:
     """Range accrual: payout proportional to fraction of fixings inside range.
 
     fixing_freq : 'daily' | 'weekly' | 'monthly'
@@ -461,7 +461,7 @@ def range_accrual_price(S, B_low, B_high, T, r_d, r_f, sigma, payout=1.0,
 # 6. Asian Options
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def asian_geometric_price(S, K, T, r_d, r_f, sigma, cp, n_fixings):
+def asian_geometric_price(S, K, T, r_d, r_f, sigma, cp, n_fixings) -> float:
     """Closed-form geometric-average Asian (Kemna-Vorst 1990).
 
     cp : 1 call, -1 put.
@@ -480,7 +480,7 @@ def asian_geometric_price(S, K, T, r_d, r_f, sigma, cp, n_fixings):
 
 
 def asian_price(S, K, T, r_d, r_f, sigma, cp, fixing_freq='monthly',
-                average_type='arithmetic', n_paths=50000, seed=None):
+                average_type='arithmetic', n_paths=50000, seed=None) -> dict:
     """Asian option (average-price).
 
     arithmetic : MC (no closed form).
@@ -566,7 +566,7 @@ def _lookback_floating_analytical(S, T, r_d, r_f, sigma, cp):
 
 
 def lookback_price(S, T, r_d, r_f, sigma, cp, lookback_type='floating', K=None,
-                    n_paths=50000, n_steps=252, seed=None):
+                    n_paths=50000, n_steps=252, seed=None) -> dict:
     """Lookback option.
 
     floating strike : analytical (Goldman-Sosin-Gatto).
@@ -594,7 +594,7 @@ def lookback_price(S, T, r_d, r_f, sigma, cp, lookback_type='floating', K=None,
 # 8. Forward Start Options  (Rubinstein 1991)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def forward_start_price(S, T_start, T_end, r_d, r_f, sigma, cp, moneyness=1.0):
+def forward_start_price(S, T_start, T_end, r_d, r_f, sigma, cp, moneyness=1.0) -> float:
     """Forward-starting option: strike set at T_start as moneyness * S(T_start).
 
     Analytical via Rubinstein (1991).  The forward-start call is equivalent to
@@ -615,7 +615,7 @@ def forward_start_price(S, T_start, T_end, r_d, r_f, sigma, cp, moneyness=1.0):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def best_of_price(S1, S2, K, T, r_d1, r_d2, r_f, sigma1, sigma2, rho, cp,
-                   option_type='best-of', n_paths=50000, seed=None, r_f2=None):
+                   option_type='best-of', n_paths=50000, seed=None, r_f2=None) -> dict:
     """Two-asset rainbow option via correlated MC.
 
     best-of call  : max(perf1, perf2, 0)  where perf_i = S_i(T)/S_i(0) - 1
@@ -652,7 +652,7 @@ def best_of_price(S1, S2, K, T, r_d1, r_d2, r_f, sigma1, sigma2, rho, cp,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def tarf_price(S, K, B, T, r_d, r_f, sigma, n_fixings=12, target_profit=0.05,
-               leverage=2, n_paths=50000, seed=None):
+               leverage=2, n_paths=50000, seed=None) -> dict:
     """Target Accrual Redemption Forward.
 
     At each fixing date:

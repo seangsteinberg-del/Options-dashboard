@@ -22,7 +22,7 @@ import threading
 import uuid
 from copy import deepcopy
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import logging
 
@@ -259,7 +259,7 @@ def _validate_position(pos):
         raise ValueError("notional must be positive")
 
 
-def create_sample_portfolio():
+def create_sample_portfolio() -> Dict:
     """
     Initialize an empty portfolio with all books ready for live trading.
     Positions are added via the blotter panel or add_position() API.
@@ -274,7 +274,7 @@ def create_sample_portfolio():
     return _PORTFOLIO
 
 
-def add_position(book, position_dict):
+def add_position(book, position_dict) -> str:
     """
     Add a position to a book. Validates all fields, assigns UUID.
     Returns the assigned position ID.
@@ -314,7 +314,7 @@ def add_position(book, position_dict):
     return pos["id"]
 
 
-def close_position(book, position_id, close_price=None, close_date=None):
+def close_position(book, position_id, close_price=None, close_date=None) -> bool:
     """Close a position. Updates status, records close details."""
     global _PORTFOLIO
     with _portfolio_lock:
@@ -339,7 +339,7 @@ def close_position(book, position_id, close_price=None, close_date=None):
     return False
 
 
-def roll_position(book, position_id, new_expiry, new_strike=None):
+def roll_position(book, position_id, new_expiry, new_strike=None) -> Optional[str]:
     """
     Roll a position: close the old one, open a new one with
     updated expiry (and optionally strike).
@@ -373,7 +373,7 @@ def roll_position(book, position_id, new_expiry, new_strike=None):
     return add_position(book, new_pos)
 
 
-def partial_close(book, position_id, close_notional):
+def partial_close(book, position_id, close_notional) -> bool:
     """
     Partially close a position by reducing its notional.
     Keeps the remainder open; logs the partial close.
@@ -402,7 +402,7 @@ def partial_close(book, position_id, close_notional):
     return False
 
 
-def get_positions(book=None, pair=None, status="open"):
+def get_positions(book=None, pair=None, status="open") -> List[Dict]:
     """Query positions with optional filters on book, pair, and status."""
     results = []
     with _portfolio_lock:
@@ -417,7 +417,7 @@ def get_positions(book=None, pair=None, status="open"):
     return results
 
 
-def get_all_positions():
+def get_all_positions() -> List[Dict]:
     """Return all open positions across all books."""
     return get_positions(book=None, pair=None, status="open")
 
@@ -426,7 +426,7 @@ def get_all_positions():
 # Greeks Computation
 # ============================================================================
 
-def compute_position_greeks(pos, spot, r_d, r_f, vol_surface):
+def compute_position_greeks(pos, spot, r_d, r_f, vol_surface) -> Dict:
     """
     Compute full Greeks for a single position using current market data.
 
@@ -464,7 +464,7 @@ def compute_position_greeks(pos, spot, r_d, r_f, vol_surface):
     return scaled
 
 
-def compute_book_risk(book, spots, rates, vol_surfaces):
+def compute_book_risk(book, spots, rates, vol_surfaces) -> Dict:
     """
     Aggregate Greeks for all open positions in a book.
 
@@ -504,7 +504,7 @@ def compute_book_risk(book, spots, rates, vol_surfaces):
     return {"totals": totals, "by_pair": by_pair, "positions": pos_greeks}
 
 
-def compute_portfolio_risk(spots, rates, vol_surfaces):
+def compute_portfolio_risk(spots, rates, vol_surfaces) -> Dict:
     """
     Whole portfolio risk aggregated across all books.
 
@@ -537,7 +537,7 @@ def compute_portfolio_risk(spots, rates, vol_surfaces):
 # ============================================================================
 
 def pnl_attribution(positions, spots_old, spots_new, surfaces_old, surfaces_new,
-                    rates, dt=1 / 365):
+                    rates, dt=1 / 365) -> Dict:
     """
     Full Taylor P&L decomposition.
 
@@ -621,7 +621,7 @@ def pnl_attribution(positions, spots_old, spots_new, surfaces_old, surfaces_new,
 # Risk Bucketing
 # ============================================================================
 
-def vega_by_bucket(positions, spots, rates, vol_surfaces):
+def vega_by_bucket(positions, spots, rates, vol_surfaces) -> Dict:
     """
     Vega bucketed by pair x tenor.
 
@@ -647,7 +647,7 @@ def vega_by_bucket(positions, spots, rates, vol_surfaces):
     return result
 
 
-def gamma_by_bucket(positions, spots, rates, vol_surfaces):
+def gamma_by_bucket(positions, spots, rates, vol_surfaces) -> Dict:
     """
     Gamma bucketed by pair x tenor.
 
@@ -672,7 +672,7 @@ def gamma_by_bucket(positions, spots, rates, vol_surfaces):
     return result
 
 
-def delta_by_pair(positions, spots, rates, vol_surfaces):
+def delta_by_pair(positions, spots, rates, vol_surfaces) -> Dict:
     """
     Net delta per pair in USD equivalent.
 
@@ -693,7 +693,7 @@ def delta_by_pair(positions, spots, rates, vol_surfaces):
     return result
 
 
-def exposure_summary(positions, spots, rates, vol_surfaces):
+def exposure_summary(positions, spots, rates, vol_surfaces) -> Dict:
     """
     Portfolio exposure summary: notional by pair, by book, by strategy.
     Also computes EM vs G10 notional split.
@@ -740,7 +740,7 @@ def exposure_summary(positions, spots, rates, vol_surfaces):
 # Limits & Hedging
 # ============================================================================
 
-def check_risk_limits(risk_totals, limits=None):
+def check_risk_limits(risk_totals, limits=None) -> List[Dict]:
     """
     Check portfolio risk against limits.
 
@@ -815,7 +815,7 @@ def check_risk_limits(risk_totals, limits=None):
     return breaches
 
 
-def hedge_suggestion(portfolio_risk, target="delta_neutral"):
+def hedge_suggestion(portfolio_risk, target="delta_neutral") -> List[Dict]:
     """
     Suggest hedges to achieve a risk target.
 

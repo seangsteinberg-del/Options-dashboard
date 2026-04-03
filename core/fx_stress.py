@@ -9,6 +9,8 @@ Uses Garman-Kohlhagen pricing for FX option revaluation under
 stressed market parameters.
 """
 
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
@@ -599,7 +601,7 @@ FX_STRESS_SCENARIOS = {
 # Scenario Query Functions
 # =====================================================================
 
-def get_scenarios():
+def get_scenarios() -> list:
     """Return list of all scenario names and descriptions."""
     return [
         {
@@ -613,12 +615,12 @@ def get_scenarios():
     ]
 
 
-def get_scenario(name):
+def get_scenario(name) -> Optional[dict]:
     """Return full scenario dict by name. Returns None if not found."""
     return FX_STRESS_SCENARIOS.get(name)
 
 
-def get_pair_shock(scenario_name, pair):
+def get_pair_shock(scenario_name, pair) -> dict:
     """
     Get shock vector for a specific pair in a scenario.
     Falls back to the scenario's default_shock if the pair is not
@@ -636,17 +638,17 @@ def get_pair_shock(scenario_name, pair):
 # Shock Application Helpers
 # =====================================================================
 
-def apply_spot_shock(current_spot, shock_pct):
+def apply_spot_shock(current_spot, shock_pct) -> float:
     """Apply percentage spot shock: S_new = S * (1 + shock_pct)."""
     return current_spot * (1.0 + shock_pct)
 
 
-def apply_vol_shock(current_vol, vol_multiplier):
+def apply_vol_shock(current_vol, vol_multiplier) -> float:
     """Apply vol multiplier: vol_new = vol * multiplier. Floors at 0.1%."""
     return max(current_vol * vol_multiplier, 0.001)
 
 
-def apply_rate_shock(current_rate, shock_bps):
+def apply_rate_shock(current_rate, shock_bps) -> float:
     """Apply rate shock in basis points: rate_new = rate + shock_bps / 10000."""
     return current_rate + shock_bps / 10000.0
 
@@ -664,7 +666,7 @@ def _get_shock_from_scenario(scenario_dict, pair):
                                         scenario_dict.get("default_shock", _default(0.0, 1.0, 0)))
 
 
-def stress_single_position(position, spot, r_d, r_f, vol, scenario_name):
+def stress_single_position(position, spot, r_d, r_f, vol, scenario_name) -> dict:
     """
     Stress test a single FX option position.
 
@@ -688,7 +690,6 @@ def stress_single_position(position, spot, r_d, r_f, vol, scenario_name):
     # Expiry can be a date string or float years — normalise to float
     _exp = position["expiry"]
     if isinstance(_exp, str):
-        from datetime import datetime
         try:
             T = max((datetime.strptime(_exp, "%Y-%m-%d") - datetime.now()).days / 365.0, 1e-6)
         except ValueError:
@@ -773,7 +774,6 @@ def _stress_portfolio_with_scenario(positions, spots, rates, vol_surfaces, scena
         K = pos["strike"]
         _exp = pos["expiry"]
         if isinstance(_exp, str):
-            from datetime import datetime
             try:
                 T = max((datetime.strptime(_exp, "%Y-%m-%d") - datetime.now()).days / 365.0, 1e-6)
             except ValueError:
