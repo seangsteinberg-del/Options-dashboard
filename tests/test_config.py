@@ -7,7 +7,7 @@ from core.config import (
     TENORS_FULL, TENORS_LIQUID, TENORS_TRADING, TENORS_SURFACE,
     TENORS_HEATMAP, TENORS_HEATMAP_COMPACT,
     DELTA_LABELS, DELTA_NUMERIC,
-    VOL_METRICS, HISTORY_METRICS, METRIC_TO_KEY,
+    VOL_METRICS,
     TRADING_DAYS_PER_YEAR, CALENDAR_DAYS_PER_YEAR, RV_WINDOWS,
 )
 from core.theme import ordinal
@@ -59,12 +59,10 @@ class TestDeltaConsistency:
 
 class TestMetrics:
 
-    def test_metric_to_key_covers_metrics(self):
-        for m in VOL_METRICS:
-            assert m in METRIC_TO_KEY, f"{m} missing from METRIC_TO_KEY"
-
-    def test_history_metrics_match_vol_metrics(self):
-        assert set(HISTORY_METRICS) == set(VOL_METRICS)
+    def test_vol_metrics_present(self):
+        # Sanity check: the 5 standard FX vol surface metrics are defined
+        for m in ("ATM", "25D_RR", "25D_BF", "10D_RR", "10D_BF"):
+            assert m in VOL_METRICS
 
 
 class TestConstants:

@@ -79,6 +79,7 @@ from panels import market_dashboard          # DESK
 from panels import vol_surface_fx            # VOL (includes Chart Lab features)
 from panels import vol_scanner_unified       # VOL
 from panels import relative_value_plus      # VOL
+from panels import trade_ideas               # TRADE (Trade Idea Scanner)
 from panels import structure_builder         # TRADE (Trade Workshop)
 from panels import blotter_fx               # TRADE
 from panels import risk_fx                   # RISK
@@ -138,7 +139,8 @@ WORKSPACES = [
         "label": "TRADE",
         "accent": COLORS["accent_orange"],
         "tabs": [
-            {"id": "structure-builder", "label": "TRADE WORKSHOP", "module": structure_builder},
+            {"id": "trade-ideas",       "label": "TRADE IDEAS",       "module": trade_ideas},
+            {"id": "structure-builder", "label": "TRADE WORKSHOP",    "module": structure_builder},
             {"id": "blotter-fx",        "label": "BLOTTER",           "module": blotter_fx},
         ],
     },
@@ -819,9 +821,12 @@ app.layout = serve_layout
     [Input("workspace-tabs", "value")],
     [State("preset-result", "data"),
      State("cmd-nav-result", "data"),
-     State("stb-to-blotter-store", "data")],
+     State("stb-to-blotter-store", "data"),
+     State("ideas-to-vol-store", "data"),
+     State("ideas-to-structurer-store", "data")],
 )
-def render_subtabs(workspace_id, preset_data, cmd_data, blotter_data):
+def render_subtabs(workspace_id, preset_data, cmd_data, blotter_data,
+                   ideas_vol_data, ideas_stb_data):
     ws = next((w for w in WORKSPACES if w["id"] == workspace_id), None)
     if ws is None:
         raise PreventUpdate
@@ -838,15 +843,35 @@ def render_subtabs(workspace_id, preset_data, cmd_data, blotter_data):
             )
         )
 
-    # If a preset, command palette, or structure→blotter navigation is pending, use its target tab
+    # If a preset, command palette, or panel-to-panel navigation is pending,
+    # use its target tab. The Trade Ideas handoff stores include a `ts`
+    # field; only honor them if they fired in the last few seconds, so that
+    # a manual workspace-tab click later doesn't get overridden by a stale
+    # handoff. (`stb-to-blotter-store` predates this and intentionally
+    # always re-routes to BLOTTER.)
     valid_tab_ids = {t["id"] for t in ws["tabs"]}
     target_tab = ws["tabs"][0]["id"]
+    now = time.time()
+    NAV_FRESH = 5.0  # seconds
+    def _fresh(data):
+        if not data or not isinstance(data, dict):
+            return False
+        ts = data.get("ts")
+        try:
+            return ts is not None and (now - float(ts)) < NAV_FRESH
+        except (TypeError, ValueError):
+            return False
+
     if preset_data and isinstance(preset_data, dict) and preset_data.get("tab") in valid_tab_ids:
         target_tab = preset_data["tab"]
     elif cmd_data and isinstance(cmd_data, dict) and cmd_data.get("tab") in valid_tab_ids:
         target_tab = cmd_data["tab"]
     elif blotter_data and isinstance(blotter_data, dict) and "blotter-fx" in valid_tab_ids:
         target_tab = "blotter-fx"
+    elif _fresh(ideas_vol_data) and "vol-surface-fx" in valid_tab_ids:
+        target_tab = "vol-surface-fx"
+    elif _fresh(ideas_stb_data) and "structure-builder" in valid_tab_ids:
+        target_tab = "structure-builder"
 
     return dcc.Tabs(
         id="sub-tabs",
@@ -943,6 +968,30 @@ app.clientside_callback(
     [Output("workspace-tabs", "value", allow_duplicate=True),
      Output("sub-tabs", "value", allow_duplicate=True)],
     Input("stb-to-blotter-store", "data"),
+    prevent_initial_call=True,
+)
+
+# Trade Ideas → VOL Surface navigation (auto-switch on "Send to VOL")
+app.clientside_callback(
+    """function(data) {
+        if (!data) return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+        return ['vol', 'vol-surface-fx'];
+    }""",
+    [Output("workspace-tabs", "value", allow_duplicate=True),
+     Output("sub-tabs", "value", allow_duplicate=True)],
+    Input("ideas-to-vol-store", "data"),
+    prevent_initial_call=True,
+)
+
+# Trade Ideas → Trade Workshop navigation (auto-switch on "Send to Structurer")
+app.clientside_callback(
+    """function(data) {
+        if (!data) return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+        return ['trade', 'structure-builder'];
+    }""",
+    [Output("workspace-tabs", "value", allow_duplicate=True),
+     Output("sub-tabs", "value", allow_duplicate=True)],
+    Input("ideas-to-structurer-store", "data"),
     prevent_initial_call=True,
 )
 
@@ -1413,6 +1462,7 @@ def _update_data_source_status(_n):
 market_dashboard.register_callbacks(app)
 vol_surface_fx.register_callbacks(app)
 vol_scanner_unified.register_callbacks(app)
+trade_ideas.register_callbacks(app)
 structure_builder.register_callbacks(app)
 blotter_fx.register_callbacks(app)
 risk_fx.register_callbacks(app)
@@ -1467,6 +1517,9 @@ if __name__ == "__main__":
     print(f"  Panels: {panels_total} across {len(WORKSPACES)} workspaces")
     print(f"  Workspaces: {' | '.join(w['label'] for w in WORKSPACES)}")
     print("=" * 64)
+    # Always launch 2 dashboard windows (both pointing at the same Dash server)
+    n_windows = 2
+
     # Try to launch as desktop app via pywebview, fall back to browser
     try:
         import webview
@@ -1479,29 +1532,31 @@ if __name__ == "__main__":
         dl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
         os.makedirs(dl_path, exist_ok=True)
 
-        print("\n  Launching as desktop application...")
+        print(f"\n  Launching {n_windows} desktop window(s)...")
         print(f"  CSV downloads save to: {dl_path}")
-        print("  Close the window to stop.\n")
+        print("  Close all windows to stop.\n")
 
         server_thread = threading.Thread(target=_start_server, daemon=True)
         server_thread.start()
 
-        try:
-            webview.create_window(
-                "FX Options Workstation",
-                "http://127.0.0.1:8765",
-                width=1920, height=1080,
-                min_size=(1200, 700),
-                downloads_path=dl_path,
-            )
-        except TypeError:
-            # pywebview < 4.0 doesn't support downloads_path
-            webview.create_window(
-                "FX Options Workstation",
-                "http://127.0.0.1:8765",
-                width=1920, height=1080,
-                min_size=(1200, 700),
-            )
+        for i in range(n_windows):
+            title = "FX Options Workstation" if n_windows == 1 else f"FX Options Workstation #{i + 1}"
+            try:
+                webview.create_window(
+                    title,
+                    "http://127.0.0.1:8765",
+                    width=1920, height=1080,
+                    min_size=(1200, 700),
+                    downloads_path=dl_path,
+                )
+            except TypeError:
+                # pywebview < 4.0 doesn't support downloads_path
+                webview.create_window(
+                    title,
+                    "http://127.0.0.1:8765",
+                    width=1920, height=1080,
+                    min_size=(1200, 700),
+                )
         webview.start()
 
     except ImportError:

@@ -177,9 +177,9 @@ def theta(S, K, T, r, q, sigma, option_type="call") -> float:
     common = -(S * sigma * np.exp(-q * T) * norm.pdf(d1)) / (2 * np.sqrt(T))
     if option_type == "call":
         return (common - r * K * np.exp(-r * T) * norm.cdf(d2)
-                + q * S * np.exp(-q * T) * norm.cdf(d1)) / 365.0
+                + q * S * np.exp(-q * T) * norm.cdf(d1)) / CALENDAR_DAYS_PER_YEAR
     return (common + r * K * np.exp(-r * T) * norm.cdf(-d2)
-            - q * S * np.exp(-q * T) * norm.cdf(-d1)) / 365.0
+            - q * S * np.exp(-q * T) * norm.cdf(-d1)) / CALENDAR_DAYS_PER_YEAR
 
 
 def vega(S, K, T, r, q, sigma) -> float:
@@ -224,7 +224,7 @@ def charm(S, K, T, r, q, sigma, option_type="call") -> float:
         charm_val += q * np.exp(-q * T) * norm.cdf(d1)
     else:
         charm_val -= q * np.exp(-q * T) * norm.cdf(-d1)
-    return charm_val / 365.0
+    return charm_val / CALENDAR_DAYS_PER_YEAR
 
 
 def speed(S, K, T, r, q, sigma) -> float:
@@ -242,7 +242,7 @@ def color_greek(S, K, T, r, q, sigma) -> float:
     d1, d2 = bs_d1_d2(S, K, T, r, q, sigma)
     g = gamma(S, K, T, r, q, sigma)
     dd1dT = (2 * (r - q) * T - d2 * sigma * np.sqrt(T)) / (2 * T * sigma * np.sqrt(T))
-    return g * (q + d1 * dd1dT + 1.0 / (2.0 * T)) / 365.0
+    return g * (q + d1 * dd1dT + 1.0 / (2.0 * T)) / CALENDAR_DAYS_PER_YEAR
 
 
 def ultima(S, K, T, r, q, sigma) -> float:
@@ -463,7 +463,7 @@ def portfolio_var_cvar(positions, S, r, q, horizon_days=1,
     Returns dict with var, cvar, pnl_distribution.
     """
     rng = np.random.RandomState(seed)
-    T_h = horizon_days / 365.0
+    T_h = horizon_days / CALENDAR_DAYS_PER_YEAR
 
     if not positions:
         return {"var": 0.0, "cvar": 0.0, "current_value": 0.0, "pnl_distribution": []}
@@ -573,7 +573,7 @@ def interpolate_vol_surface(strikes, expiries, vol_matrix) -> RectBivariateSplin
 def realized_vol_close_to_close(prices, window=20) -> np.ndarray:
     """Close-to-close realized volatility."""
     log_ret = np.diff(np.log(prices))
-    rv = pd.Series(log_ret).rolling(window).std() * np.sqrt(252)
+    rv = pd.Series(log_ret).rolling(window).std() * np.sqrt(TRADING_DAYS_PER_YEAR)
     return rv.values
 
 
@@ -581,7 +581,7 @@ def realized_vol_parkinson(highs, lows, window=20) -> np.ndarray:
     """Parkinson (high-low) estimator."""
     hl = np.log(highs / lows)
     factor = 1.0 / (4.0 * np.log(2.0))
-    var = pd.Series(factor * hl ** 2).rolling(window).mean() * 252
+    var = pd.Series(factor * hl ** 2).rolling(window).mean() * TRADING_DAYS_PER_YEAR
     return np.sqrt(var.values)
 
 
@@ -590,7 +590,7 @@ def realized_vol_garman_klass(opens, highs, lows, closes, window=20) -> np.ndarr
     log_hl = np.log(highs / lows) ** 2
     log_co = np.log(closes / opens) ** 2
     gk = 0.5 * log_hl - (2 * np.log(2) - 1) * log_co
-    rv = pd.Series(gk).rolling(window).mean() * 252
+    rv = pd.Series(gk).rolling(window).mean() * TRADING_DAYS_PER_YEAR
     return np.sqrt(rv.values)
 
 
@@ -601,7 +601,7 @@ def realized_vol_garman_klass(opens, highs, lows, closes, window=20) -> np.ndarr
 def generate_options_chain(S, r, q, base_vol=0.20, skew=-0.10,
                            expiry_days=30, strike_step=2.5, num_strikes=20) -> list:
     """Generate an analytical options chain for structure analysis (no synthetic volume/OI)."""
-    T = expiry_days / 365.0
+    T = expiry_days / CALENDAR_DAYS_PER_YEAR
     center = round(S / strike_step) * strike_step
     strikes = np.arange(center - num_strikes * strike_step,
                         center + (num_strikes + 1) * strike_step, strike_step)

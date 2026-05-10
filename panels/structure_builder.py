@@ -518,17 +518,29 @@ def _compute_aggregates(processed_legs, S, T, r_d, r_f, notional, pip_size):
 
     spot_range = np.linspace(S * 0.70, S * 1.30, 600)
     expiry_pnl = np.zeros_like(spot_range)
+    # Multi-tenor structures (calendars/diagonals): payoff snapshot at the
+    # FRONT leg's expiry. Legs that expire later still carry remaining
+    # time value at T_front; otherwise this collapses to plain intrinsic.
+    leg_Ts = [lg.get("T", T) for lg in processed_legs]
+    T_front = min(leg_Ts) if leg_Ts else T
     for lg in processed_legs:
         cp = lg["cp_sign"]
         K = lg["strike"]
+        vol = lg.get("vol", 0.10)
+        leg_T = lg.get("T", T)
         qty = lg["side_sign"] * lg["ratio"] * notional
         prem = lg["price_unit"] * abs(qty)
-        intrinsic = np.maximum(cp * (spot_range - K), 0.0) * qty
-        if lg["side_sign"] > 0:
-            intrinsic -= prem
+        T_remain = leg_T - T_front
+        if T_remain <= 1e-6:
+            payoff = np.maximum(cp * (spot_range - K), 0.0) * qty
         else:
-            intrinsic += prem
-        expiry_pnl += intrinsic
+            # Vectorised: _gk_price accepts numpy arrays for S
+            payoff = _gk_price(spot_range, K, T_remain, r_d, r_f, vol, cp) * qty
+        if lg["side_sign"] > 0:
+            payoff -= prem
+        else:
+            payoff += prem
+        expiry_pnl += payoff
 
     # Breakeven(s)
     breakevens = []
@@ -542,12 +554,16 @@ def _compute_aggregates(processed_legs, S, T, r_d, r_f, notional, pip_size):
     max_profit = float(np.max(expiry_pnl))
     max_loss = float(np.min(expiry_pnl))
 
-    # Probability of profit (log-normal distribution)
+    # Probability of profit (log-normal distribution).
+    # Use T_front so multi-tenor structures (calendars) correctly distribute
+    # spot to the FRONT leg's expiry (which is when the payoff snapshot
+    # above is computed).
     atm_vol = 0.10
     if processed_legs:
         atm_vol = max(processed_legs[0].get("vol", 0.10), 0.01)
-    sigma_T = atm_vol * np.sqrt(max(T, 1e-4))
-    mu_T = (r_d - r_f - 0.5 * atm_vol ** 2) * T
+    T_pop = max(T_front, 1e-4)
+    sigma_T = atm_vol * np.sqrt(T_pop)
+    mu_T = (r_d - r_f - 0.5 * atm_vol ** 2) * T_pop
     log_spots = np.log(np.maximum(spot_range, 1e-10) / max(S, 1e-10))
     pdf_vals = np.exp(-0.5 * ((log_spots - mu_T) / sigma_T) ** 2) / (sigma_T * np.sqrt(2 * np.pi) * spot_range)
     _trapz = np.trapezoid if hasattr(np, 'trapezoid') else np.trapz
@@ -602,11 +618,20 @@ def _compute_expected_value(processed_legs, S, T, r_d, r_f, pair, tenor,
         net_prem = sum(lg["price_unit"] * lg["side_sign"] * lg["ratio"]
                        for lg in processed_legs)
         payoff = np.zeros(n_pts)
+        # Multi-tenor structures: payoff snapshot at the FRONT leg's expiry.
+        leg_Ts = [lg.get("T", T) for lg in processed_legs]
+        T_front = min(leg_Ts) if leg_Ts else T
         for lg in processed_legs:
             cp = lg["cp_sign"]
             K = lg["strike"]
+            vol = lg.get("vol", 0.10)
+            leg_T = lg.get("T", T)
             qty = lg["side_sign"] * lg["ratio"]
-            payoff += np.maximum(cp * (spot_grid - K), 0.0) * qty
+            T_remain = leg_T - T_front
+            if T_remain <= 1e-6:
+                payoff += np.maximum(cp * (spot_grid - K), 0.0) * qty
+            else:
+                payoff += _gk_price(spot_grid, K, T_remain, r_d, r_f, vol, cp) * qty
         pnl = (payoff - net_prem) * notional
 
         # ── Historical density (physical measure) ──
@@ -625,8 +650,11 @@ def _compute_expected_value(processed_legs, S, T, r_d, r_f, pair, tenor,
         except Exception:
             hist_vol = atm_vol
 
-        mu_T = (r_d - r_f - 0.5 * hist_vol ** 2) * T
-        sigma_T = hist_vol * np.sqrt(max(T, 1e-6))
+        # Use T_front so multi-tenor structures (calendars) distribute spot
+        # to the front expiry — the time the payoff snapshot above is at.
+        T_ev = max(T_front, 1e-6)
+        mu_T = (r_d - r_f - 0.5 * hist_vol ** 2) * T_ev
+        sigma_T = hist_vol * np.sqrt(T_ev)
 
         # Log-normal PDF: f(S_T) = (1/(S_T*sigma_T*sqrt(2pi))) * exp(-(ln(S_T/S)-mu_T)^2/(2*sigma_T^2))
         log_s = np.log(np.maximum(spot_grid, 1e-10) / max(S, 1e-10))
@@ -995,7 +1023,7 @@ def _generate_risks(processed_legs, agg, notional, S, T, pip_size):
 
 
 def _build_scenario_table(processed_legs, S, T, r_d, r_f, notional):
-    """Compute P&L at fixed spot shocks."""
+    """Compute Today MTM P&L at fixed spot shocks (per-leg T for calendars)."""
     shocks = [-0.10, -0.05, -0.02, -0.01, 0, 0.01, 0.02, 0.05, 0.10]
     net_prem = sum(lg["price_unit"] * lg["side_sign"] * lg["ratio"]
                    for lg in processed_legs)
@@ -1005,7 +1033,8 @@ def _build_scenario_table(processed_legs, S, T, r_d, r_f, notional):
         pnl = 0.0
         for lg in processed_legs:
             qty = lg["side_sign"] * lg["ratio"]
-            pnl += float(_gk_price(s_sh, lg["strike"], T, r_d, r_f,
+            leg_T = max(lg.get("T", T), 1e-6)
+            pnl += float(_gk_price(s_sh, lg["strike"], leg_T, r_d, r_f,
                                    lg["vol"], lg["cp_sign"])) * qty
         results.append({"shock": ds, "pnl": (pnl - net_prem) * notional})
     return results
@@ -1631,19 +1660,37 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
         for lg in processed_legs
     )
 
+    # For multi-tenor structures (calendars, diagonals) the legs expire at
+    # different times. Use each leg's own T; "At Expiry" = at the FRONT
+    # leg's expiry (longer-dated legs still carry remaining time value).
+    leg_Ts = [lg.get("T", T) for lg in processed_legs]
+    T_front = min(leg_Ts) if leg_Ts else T
+    is_multi_tenor = (max(leg_Ts) - T_front) > 1e-6 if leg_Ts else False
+
     for lg in processed_legs:
         cp = lg["cp_sign"]
         K = lg["strike"]
         vol = lg["vol"]
         qty = lg["side_sign"] * lg["ratio"]
+        leg_T = lg.get("T", T)
 
-        intrinsic = np.maximum(cp * (spot_range - K), 0.0) * qty
-        pnl_expiry += intrinsic
+        # At front expiry: leg at T_front uses intrinsic; longer-dated legs
+        # priced at their remaining time = leg_T - T_front.
+        T_remain_expiry = leg_T - T_front
+        if T_remain_expiry <= 1e-6:
+            pnl_expiry += np.maximum(cp * (spot_range - K), 0.0) * qty
+        else:
+            pnl_expiry += _gk_price(spot_range, K, T_remain_expiry,
+                                    r_d, r_f, vol, cp) * qty
 
-        if T > 0.001:
-            # Vectorised: _gk_price accepts numpy arrays for S
-            pnl_half += _gk_price(spot_range, K, max(T * 0.5, 1e-6), r_d, r_f, vol, cp) * qty
-            pnl_now += _gk_price(spot_range, K, T, r_d, r_f, vol, cp) * qty
+        if leg_T > 0.001:
+            # T*0.5: half the time-to-front-expiry has elapsed
+            T_remain_half = max(leg_T - T_front * 0.5, 1e-6)
+            pnl_half += _gk_price(spot_range, K, T_remain_half,
+                                  r_d, r_f, vol, cp) * qty
+            # Today: each leg priced at its full remaining time
+            pnl_now += _gk_price(spot_range, K, leg_T,
+                                 r_d, r_f, vol, cp) * qty
 
     pnl_expiry = (pnl_expiry - net_prem_per_unit) * notional
     pnl_half = (pnl_half - net_prem_per_unit) * notional
@@ -1658,12 +1705,13 @@ def _build_payoff_chart(processed_legs, agg, S, T, r_d, r_f, notional, atm_vol,
                   annotation_text="1\u03c3", annotation_position="top left",
                   annotation_font=dict(color=COLORS["text_muted"], size=9))
 
-    # Expiry P&L (bold)
+    # Expiry P&L (bold) — for multi-tenor, this is the FRONT leg's expiry
+    expiry_label = "At Front Expiry" if is_multi_tenor else "At Expiry"
     fig.add_trace(go.Scatter(
         x=spot_range, y=pnl_expiry, mode="lines",
-        name="At Expiry", line=dict(color=COLORS["accent_cyan"], width=3),
+        name=expiry_label, line=dict(color=COLORS["accent_cyan"], width=3),
         fill="tozeroy", fillcolor="rgba(255,136,0,0.04)",
-        hovertemplate="Spot: %{x:.4f}<br>P&L: %{y:,.0f}<extra>At Expiry</extra>",
+        hovertemplate=f"Spot: %{{x:.4f}}<br>P&L: %{{y:,.0f}}<extra>{expiry_label}</extra>",
     ))
     # T*0.5
     fig.add_trace(go.Scatter(
@@ -1806,8 +1854,11 @@ def _build_pnl_heatmap(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.10):
         for lg in processed_legs:
             vol_shocked = max(lg["vol"] * (1.0 + dv), 0.005)
             qty = lg["side_sign"] * lg["ratio"]
+            # Use per-leg T so multi-tenor structures (calendars) price each
+            # leg at its own expiry rather than the front tenor.
+            leg_T = max(lg.get("T", T), 1e-6)
             # _gk_price is vectorised over S (spot_arr)
-            row_pnl += _gk_price(spot_arr, lg["strike"], T, r_d, r_f,
+            row_pnl += _gk_price(spot_arr, lg["strike"], leg_T, r_d, r_f,
                                  vol_shocked, lg["cp_sign"]) * qty
         pnl_matrix[vi, :] = (row_pnl - net_prem_per_unit) * notional
 
@@ -2123,6 +2174,10 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
         for lg in processed_legs
     )
 
+    # Time-decay sweep horizon for multi-tenor: front leg's expiry.
+    leg_Ts = [lg.get("T", T) for lg in processed_legs]
+    T_front = min(leg_Ts) if leg_Ts else T
+
     # --- P&L vs Vol Shift ---
     vol_shifts = np.linspace(-0.50, 0.50, 50)
     pnl_vol = np.zeros(len(vol_shifts))
@@ -2131,7 +2186,8 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
         for lg in processed_legs:
             vol_s = max(lg["vol"] * (1.0 + dv), 0.005)
             qty = lg["side_sign"] * lg["ratio"]
-            pnl += float(_gk_price(S, lg["strike"], T, r_d, r_f, vol_s, lg["cp_sign"])) * qty
+            leg_T = max(lg.get("T", T), 1e-6)
+            pnl += float(_gk_price(S, lg["strike"], leg_T, r_d, r_f, vol_s, lg["cp_sign"])) * qty
         pnl_vol[vi] = (pnl - net_prem_per_unit) * notional
 
     fig.add_trace(go.Scatter(
@@ -2143,14 +2199,22 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
     fig.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dot"), row=1, col=1)
 
     # --- P&L vs Time Decay ---
-    dte_points = np.linspace(T * 365, 0, 40)
+    # Sweep elapsed time from 0 → T_front (front leg's expiry). Each leg's
+    # remaining life is leg_T - elapsed; legs that hit zero use intrinsic.
+    dte_points = np.linspace(T_front * 365, 0, 40)
     pnl_time = np.zeros(len(dte_points))
     for ti, dte in enumerate(dte_points):
-        t_val = max(dte / 365.0, 1e-6)
+        elapsed = max(T_front - dte / 365.0, 0.0)
         pnl = 0.0
         for lg in processed_legs:
             qty = lg["side_sign"] * lg["ratio"]
-            pnl += float(_gk_price(S, lg["strike"], t_val, r_d, r_f, lg["vol"], lg["cp_sign"])) * qty
+            leg_T = lg.get("T", T)
+            t_remain = leg_T - elapsed
+            if t_remain <= 1e-6:
+                pnl += float(np.maximum(lg["cp_sign"] * (S - lg["strike"]), 0.0)) * qty
+            else:
+                pnl += float(_gk_price(S, lg["strike"], t_remain, r_d, r_f,
+                                       lg["vol"], lg["cp_sign"])) * qty
         pnl_time[ti] = (pnl - net_prem_per_unit) * notional
 
     fig.add_trace(go.Scatter(
@@ -2169,7 +2233,9 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
         pnl = 0.0
         for lg in processed_legs:
             qty = lg["side_sign"] * lg["ratio"]
-            pnl += float(_gk_price(s_sh, lg["strike"], T, r_d, r_f, lg["vol"], lg["cp_sign"])) * qty
+            leg_T = max(lg.get("T", T), 1e-6)
+            pnl += float(_gk_price(s_sh, lg["strike"], leg_T, r_d, r_f,
+                                   lg["vol"], lg["cp_sign"])) * qty
         pnl_spot[si] = (pnl - net_prem_per_unit) * notional
 
     fig.add_trace(go.Scatter(
@@ -2200,10 +2266,36 @@ def _build_scenario_chart(processed_legs, S, T, r_d, r_f, notional):
 # Layout
 # ============================================================================
 
+def _leg_row_outer_style(idx, visible=True):
+    """Outer-container style for one leg row.
+
+    Used by both `_make_leg_row` (initial layout) and the runtime
+    `toggle_leg_rows` callback so they stay in sync — an earlier mismatch
+    forced the new stacked sub-rows side-by-side after every Add/Remove leg
+    or preset change.
+    """
+    row_bg = "#06060f" if idx % 2 == 0 else COLORS["bg_primary"]
+    if not visible:
+        return {"display": "none"}
+    return {
+        "display": "block",
+        "padding": "10px 10px", "borderRadius": "0px",
+        "backgroundColor": row_bg,
+        "borderLeft": f"3px solid {COLORS['accent_orange']}",
+        "marginBottom": "4px",
+    }
+
+
+def _leg_row_styles(num_legs):
+    """Style list driven by toggle_leg_rows — pure for unit-testing."""
+    num_legs = max(1, min(num_legs or 1, MAX_LEGS))
+    return [_leg_row_outer_style(i, visible=(i < num_legs))
+            for i in range(MAX_LEGS)]
+
+
 def _make_leg_row(idx, cp="call", side="buy", delta=0.25, ratio=1, tenor_mult=1.0, visible=True):
     """Generate one leg configuration row — fully stacked for 350px sidebar."""
-    row_bg = "#06060f" if idx % 2 == 0 else COLORS["bg_primary"]
-    display = "block" if visible else "none"
+    outer_style = _leg_row_outer_style(idx, visible=visible)
     _inp = {**INPUT_STYLE, "padding": "5px 8px", "fontSize": "11px", "textAlign": "center",
             "height": "32px"}
     _lbl = {"fontSize": "8px", "color": COLORS["text_muted"], "textTransform": "uppercase",
@@ -2216,7 +2308,7 @@ def _make_leg_row(idx, cp="call", side="buy", delta=0.25, ratio=1, tenor_mult=1.
                 html.Div("TYPE", style=_lbl),
                 dcc.Dropdown(
                     id={"type": "stb-cp", "index": idx},
-                    options=[{"label": "CALL", "value": "call"}, {"label": "PUT", "value": "put"}],
+                    options=[{"label": "C", "value": "call"}, {"label": "P", "value": "put"}],
                     value=cp, clearable=False, searchable=False,
                     style={"fontSize": "11px", "minHeight": "32px"},
                 ),
@@ -2225,7 +2317,7 @@ def _make_leg_row(idx, cp="call", side="buy", delta=0.25, ratio=1, tenor_mult=1.
                 html.Div("SIDE", style=_lbl),
                 dcc.Dropdown(
                     id={"type": "stb-side", "index": idx},
-                    options=[{"label": "BUY", "value": "buy"}, {"label": "SELL", "value": "sell"}],
+                    options=[{"label": "B", "value": "buy"}, {"label": "S", "value": "sell"}],
                     value=side, clearable=False, searchable=False,
                     style={"fontSize": "11px", "minHeight": "32px"},
                 ),
@@ -2237,45 +2329,39 @@ def _make_leg_row(idx, cp="call", side="buy", delta=0.25, ratio=1, tenor_mult=1.
                           style={**_inp, "width": "100%"}, debounce=True),
             ], style={"flex": "1", "minWidth": "55px"}),
         ], style={"display": "flex", "gap": "6px", "alignItems": "flex-end"}),
-        # Row 2: RATIO + TNR× + computed readout
+        # Row 2: RATIO + TNR multiplier
         html.Div([
             html.Div([
                 html.Div("RATIO", style=_lbl),
                 dcc.Input(id={"type": "stb-ratio", "index": idx}, type="number",
                           value=ratio, min=1, max=3, step=1,
                           style={**_inp, "width": "100%"}, debounce=True),
-            ], style={"width": "55px", "flexShrink": "0"}),
+            ], style={"flex": "1", "minWidth": "0"}),
             html.Div([
                 html.Div("TNR\u00d7", style=_lbl),
                 dcc.Input(id={"type": "stb-tenor-mult", "index": idx}, type="number",
                           value=tenor_mult, min=0.5, max=4.0, step=0.5,
                           style={**_inp, "width": "100%"}, debounce=True),
-            ], style={"width": "55px", "flexShrink": "0"}),
-            # Computed readout fills remaining space
-            html.Div([
-                html.Div("STRIKE / VOL / PREM", style=_lbl),
-                html.Div([
-                    html.Span(id={"type": "stb-strike-disp", "index": idx},
-                              style={"color": COLORS["accent_cyan"], "fontSize": "11px",
-                                     "fontWeight": "600"}),
-                    html.Span(" \u00b7 ", style={"color": "#3a3a5c"}),
-                    html.Span(id={"type": "stb-vol-disp", "index": idx},
-                              style={"color": COLORS["text_primary"], "fontSize": "10px"}),
-                    html.Span(" \u00b7 ", style={"color": "#3a3a5c"}),
-                    html.Span(id={"type": "stb-prem-disp", "index": idx},
-                              style={"color": COLORS["accent_orange"], "fontSize": "11px",
-                                     "fontWeight": "600"}),
-                ], style={"paddingTop": "5px", "whiteSpace": "nowrap"}),
             ], style={"flex": "1", "minWidth": "0"}),
         ], style={"display": "flex", "gap": "6px", "marginTop": "6px",
                   "alignItems": "flex-end"}),
-    ], id={"type": "stb-leg-row", "index": idx}, style={
-        "display": display,
-        "padding": "10px 10px", "borderRadius": "0px",
-        "backgroundColor": row_bg,
-        "borderLeft": f"3px solid {COLORS['accent_orange']}",
-        "marginBottom": "4px",
-    })
+        # Row 3: STRIKE / VOL / PREM readout - full width on its own line
+        html.Div([
+            html.Div("STRIKE / VOL / PREM", style=_lbl),
+            html.Div([
+                html.Span(id={"type": "stb-strike-disp", "index": idx},
+                          style={"color": COLORS["accent_cyan"], "fontSize": "11px",
+                                 "fontWeight": "600"}),
+                html.Span(" \u00b7 ", style={"color": "#3a3a5c"}),
+                html.Span(id={"type": "stb-vol-disp", "index": idx},
+                          style={"color": COLORS["text_primary"], "fontSize": "11px"}),
+                html.Span(" \u00b7 ", style={"color": "#3a3a5c"}),
+                html.Span(id={"type": "stb-prem-disp", "index": idx},
+                          style={"color": COLORS["accent_orange"], "fontSize": "11px",
+                                 "fontWeight": "600"}),
+            ], style={"paddingTop": "3px"}),
+        ], style={"marginTop": "6px"}),
+    ], id={"type": "stb-leg-row", "index": idx}, style=outer_style)
 
 
 def layout():
@@ -2742,6 +2828,33 @@ def _build_parallel_coords(processed_legs, S, T, r_d, r_f, notional, atm_vol=0.1
 # ============================================================================
 
 def register_callbacks(app):
+
+    # -- Trade Ideas → Structurer handoff -------------------------------
+    # When the user clicks "Send to Structurer" on the Trade Ideas panel,
+    # ideas-to-structurer-store fires with {pair, tenor, preset}. Set the
+    # three input dropdowns; the preset-change callback below then fans
+    # out to populate all leg fields.
+    @app.callback(
+        [Output("stb-pair",   "value", allow_duplicate=True),
+         Output("stb-tenor",  "value", allow_duplicate=True),
+         Output("stb-preset", "value", allow_duplicate=True)],
+        [Input("ideas-to-structurer-store", "data")],
+        prevent_initial_call=True,
+    )
+    def receive_idea_handoff(idea):
+        if not idea or not isinstance(idea, dict):
+            return no_update, no_update, no_update
+        pair = idea.get("pair")
+        tenor = idea.get("tenor")
+        preset = idea.get("preset")
+        if preset and preset not in PRESETS:
+            preset = "Custom"
+        return (
+            pair  if pair  else no_update,
+            tenor if tenor else no_update,
+            preset if preset else no_update,
+        )
+
     # -- Preset selector updates num-legs and leg configs --
     @app.callback(
         [Output("stb-num-legs", "value", allow_duplicate=True)] +
@@ -2813,23 +2926,7 @@ def register_callbacks(app):
         [Input("stb-num-legs", "value")],
     )
     def toggle_leg_rows(num_legs):
-        num_legs = max(1, min(num_legs or 1, MAX_LEGS))
-        styles = []
-        for i in range(MAX_LEGS):
-            row_bg = COLORS["bg_secondary"] if i % 2 == 0 else COLORS["bg_card"]
-            if i < num_legs:
-                styles.append({
-                    "display": "flex", "gap": "6px", "alignItems": "center",
-                    "padding": "5px 8px", "borderRadius": "0px",
-                    "backgroundColor": row_bg, "marginBottom": "3px",
-                })
-            else:
-                styles.append({
-                    "display": "none", "gap": "6px", "alignItems": "center",
-                    "padding": "5px 8px", "borderRadius": "0px",
-                    "backgroundColor": row_bg, "marginBottom": "3px",
-                })
-        return styles
+        return _leg_row_styles(num_legs)
 
     # -- Main computation callback --
     @app.callback(

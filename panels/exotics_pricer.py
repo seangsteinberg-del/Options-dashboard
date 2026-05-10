@@ -373,7 +373,9 @@ _VIS = {
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
-_empty_fig = no_data_fig
+def _empty_fig(msg="NO DATA", height=300):
+    """Empty figure with message — wraps no_data_fig to accept msg first."""
+    return no_data_fig(height=height, msg=msg)
 
 
 def _get_mkt(pair, tenor):

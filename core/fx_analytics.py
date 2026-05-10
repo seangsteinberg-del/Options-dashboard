@@ -1161,8 +1161,10 @@ def cross_pair_vol_spread(pair_a: str, pair_b: str, tenor: str = "3M",
         return None
 
     n = min(len(hist_a), len(hist_b))
-    a = hist_a[-n:]
-    b = hist_b[-n:]
+    # Use .iloc — get_fx_historical_vol may return a pd.Series with
+    # DatetimeIndex, where bare [-1] / [-n:] tries label lookup.
+    a = hist_a.iloc[-n:].to_numpy() if hasattr(hist_a, "iloc") else np.asarray(hist_a)[-n:]
+    b = hist_b.iloc[-n:].to_numpy() if hasattr(hist_b, "iloc") else np.asarray(hist_b)[-n:]
     spread = a - b
 
     mu = np.mean(spread)
@@ -1221,8 +1223,12 @@ def cross_pair_term_spread(pair_a: str, pair_b: str,
             return None
 
     n = min(len(al), len(a_s), len(bl), len(bs))
-    term_a = al[-n:] - a_s[-n:]
-    term_b = bl[-n:] - bs[-n:]
+    # Use .iloc — get_fx_historical_vol may return a pd.Series with
+    # DatetimeIndex, where bare [-1] / [-n:] tries label lookup.
+    def _tail(arr, k):
+        return arr.iloc[-k:].to_numpy() if hasattr(arr, "iloc") else np.asarray(arr)[-k:]
+    term_a = _tail(al, n) - _tail(a_s, n)
+    term_b = _tail(bl, n) - _tail(bs, n)
     spread = term_a - term_b
 
     mu = np.mean(spread)
@@ -2299,8 +2305,10 @@ def _cross_pair_metric_spread(pair_a: str, pair_b: str, tenor: str,
         return None
 
     n = min(len(ha), len(hb))
-    a = ha[-n:]
-    b = hb[-n:]
+    # Use .iloc — get_fx_historical_vol may return a pd.Series with
+    # DatetimeIndex, where bare [-1] / [-n:] tries label lookup.
+    a = ha.iloc[-n:].to_numpy() if hasattr(ha, "iloc") else np.asarray(ha)[-n:]
+    b = hb.iloc[-n:].to_numpy() if hasattr(hb, "iloc") else np.asarray(hb)[-n:]
     spread = a - b
 
     mu = np.mean(spread)

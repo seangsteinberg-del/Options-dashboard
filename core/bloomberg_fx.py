@@ -234,46 +234,6 @@ def cache_clear():
         _cache.clear()
 
 
-def cache_inject_surface(pair: str, surface: dict):
-    """Inject a historical vol surface into cache for history mode playback.
-
-    Analytics functions like forward_vol() call get_fx_vol_surface(pair)
-    directly.  By temporarily injecting a historical surface, those functions
-    will read the historical data instead of the live surface.
-
-    Returns the original cache entry (full tuple) so the caller can restore it.
-    The read-then-write is atomic under a single lock hold to prevent the
-    background fetcher from slipping in between.
-    """
-    ck = f"volsurf_{pair}"
-    with _cache_lock:
-        original = _cache.get(ck)          # save full (timestamp, value) tuple
-        _cache[ck] = (time.time(), surface)  # inject historical surface
-    return original
-
-
-def cache_restore_surface(pair: str, original):
-    """Restore the original cached vol surface after history mode rendering.
-
-    If the background fetcher wrote a *newer* entry while we held the
-    historical surface, keep the fresher data rather than restoring stale.
-    """
-    ck = f"volsurf_{pair}"
-    with _cache_lock:
-        if original is not None:
-            # Only restore if cache still holds our injected value
-            # (i.e. the bg fetcher hasn't already refreshed it)
-            current = _cache.get(ck)
-            orig_ts = original[0] if isinstance(original, tuple) else 0
-            cur_ts = current[0] if isinstance(current, tuple) else 0
-            if cur_ts <= orig_ts or (time.time() - cur_ts) < 2:
-                # Current entry is our injection or very recent — restore original
-                _cache[ck] = original
-            # else: bg fetcher wrote something newer — keep it
-        else:
-            _cache.pop(ck, None)
-
-
 def get_data_age_seconds(pair: str = None) -> dict:
     """
     Return age in seconds for cached data categories.

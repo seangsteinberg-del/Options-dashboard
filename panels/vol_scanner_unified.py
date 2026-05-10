@@ -91,7 +91,9 @@ def _pairs_for(group):
     return ALL_PAIRS
 
 
-_empty_fig = no_data_fig
+def _empty_fig(msg="NO DATA", height=300):
+    """Empty figure with message — wraps no_data_fig to accept msg first."""
+    return no_data_fig(height=height, msg=msg)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -377,37 +379,68 @@ def _build_cross_bar(metric, lookback):
 # ── Heatmap drill-down charts ────────────────────────────────────────────────
 
 def _build_atm_history(pair, tenor, lookback):
-    """ATM vol history line chart."""
+    """ATM vol history with percentile lines (p10/p50/p90).
+
+    Replaced mean +/- 1 std-dev (Bollinger-like) with static percentile
+    references from the lookback window. Vol is heteroskedastic and
+    fat-tailed; mean-and-std bands give spurious 'breaches' in shocks.
+    """
     try:
         from core.bloomberg_fx import get_fx_historical_vol
-        from core.fx_analytics import vol_percentile
         hist = get_fx_historical_vol(pair, tenor, "ATM", 252)
         if hist is None or len(hist) < 10:
             return _empty_fig(f"{pair} ATM {tenor}",
                               msg=f"No historical vol data for {pair} {tenor}\nNeed 10+ days, got {len(hist) if hist is not None else 0}")
 
         arr = np.array(hist, dtype=float) if not isinstance(hist, np.ndarray) else hist
-        mean_v = float(np.nanmean(arr))
-        std_v = float(np.nanstd(arr))
         x = list(range(len(arr)))
 
+        # Percentile reference lines from the visible window
+        p10 = float(np.nanpercentile(arr, 10))
+        p50 = float(np.nanpercentile(arr, 50))
+        p90 = float(np.nanpercentile(arr, 90))
+
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=x, y=[mean_v + std_v]*len(x),
-                                 mode="lines", line=dict(color="#3a3a5c", width=1, dash="dot"),
-                                 showlegend=False))
-        fig.add_trace(go.Scatter(x=x, y=[mean_v - std_v]*len(x),
-                                 mode="lines", line=dict(color="#3a3a5c", width=1, dash="dot"),
-                                 fill="tonexty", fillcolor="rgba(34,34,64,0.15)", showlegend=False))
-        fig.add_trace(go.Scatter(x=x, y=[mean_v]*len(x),
-                                 mode="lines", line=dict(color="#9a9ab0", width=1, dash="dash"),
-                                 showlegend=False))
+
+        # Subtle p10 -> p90 fill so the in-range region is muted backdrop
+        fig.add_trace(go.Scatter(x=x, y=[p90] * len(x), mode="lines",
+                                 line=dict(color="rgba(255,136,0,0.18)", width=1, dash="dot"),
+                                 showlegend=False, hoverinfo="skip"))
+        fig.add_trace(go.Scatter(x=x, y=[p10] * len(x), mode="lines",
+                                 line=dict(color="rgba(255,136,0,0.18)", width=1, dash="dot"),
+                                 fill="tonexty", fillcolor="rgba(255,136,0,0.05)",
+                                 showlegend=False, hoverinfo="skip"))
+        # Median dashed line
+        fig.add_trace(go.Scatter(x=x, y=[p50] * len(x), mode="lines",
+                                 line=dict(color="#9a9ab0", width=1, dash="dash"),
+                                 showlegend=False, hoverinfo="skip"))
+
+        # ATM line on top
         fig.add_trace(go.Scatter(x=x, y=arr.tolist(), mode="lines",
-                                 line=dict(color="#ff8800", width=2.5), name="ATM",
+                                 line=dict(color="#ff8800", width=2),
+                                 name="ATM",
                                  hovertemplate="Day %{x}: %{y:.2f}%<extra></extra>"))
-        fig.add_trace(go.Scatter(x=[len(arr)-1], y=[float(arr[-1])],
-                                 mode="markers", marker=dict(color="#ff8800", size=7),
+        # Current marker
+        fig.add_trace(go.Scatter(x=[len(arr) - 1], y=[float(arr[-1])],
+                                 mode="markers",
+                                 marker=dict(color="#ff8800", size=7,
+                                             line=dict(width=1, color="#000")),
                                  showlegend=False,
                                  hovertemplate="Current: %{y:.2f}%<extra></extra>"))
+
+        # Right-edge percentile labels (inside plot area)
+        for level, value, color in [
+            (p10, f"p10 {p10:.1f}", "#1565c0"),
+            (p50, f"p50 {p50:.1f}", "#9a9ab0"),
+            (p90, f"p90 {p90:.1f}", "#ff3333"),
+        ]:
+            fig.add_annotation(
+                xref="paper", yref="y", x=1.0, y=level, xanchor="right", yanchor="middle",
+                text=value, showarrow=False,
+                font=dict(size=7, color=color, family=_MONO),
+                bgcolor="rgba(0,0,0,0.5)", borderpad=2,
+            )
+
         fig.update_layout(**chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=False,
                           title=dict(text=f"{pair} ATM {tenor} HISTORY",
@@ -420,7 +453,11 @@ def _build_atm_history(pair, tenor, lookback):
 
 
 def _build_ivrv_chart(pair, tenor, lookback):
-    """IV vs RV spread area chart."""
+    """IV vs RV with sign-colored fill (variance risk premium visualisation).
+
+    Standard MRA Vol Insights / BBG IVRV layout: green fill where IV > RV
+    (premium-selling territory), red where IV < RV (premium-buying).
+    """
     try:
         from core.fx_analytics import iv_rv_spread
         df = iv_rv_spread(pair, tenor, lookback=lookback)
@@ -429,14 +466,37 @@ def _build_ivrv_chart(pair, tenor, lookback):
                               msg=f"No IV-RV data for {pair} {tenor}\nRequires ATM IV + realised vol history")
 
         x = list(range(len(df)))
-        iv = df["iv"].values if hasattr(df, 'columns') else np.zeros(len(df))
-        rv = df["rv"].values if hasattr(df, 'columns') else np.zeros(len(df))
+        iv = df["iv"].values.astype(float) if hasattr(df, 'columns') else np.zeros(len(df))
+        rv = df["rv"].values.astype(float) if hasattr(df, 'columns') else np.zeros(len(df))
 
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=x, y=iv, mode="lines",
-                                 line=dict(color="#ff8800", width=2.5), name="IV"))
-        fig.add_trace(go.Scatter(x=x, y=rv, mode="lines",
-                                 line=dict(color="#00cc66", width=1.5), name="RV"))
+
+        # Build sign-colored fill: green when IV >= RV, red when IV < RV
+        iv_above = np.where(iv >= rv, iv, rv)
+        iv_below = np.where(iv < rv, iv, rv)
+
+        # Lower envelope (RV) -- invisible base for green fill
+        fig.add_trace(go.Scatter(x=x, y=rv.tolist(), mode="lines",
+                                 line=dict(width=0), showlegend=False, hoverinfo="skip"))
+        # Green fill (IV > RV)
+        fig.add_trace(go.Scatter(x=x, y=iv_above.tolist(), mode="lines",
+                                 fill="tonexty", fillcolor="rgba(0,204,102,0.15)",
+                                 line=dict(width=0), showlegend=False, hoverinfo="skip"))
+        # Lower envelope again -- base for red fill
+        fig.add_trace(go.Scatter(x=x, y=rv.tolist(), mode="lines",
+                                 line=dict(width=0), showlegend=False, hoverinfo="skip"))
+        # Red fill (IV < RV)
+        fig.add_trace(go.Scatter(x=x, y=iv_below.tolist(), mode="lines",
+                                 fill="tonexty", fillcolor="rgba(255,51,51,0.16)",
+                                 line=dict(width=0), showlegend=False, hoverinfo="skip"))
+
+        # Lines on top of fills
+        fig.add_trace(go.Scatter(x=x, y=iv.tolist(), mode="lines",
+                                 line=dict(color="#ff8800", width=2), name="IV"))
+        fig.add_trace(go.Scatter(x=x, y=rv.tolist(), mode="lines",
+                                 line=dict(color="#00cc66", width=1.5, dash="dot"),
+                                 name="RV"))
+
         fig.update_layout(**chart_layout(height=CHART_SM,
                           margin=dict(l=40, r=10, t=25, b=15), showlegend=True,
                           legend=dict(x=0.02, y=0.98, font=dict(size=8)),
@@ -565,39 +625,55 @@ def _build_drill_stats(pair, tenor, lookback):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _build_skew_surface():
-    """30×6 RR heatmap."""
+    """30×6 normalised skew (RR/ATM as %) heatmap.
+
+    Cross-pair comparable: a high-vol EM pair with RR=-1.5v on ATM=15v shows the
+    same skew (-10%) as a low-vol G10 pair with RR=-0.5v on ATM=5v.
+    """
     try:
         from core.bloomberg_fx import get_fx_vol_surface
         z_vals = []
         text_vals = []
+        custom_vals = []  # (rr_raw, atm) for hover
         for pair in ALL_PAIRS:
             row_z = []
             row_t = []
+            row_c = []
             surf = get_fx_vol_surface(pair) or {}
             for tenor in SURFACE_TENORS:
                 rr = _extract_rr(surf, tenor)
-                row_z.append(np.clip(rr, -3, 3))
-                row_t.append(f"{rr:+.2f}")
+                atm = _extract_atm(surf, tenor)
+                if atm and atm > 0:
+                    skew_pct = rr / atm * 100
+                else:
+                    skew_pct = 0.0
+                row_z.append(np.clip(skew_pct, -50, 50))
+                row_t.append(f"{skew_pct:+.0f}%")
+                row_c.append([rr, atm if atm else 0.0])
             z_vals.append(row_z)
             text_vals.append(row_t)
+            custom_vals.append(row_c)
 
         fig = go.Figure(go.Heatmap(
             z=z_vals, x=SURFACE_TENORS, y=ALL_PAIRS, text=text_vals,
+            customdata=custom_vals,
             texttemplate="%{text}", textfont=dict(size=9, color="#d0d0d0"),
-            colorscale=SKEW_COLORSCALE, zmin=-3, zmax=3,
-            hovertemplate="<b>%{y}</b> %{x}<br>25D RR: %{z:+.2f}<extra></extra>",
+            colorscale=SKEW_COLORSCALE, zmin=-50, zmax=50,
+            hovertemplate=("<b>%{y}</b> %{x}<br>Skew: %{z:+.1f}% of ATM<br>"
+                           "RR: %{customdata[0]:+.2f}v / ATM: %{customdata[1]:.2f}v<extra></extra>"),
             colorbar=dict(
-                title=dict(text="RR", font=dict(size=9, color="#9a9ab0")),
+                title=dict(text="Skew %", font=dict(size=9, color="#9a9ab0")),
                 tickfont=dict(size=8, color="#9a9ab0"),
                 len=0.6, thickness=10,
                 outlinewidth=0, bgcolor="rgba(0,0,0,0)",
-                tickvals=[-3, -1.5, 0, 1.5, 3],
+                tickvals=[-50, -25, 0, 25, 50],
+                ticktext=["-50%", "-25%", "0", "+25%", "+50%"],
             ),
             xgap=2, ygap=2,
         ))
         fig.update_layout(**chart_layout(height=CHART_LG,
                           margin=dict(l=65, r=60, t=30, b=20),
-                          title=dict(text="25D RISK REVERSAL SURFACE",
+                          title=dict(text="NORMALISED SKEW SURFACE (25D RR / ATM)",
                                      font=dict(size=10, color="#9a9ab0")),
                           yaxis=dict(autorange="reversed", tickfont=dict(size=8, color="#9a9ab0"),
                                      showgrid=False),

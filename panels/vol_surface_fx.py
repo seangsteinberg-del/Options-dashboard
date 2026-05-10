@@ -35,7 +35,6 @@ from core.bloomberg_fx import (
     get_fx_vol_surface, get_fx_spots, get_fx_rates,
     get_fx_historical_vol, get_all_pairs,
     get_fx_historical_spot, get_fx_term_structure,
-    cache_inject_surface, cache_restore_surface,
 )
 from core.fx_analytics import (
     vol_percentile, vol_zscore, vol_regime_detect, vol_cone,
@@ -58,7 +57,7 @@ from core.fx_conventions import (
     FX_PAIR_REGISTRY,
 )
 from core.vanna_volga import vv_smile, sabr_vol, vv_vs_sabr
-from core.config import TENORS_SURFACE, DELTA_LABELS, DELTA_NUMERIC, HISTORY_METRICS, METRIC_TO_KEY
+from core.config import TENORS_SURFACE, DELTA_LABELS, DELTA_NUMERIC
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -91,7 +90,7 @@ CHART_OPTIONS = [
     {"label": "Wing Richness", "value": "wing_richness_chart"},
     {"label": "Forward Vol Surface", "value": "fwd_vol_surface"},
     {"label": "Tail Risk Metrics", "value": "tail_risk_chart"},
-    {"label": "Pair Radar Profile", "value": "radar_profile"},
+    {"label": "Pair Profile (vs Cross)", "value": "radar_profile"},
     {"label": "Vol Surface Timelapse", "value": "vol_timelapse"},
     {"label": "IV vs RV Regime Scatter", "value": "iv_rv_scatter"},
     {"label": "── LAB: TIME SERIES ─", "value": "_ts_header", "disabled": True},
@@ -159,6 +158,27 @@ LAB_NORMALIZE_OPTIONS = [
     {"label": "% Chg",   "value": "pct_change"},
 ]
 
+# Per-chart lookback options (1M / 3M / 6M / 1Y / 2Y / 5Y in trading days).
+# Charts that consume historical data read kw["lookback_days"]; charts that
+# don't use a lookback simply ignore it.
+CHART_LOOKBACK_OPTIONS = [
+    {"label": "1M",  "value": 22},
+    {"label": "3M",  "value": 66},
+    {"label": "6M",  "value": 132},
+    {"label": "1Y",  "value": 252},
+    {"label": "2Y",  "value": 504},
+    {"label": "5Y",  "value": 1260},
+]
+CHART_LOOKBACK_DEFAULT = 252  # 1Y
+
+
+def _lookback_label(days):
+    """Map a lookback in trading days to its short label (e.g. 252 -> '1Y')."""
+    for opt in CHART_LOOKBACK_OPTIONS:
+        if opt["value"] == days:
+            return opt["label"]
+    return f"{days}D"
+
 VIEW_PRESETS = {
     # ── Core views ──
     "Trader":     ["surface_3d", "atm_term", "skew_rr", "iv_rv"],
@@ -175,8 +195,6 @@ VIEW_PRESETS = {
     "Vol-of-Vol":    ["vol_of_vol", "vol_timelapse", "atm_term", "fwd_vol"],
     "Full Scan":     ["skew_term", "rv_estimators", "vol_of_vol", "pdf_comparison"],
     "Carry":         ["lab_study_carry_landscape", "fwd_vol", "lab_term_spread", "atm_term"],
-    # ── History mode optimized ──
-    "History":       ["surface_3d", "heatmap", "atm_term", "smile_curve"],
 }
 
 _PAIR_GROUPS = {
@@ -388,213 +406,6 @@ def _fmt_pctile(p):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# History Mode: prefetch & frame helpers
-# ═══════════════════════════════════════════════════════════════════════════
-
-_HISTORY_METRICS = HISTORY_METRICS
-_METRIC_TO_KEY = METRIC_TO_KEY
-
-# Charts fully supported in history mode (use sd dict directly or via cache injection)
-_HISTORY_SUPPORTED = {
-    "surface_3d", "heatmap", "atm_term", "smile_curve", "sabr_params",
-    "skew_rr", "smile_bf",
-    # Tier 2: work via cache injection
-    "fwd_vol", "fwd_vol_surface", "implied_dist", "wing_richness_chart",
-    "surface_change",
-}
-
-
-def _prefetch_history_frames(pair, lookback_days):
-    """Build a list of historical vol surface snapshots for animated playback.
-
-    For each trading day in the lookback window, reconstructs the full vol
-    surface by cross-sectioning cached BDH time series at that date.
-
-    Returns list[dict] — one JSON-serializable frame per trading day,
-    ordered oldest → newest, with the final frame being "today" (live data).
-    """
-    # 1. Fetch all (tenor, metric) time series
-    all_series = {}
-    fetch_days = lookback_days + 15  # buffer for alignment
-    for tenor in TENORS_LIST:
-        for metric in _HISTORY_METRICS:
-            try:
-                s = get_fx_historical_vol(pair, tenor, metric, fetch_days)
-                if s is not None and len(s) > 0:
-                    all_series[(tenor, metric)] = s
-            except Exception:
-                pass
-
-    if not all_series:
-        logger.warning("History mode: no historical vol data for %s", pair)
-        return []
-
-    # 2. Fetch historical spot
-    spot_series = None
-    try:
-        spot_df = get_fx_historical_spot(pair, fetch_days)
-        if spot_df is not None and not spot_df.empty:
-            for c in ("close", "Close"):
-                if c in spot_df.columns:
-                    spot_series = spot_df[c]
-                    break
-            if spot_series is None and len(spot_df.columns) > 0:
-                spot_series = spot_df.iloc[:, -1]
-    except Exception:
-        pass
-
-    # 3. Find common date index (intersection of all ATM series dates)
-    atm_series = {k: v for k, v in all_series.items() if k[1] == "ATM"}
-    if not atm_series:
-        return []
-
-    # Use the ATM series with the most coverage as the date backbone
-    backbone = max(atm_series.values(), key=len)
-    if not hasattr(backbone, 'index'):
-        return []
-
-    dates = backbone.index[-lookback_days:] if len(backbone) >= lookback_days else backbone.index
-
-    # 4. Build one frame per date
-    frames = []
-    for i, dt in enumerate(dates):
-        dt_label = dt.strftime("%Y-%m-%d") if hasattr(dt, 'strftime') else str(dt)
-        days_ago = len(dates) - i  # oldest frame = lookback_days, newest = 1
-
-        # Extract surface values at this date
-        surface_raw = {}
-        tenors_avail = []
-        atm_vals, rr25_vals, bf25_vals, rr10_vals, bf10_vals = [], [], [], [], []
-
-        for tenor in TENORS_LIST:
-            row = {}
-            has_atm = False
-            for metric in _HISTORY_METRICS:
-                key = (tenor, metric)
-                s = all_series.get(key)
-                if s is None:
-                    continue
-                # Find this date in the series (nearest business day)
-                if dt in s.index:
-                    val = float(s.loc[dt])
-                elif hasattr(s.index, 'get_indexer'):
-                    idx = s.index.get_indexer([dt], method="ffill")
-                    if idx[0] >= 0:
-                        val = float(s.iloc[idx[0]])
-                    else:
-                        continue
-                else:
-                    continue
-
-                if np.isnan(val) or val == 0:
-                    continue
-                row[_METRIC_TO_KEY[metric]] = val
-                if metric == "ATM":
-                    has_atm = True
-
-            if has_atm and "atm" in row:
-                surface_raw[tenor] = row
-                tenors_avail.append(tenor)
-                atm_vals.append(row.get("atm", 0))
-                rr25_vals.append(row.get("rr25", 0))
-                bf25_vals.append(row.get("bf25", 0))
-                rr10_vals.append(row.get("rr10", 0))
-                bf10_vals.append(row.get("bf10", 0))
-
-        if not tenors_avail:
-            continue  # skip dates with no data
-
-        # Build vol_grid via bf_rr_to_smile
-        n = len(tenors_avail)
-        vol_grid = []
-        for j in range(n):
-            smile = bf_rr_to_smile(atm_vals[j], rr25_vals[j], bf25_vals[j],
-                                   rr10_vals[j], bf10_vals[j])
-            vol_grid.append([
-                smile.get("p10", smile["p25"]),
-                smile["p25"], smile["atm"],
-                smile["c25"], smile.get("c10", smile["c25"]),
-            ])
-
-        T_years = [tenor_to_years(t) for t in tenors_avail]
-
-        # Historical spot at this date
-        hist_spot = 1.0
-        if spot_series is not None and len(spot_series) > 0:
-            if dt in spot_series.index:
-                hist_spot = float(spot_series.loc[dt])
-            elif hasattr(spot_series.index, 'get_indexer'):
-                idx = spot_series.index.get_indexer([dt], method="ffill")
-                if idx[0] >= 0:
-                    hist_spot = float(spot_series.iloc[idx[0]])
-
-        frames.append({
-            "date_label": dt_label,
-            "days_ago": days_ago,
-            "tenors": tenors_avail,
-            "T_years": T_years,
-            "atm": atm_vals,
-            "rr25": rr25_vals,
-            "bf25": bf25_vals,
-            "rr10": rr10_vals,
-            "bf10": bf10_vals,
-            "vol_grid": vol_grid,
-            "delta_labels": list(DELTA_LABELS),
-            "delta_numeric": list(DELTA_NUMERIC),
-            "surface_raw": surface_raw,
-            "spot": hist_spot,
-        })
-
-    # 5. Append "today" frame from live data
-    try:
-        live_sd = _get_surface_data(pair)
-        if live_sd is not None:
-            spots = get_fx_spots([pair]) or {}
-            live_spot = spots.get(pair, {}).get("mid", 1.0)
-            frames.append({
-                "date_label": "Today",
-                "days_ago": 0,
-                "tenors": live_sd["tenors"],
-                "T_years": live_sd["T_years"].tolist(),
-                "atm": live_sd["atm"].tolist(),
-                "rr25": live_sd["rr25"].tolist(),
-                "bf25": live_sd["bf25"].tolist(),
-                "rr10": live_sd["rr10"].tolist(),
-                "bf10": live_sd["bf10"].tolist(),
-                "vol_grid": live_sd["vol_grid"].tolist(),
-                "delta_labels": list(live_sd["delta_labels"]),
-                "delta_numeric": list(live_sd["delta_numeric"])
-                                 if isinstance(live_sd["delta_numeric"], np.ndarray)
-                                 else list(live_sd["delta_numeric"]),
-                "surface_raw": live_sd["surface_raw"],
-                "spot": live_spot,
-            })
-    except Exception:
-        pass
-
-    logger.info("History mode: built %d frames for %s (%d-day lookback)",
-                len(frames), pair, lookback_days)
-    return frames
-
-
-def _frame_to_sd(frame):
-    """Convert a JSON-serializable frame dict back to an sd dict with numpy arrays."""
-    return {
-        "tenors": frame["tenors"],
-        "T_years": np.array(frame["T_years"]),
-        "atm": np.array(frame["atm"]),
-        "rr25": np.array(frame["rr25"]),
-        "bf25": np.array(frame["bf25"]),
-        "rr10": np.array(frame["rr10"]),
-        "bf10": np.array(frame["bf10"]),
-        "vol_grid": np.array(frame["vol_grid"]),
-        "delta_labels": frame["delta_labels"],
-        "delta_numeric": np.array(frame["delta_numeric"]),
-        "surface_raw": frame["surface_raw"],
-    }
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # 14 Chart Functions  (each wrapped with @_safe_chart for error resilience)
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -683,150 +494,206 @@ def chart_heatmap(pair, sd, spot, r_dom, r_for, **kw):
 
 @_safe_chart
 def chart_atm_term(pair, sd, spot, r_dom, r_for, **kw):
-    """3. ATM Term Structure with history overlays and forward vol."""
+    """3. ATM Term Structure with 1Y range envelope and 1W/1M overlays.
+
+    JPM/GS/Citi/DB FX vol weeklies all show today + a shaded 1Y min/max
+    band so the trader sees instantly whether the curve sits in tail
+    territory or near its trailing range.
+    """
     fig = go.Figure()
     tenors = sd["tenors"]
-    T_years = sd["T_years"]
-    in_history = kw.get("history_mode", False)
 
-    # Current ATM line (bold cyan)
+    # 1Y min/max envelope (shaded, traced first so the line sits on top)
+    p_mins, p_maxs = [], []
+    for t in tenors:
+        p = vol_percentile(pair, t, "ATM")
+        if isinstance(p, dict):
+            p_mins.append(p.get("min", float("nan")))
+            p_maxs.append(p.get("max", float("nan")))
+        else:
+            p_mins.append(float("nan"))
+            p_maxs.append(float("nan"))
+    if any(np.isfinite(v) for v in p_maxs):
+        fig.add_trace(go.Scatter(
+            x=list(tenors) + list(tenors)[::-1],
+            y=p_maxs + p_mins[::-1],
+            fill="toself", fillcolor="rgba(255,136,0,0.07)",
+            line=dict(width=0), name="1Y range",
+            hoverinfo="skip", showlegend=True,
+        ))
+
+    # 1M ago overlay (dotted) -- traced before 1W so the more recent overlay sits on top
+    try:
+        hist_1m = []
+        for t in tenors:
+            ch = vol_change(pair, t, "ATM", days_ago=22)
+            hist_1m.append(ch.get("previous") if ch else None)
+        fig.add_trace(go.Scatter(
+            x=tenors, y=hist_1m, mode="lines",
+            name="1M ago",
+            line=dict(color=COLORS["accent_purple"], width=1.3, dash="dot"),
+            hovertemplate="%{x}: %{y:.2f}%<extra>1M ago</extra>",
+        ))
+    except Exception:
+        pass
+
+    # 1W ago overlay (dashed)
+    try:
+        hist_1w = []
+        for t in tenors:
+            ch = vol_change(pair, t, "ATM", days_ago=5)
+            hist_1w.append(ch.get("previous") if ch else None)
+        fig.add_trace(go.Scatter(
+            x=tenors, y=hist_1w, mode="lines",
+            name="1W ago",
+            line=dict(color=COLORS["accent_blue"], width=1.5, dash="dash"),
+            hovertemplate="%{x}: %{y:.2f}%<extra>1W ago</extra>",
+        ))
+    except Exception:
+        pass
+
+    # Current ATM line (primary)
     fig.add_trace(go.Scatter(
         x=tenors, y=sd["atm"], mode="lines+markers",
-        name="ATM (current)", line=dict(color=COLORS["accent_cyan"], width=3),
-        marker=dict(size=6, color=COLORS["accent_cyan"]),
+        name="Current",
+        line=dict(color=COLORS["accent_orange"], width=2.8),
+        marker=dict(size=7, color=COLORS["accent_orange"],
+                    line=dict(width=1, color="#000000")),
         hovertemplate="<b>%{x}</b><br>ATM: %{y:.2f}%<extra></extra>",
     ))
-
-    # History overlays — suppressed in history playback mode (they'd be
-    # relative to today, not the snapshot date)
-    if not in_history:
-        # 1W ago overlay (dashed)
-        try:
-            hist_1w = []
-            for t in tenors:
-                ch = vol_change(pair, t, "ATM", days_ago=5)
-                hist_1w.append(ch.get("previous") if ch else None)
-            fig.add_trace(go.Scatter(
-                x=tenors, y=hist_1w, mode="lines",
-                name="1W ago", line=dict(color=COLORS["accent_blue"], width=1.5, dash="dash"),
-                hovertemplate="%{x}: %{y:.2f}%<extra>1W ago</extra>",
-            ))
-        except Exception:
-            pass
-
-        # 1M ago overlay (dotted)
-        try:
-            hist_1m = []
-            for t in tenors:
-                ch = vol_change(pair, t, "ATM", days_ago=22)
-                hist_1m.append(ch.get("previous") if ch else None)
-            fig.add_trace(go.Scatter(
-                x=tenors, y=hist_1m, mode="lines",
-                name="1M ago", line=dict(color=COLORS["accent_purple"], width=1.5, dash="dot"),
-                hovertemplate="%{x}: %{y:.2f}%<extra>1M ago</extra>",
-            ))
-        except Exception:
-            pass
 
     _apply_chart_template(fig, f"ATM Term Structure -- {pair}")
     fig.update_layout(
         xaxis=dict(title="Tenor", type="category"),
         yaxis=dict(title="ATM Vol (%)"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
     )
     return fig
 
 
 @_safe_chart
 def chart_skew_rr(pair, sd, spot, r_dom, r_for, **kw):
-    """4. Skew Profile (25D RR) -- line chart with 1Y range ribbon."""
+    """4. Skew Profile (25D RR / ATM) -- shaded 1Y range envelope, current line.
+
+    Industry convention is a shaded historical range envelope (min/max or
+    p10-p90), NOT error bars. Error bars in finance imply confidence intervals
+    of an estimate; using them for observed historical range is a category
+    error. Standard in JPM/GS/Citi/DB FX vol weeklies.
+    """
     tenors = sd["tenors"]
-    rr_vals = sd["rr25"]
-    in_history = kw.get("history_mode", False)
+    rr_raw = np.asarray(sd["rr25"], dtype=float)
+    atm_arr = np.asarray(sd["atm"], dtype=float)
+    safe_atm = np.where(atm_arr > 0, atm_arr, np.nan)
+    skew_vals = rr_raw / safe_atm * 100
 
     pctiles = []
     p_mins = []
     p_maxs = []
-    if in_history:
-        # Skip expensive vol_percentile calls in history mode
-        for i, t in enumerate(tenors):
+    for i, t in enumerate(tenors):
+        p = vol_percentile(pair, t, "25D_RR")
+        atm_t = atm_arr[i] if i < len(atm_arr) and atm_arr[i] > 0 else 1.0
+        if isinstance(p, dict):
+            pctiles.append(p.get("percentile", 50.0))
+            # Historical RR min/max divided by CURRENT ATM (best-available divisor;
+            # historical ATMs are not stored alongside historical RR)
+            p_mins.append(p.get("min", 0) / atm_t * 100)
+            p_maxs.append(p.get("max", 0) / atm_t * 100)
+        else:
             pctiles.append(50.0)
-            v = rr_vals[i] if i < len(rr_vals) else 0
-            p_mins.append(v)
-            p_maxs.append(v)
-    else:
-        for t in tenors:
-            p = vol_percentile(pair, t, "25D_RR")
-            if isinstance(p, dict):
-                pctiles.append(p.get("percentile", 50.0))
-                p_mins.append(p.get("min", 0))
-                p_maxs.append(p.get("max", 0))
-            else:
-                pctiles.append(50.0)
-                p_mins.append(rr_vals[tenors.index(t)] if t in tenors else 0)
-                p_maxs.append(rr_vals[tenors.index(t)] if t in tenors else 0)
+            p_mins.append(skew_vals[i] if i < len(skew_vals) else 0)
+            p_maxs.append(skew_vals[i] if i < len(skew_vals) else 0)
 
-    # Percentile-based marker colors
+    fig = go.Figure()
+
+    # 1Y range envelope (shaded fill between min and max) -- traced first
+    # so the line sits on top
+    fig.add_trace(go.Scatter(
+        x=list(tenors) + list(tenors)[::-1],
+        y=p_maxs + p_mins[::-1],
+        fill="toself", fillcolor="rgba(255,136,0,0.10)",
+        line=dict(width=0), name="1Y range",
+        hoverinfo="skip", showlegend=True,
+    ))
+
+    # Percentile-based marker colors (cool=cheap, warm=rich)
     colors = []
     for pct in pctiles:
         r = int(min(255, pct * 2.55))
         b = int(min(255, (100 - pct) * 2.55))
         colors.append(f"rgb({r},60,{b})")
 
-    fig = go.Figure()
-
-    # Current RR line with error bars showing 1Y range at each tenor
+    # Current normalised skew line
     fig.add_trace(go.Scatter(
-        x=tenors, y=rr_vals, mode="lines+markers+text",
-        name="25D RR", line=dict(color=COLORS["accent_orange"], width=2.5),
-        marker=dict(size=10, color=colors, line=dict(width=2, color=COLORS["accent_orange"])),
-        error_y=dict(
-            type="data", symmetric=False,
-            array=[p_maxs[i] - rr_vals[i] for i in range(len(rr_vals))],
-            arrayminus=[rr_vals[i] - p_mins[i] for i in range(len(rr_vals))],
-            color=COLORS["text_muted"], thickness=1, width=6,
-        ) if not in_history else None,
-        text=[f"{v:+.2f}" if np.isfinite(v) else "" for v in rr_vals],
-        textposition="top center",
-        textfont=dict(size=10, color=COLORS["text_secondary"]),
-        hovertemplate="<b>%{x}</b><br>25D RR: %{y:+.2f}<extra></extra>" if in_history else
-                      "<b>%{x}</b><br>25D RR: %{y:+.2f}<br>%ile: %{customdata[0]:.0f}<br>1Y Range: %{customdata[1]:+.2f} / %{customdata[2]:+.2f}<extra></extra>",
-        customdata=list(zip(pctiles, p_mins, p_maxs)),
+        x=tenors, y=skew_vals, mode="lines+markers",
+        name="Current",
+        line=dict(color=COLORS["accent_orange"], width=2.5),
+        marker=dict(size=9, color=colors,
+                    line=dict(width=1.5, color=COLORS["accent_orange"])),
+        hovertemplate=(
+            "<b>%{x}</b><br>Skew: %{y:+.1f}% of ATM<br>"
+            "RR: %{customdata[3]:+.2f}v / ATM: %{customdata[4]:.2f}v<br>"
+            "%ile: %{customdata[0]:.0f}<br>"
+            "1Y range: %{customdata[1]:+.1f}% / %{customdata[2]:+.1f}%<extra></extra>"
+        ),
+        customdata=list(zip(pctiles, p_mins, p_maxs,
+                            rr_raw.tolist(), atm_arr.tolist())),
     ))
 
+    # 1W-ago overlay (dashed) for direction-of-move context (JPM/Citi standard)
+    try:
+        prev_skew = []
+        for i, t in enumerate(tenors):
+            ch = vol_change(pair, t, "25D_RR", days_ago=5)
+            atm_t = atm_arr[i] if i < len(atm_arr) and atm_arr[i] > 0 else 1.0
+            prev_skew.append((ch.get("previous", 0) / atm_t * 100) if ch else None)
+        fig.add_trace(go.Scatter(
+            x=tenors, y=prev_skew, mode="lines",
+            name="1W ago",
+            line=dict(color=COLORS["accent_purple"], width=1.3, dash="dash"),
+            hovertemplate="%{x}: %{y:+.1f}%<extra>1W ago</extra>",
+        ))
+    except Exception:
+        pass
+
     fig.add_hline(y=0, line=dict(color="#3a3a5c", width=0.8))
-    _apply_chart_template(fig, f"25D Risk Reversal -- {pair}")
-    fig.update_layout(xaxis=dict(title="Tenor", type="category"),
-                      yaxis=dict(title="25D RR (vol pts)"))
+    _apply_chart_template(fig, f"25D Skew (RR / ATM) -- {pair}")
+    fig.update_layout(
+        xaxis=dict(title="Tenor", type="category"),
+        yaxis=dict(title="Normalised Skew (% of ATM)"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
+    )
     return fig
 
 
 @_safe_chart
 def chart_smile_bf(pair, sd, spot, r_dom, r_for, **kw):
-    """5. Smile Curvature (25D BF) -- line chart with 1Y range ribbon."""
+    """5. Butterfly Term Structure -- 25D BF + 10D BF, shaded 1Y envelope.
+
+    Castagna ch. 4 plots ATM/RR/BF as a triplet; the 10D-vs-25D BF spread is
+    a wing-pricing signal traders watch. Convention: shaded historical range
+    (not error bars). Convention assumed Vega-Weighted (VWB) per modern BBG.
+    """
     tenors = sd["tenors"]
-    bf_vals = sd["bf25"]
-    in_history = kw.get("history_mode", False)
+    bf25_vals = np.asarray(sd["bf25"], dtype=float)
+    bf10_vals = np.asarray(sd["bf10"], dtype=float)
 
     pctiles = []
     p_mins = []
     p_maxs = []
-    if in_history:
-        for i, t in enumerate(tenors):
+    for t in tenors:
+        p = vol_percentile(pair, t, "25D_BF")
+        if isinstance(p, dict):
+            pctiles.append(p.get("percentile", 50.0))
+            p_mins.append(p.get("min", 0))
+            p_maxs.append(p.get("max", 0))
+        else:
             pctiles.append(50.0)
-            v = bf_vals[i] if i < len(bf_vals) else 0
-            p_mins.append(v)
-            p_maxs.append(v)
-    else:
-        for t in tenors:
-            p = vol_percentile(pair, t, "25D_BF")
-            if isinstance(p, dict):
-                pctiles.append(p.get("percentile", 50.0))
-                p_mins.append(p.get("min", 0))
-                p_maxs.append(p.get("max", 0))
-            else:
-                pctiles.append(50.0)
-                p_mins.append(bf_vals[tenors.index(t)] if t in tenors else 0)
-                p_maxs.append(bf_vals[tenors.index(t)] if t in tenors else 0)
+            p_mins.append(float(bf25_vals[tenors.index(t)]) if t in tenors else 0)
+            p_maxs.append(float(bf25_vals[tenors.index(t)]) if t in tenors else 0)
 
     colors = []
     for pct in pctiles:
@@ -836,28 +703,58 @@ def chart_smile_bf(pair, sd, spot, r_dom, r_for, **kw):
 
     fig = go.Figure()
 
-    # Current BF line with error bars showing 1Y range at each tenor
+    # Shaded 1Y range envelope for 25D BF
     fig.add_trace(go.Scatter(
-        x=tenors, y=bf_vals, mode="lines+markers+text",
-        name="25D BF", line=dict(color=COLORS["accent_cyan"], width=2.5),
-        marker=dict(size=10, color=colors, line=dict(width=2, color=COLORS["accent_cyan"])),
-        error_y=dict(
-            type="data", symmetric=False,
-            array=[p_maxs[i] - bf_vals[i] for i in range(len(bf_vals))],
-            arrayminus=[bf_vals[i] - p_mins[i] for i in range(len(bf_vals))],
-            color=COLORS["text_muted"], thickness=1, width=6,
-        ) if not in_history else None,
-        text=[f"{v:.2f}" if np.isfinite(v) else "" for v in bf_vals],
-        textposition="top center",
-        textfont=dict(size=10, color=COLORS["text_secondary"]),
-        hovertemplate="<b>%{x}</b><br>25D BF: %{y:.2f}<extra></extra>" if in_history else
-                      "<b>%{x}</b><br>25D BF: %{y:.2f}<br>%ile: %{customdata[0]:.0f}<br>1Y Range: %{customdata[1]:.2f} / %{customdata[2]:.2f}<extra></extra>",
+        x=list(tenors) + list(tenors)[::-1],
+        y=p_maxs + p_mins[::-1],
+        fill="toself", fillcolor="rgba(0,180,216,0.10)",
+        line=dict(width=0), name="25D BF 1Y range",
+        hoverinfo="skip", showlegend=True,
+    ))
+
+    # 10D BF line (wing pricing) -- traced before 25D so 25D is dominant
+    if np.any(np.isfinite(bf10_vals)) and not np.allclose(bf10_vals, 0):
+        fig.add_trace(go.Scatter(
+            x=tenors, y=bf10_vals, mode="lines+markers",
+            name="10D BF",
+            line=dict(color=COLORS["accent_orange"], width=1.8, dash="dot"),
+            marker=dict(size=6, color=COLORS["accent_orange"]),
+            hovertemplate="%{x}: %{y:.2f}v<extra>10D BF</extra>",
+        ))
+
+    # 25D BF current line (primary)
+    fig.add_trace(go.Scatter(
+        x=tenors, y=bf25_vals, mode="lines+markers",
+        name="25D BF",
+        line=dict(color=COLORS["accent_cyan"], width=2.5),
+        marker=dict(size=9, color=colors,
+                    line=dict(width=1.5, color=COLORS["accent_cyan"])),
+        hovertemplate=(
+            "<b>%{x}</b><br>25D BF: %{y:.2f}v<br>"
+            "%ile: %{customdata[0]:.0f}<br>"
+            "1Y range: %{customdata[1]:.2f} / %{customdata[2]:.2f}<extra></extra>"
+        ),
         customdata=list(zip(pctiles, p_mins, p_maxs)),
     ))
 
-    _apply_chart_template(fig, f"25D Butterfly -- {pair}")
-    fig.update_layout(xaxis=dict(title="Tenor", type="category"),
-                      yaxis=dict(title="25D BF (vol pts)"))
+    # Convention label (Vega-Weighted Butterfly) -- prevents ambiguity vs SSB
+    fig.add_annotation(
+        xref="paper", yref="paper", x=0.99, y=0.02,
+        xanchor="right", yanchor="bottom",
+        text="VWB convention",
+        showarrow=False,
+        font=dict(size=8, color=COLORS["text_muted"],
+                  family="'JetBrains Mono', monospace"),
+    )
+
+    _apply_chart_template(fig, f"Butterfly Term Structure -- {pair}")
+    fig.update_layout(
+        xaxis=dict(title="Tenor", type="category"),
+        yaxis=dict(title="BF (vol pts)"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
+    )
     return fig
 
 
@@ -1034,10 +931,19 @@ def chart_smile_curve(pair, sd, spot, r_dom, r_for, **kw):
 
 @_safe_chart
 def chart_vol_ts(pair, sd, spot, r_dom, r_for, **kw):
-    """8. Vol Time Series with Bollinger bands."""
+    """8. ATM IV time series with percentile bands + matched-tenor realized vol overlay.
+
+    Bollinger bands are a price-chart construct; on a vol series they give
+    spurious 'breaches' in shocks (when the signal matters most). Standard
+    FX-desk overlays are: (a) static percentile lines from a long lookback,
+    (b) trailing realized vol of the matching tenor, (c) optional regime
+    backshading. References: Macroption, MRA Vol Insights, Susquehanna FX.
+    """
+    from core.fx_conventions import tenor_to_days
     sel_tenor = kw.get("ts_tenor", "3M")
+    lookback = int(kw.get("lookback_days") or 252)
     try:
-        hist = get_fx_historical_vol(pair, sel_tenor, "ATM", 252)
+        hist = get_fx_historical_vol(pair, sel_tenor, "ATM", lookback)
         if isinstance(hist, dict):
             hist = list(hist.values()) if hist else None
         if hist is None or len(hist) < 20:
@@ -1045,68 +951,113 @@ def chart_vol_ts(pair, sd, spot, r_dom, r_for, **kw):
     except Exception:
         return no_data_fig(height=CHART_MD, msg="NO VOL HISTORY")
 
-    # Use actual dates from Bloomberg index if available, else sequential days
+    # Date axis from Bloomberg index if available
     if hasattr(hist, 'index') and hasattr(hist.index, 'date'):
         days = hist.index
     else:
         days = np.arange(len(hist))
     series = pd.Series(hist)
-    ma20 = series.rolling(20).mean()
-    std20 = series.rolling(20).std()
-    upper = ma20 + 2 * std20
-    lower = ma20 - 2 * std20
+    arr = series.values.astype(float)
+
+    # Percentile reference lines from the lookback window
+    p10 = float(np.nanpercentile(arr, 10))
+    p50 = float(np.nanpercentile(arr, 50))
+    p90 = float(np.nanpercentile(arr, 90))
+
+    # Matched-tenor realized vol overlay (trailing, same horizon as the IV tenor)
+    rv_arr = None
+    try:
+        rv_window = max(5, int(tenor_to_days(sel_tenor)))
+        # Pull a bit more spot history than the IV lookback so the trailing window
+        # is fully populated at the start of the series
+        spot_hist = get_fx_historical_spot(pair, lookback + rv_window + 10)
+        if spot_hist is not None and not (isinstance(spot_hist, pd.DataFrame) and spot_hist.empty):
+            if isinstance(spot_hist, pd.DataFrame):
+                col = "close" if "close" in spot_hist.columns else (
+                    "Close" if "Close" in spot_hist.columns else spot_hist.columns[-1])
+                closes = spot_hist[col].values.astype(float)
+            elif isinstance(spot_hist, pd.Series):
+                closes = spot_hist.values.astype(float)
+            else:
+                closes = np.asarray(spot_hist, dtype=float)
+            log_ret = np.diff(np.log(closes))
+            if len(log_ret) >= rv_window:
+                rv_full = pd.Series(log_ret).rolling(rv_window).std() * np.sqrt(252) * 100
+                rv_full = rv_full.dropna().values
+                # Right-align to IV series length
+                n_iv = len(arr)
+                if len(rv_full) >= n_iv:
+                    rv_arr = rv_full[-n_iv:]
+                else:
+                    rv_arr = np.concatenate([np.full(n_iv - len(rv_full), np.nan), rv_full])
+    except Exception:
+        rv_arr = None
 
     fig = go.Figure()
 
-    # Bollinger band fill
+    # Percentile horizontals — drawn first so the line sits on top
+    for level, value, label, color in [
+        (10, p10, f"p10 {p10:.1f}", COLORS["accent_blue"]),
+        (50, p50, f"p50 {p50:.1f}", COLORS["text_muted"]),
+        (90, p90, f"p90 {p90:.1f}", COLORS["accent_red"]),
+    ]:
+        fig.add_hline(
+            y=value, line=dict(color=color, width=1, dash="dash"),
+            annotation_text=label, annotation_position="left",
+            annotation_font=dict(size=8, color=color),
+        )
+
+    # Realized vol overlay (matched tenor)
+    if rv_arr is not None and np.any(np.isfinite(rv_arr)):
+        fig.add_trace(go.Scatter(
+            x=days, y=rv_arr, mode="lines",
+            name=f"RV {sel_tenor}",
+            line=dict(color=COLORS["accent_cyan"], width=1.5, dash="dot"),
+            hovertemplate="%{x}<br>RV: %{y:.2f}%<extra></extra>",
+        ))
+
+    # ATM IV line (primary)
     fig.add_trace(go.Scatter(
-        x=np.concatenate([days, days[::-1]]),
-        y=np.concatenate([upper.values, lower.values[::-1]]),
-        fill="toself", fillcolor="rgba(255,136,0,0.12)",
-        line=dict(width=0), showlegend=False, hoverinfo="skip",
+        x=days, y=arr, mode="lines",
+        name=f"ATM IV {sel_tenor}",
+        line=dict(color=COLORS["accent_orange"], width=2),
+        hovertemplate="<b>%{y:.2f}%</b><br>%{x}<extra>ATM IV</extra>",
     ))
 
-    # Upper/lower bands
-    fig.add_trace(go.Scatter(x=days, y=upper, mode="lines", name="BB Upper",
-        line=dict(color=COLORS["accent_cyan"], width=1, dash="dot"), showlegend=False,
-        hovertemplate="Day %{x}: %{y:.2f}%<extra>BB Upper</extra>"))
-    fig.add_trace(go.Scatter(x=days, y=lower, mode="lines", name="BB Lower",
-        line=dict(color=COLORS["accent_cyan"], width=1, dash="dot"), showlegend=False,
-        hovertemplate="Day %{x}: %{y:.2f}%<extra>BB Lower</extra>"))
-
-    # MA line
-    fig.add_trace(go.Scatter(x=days, y=ma20, mode="lines", name="20d MA",
-        line=dict(color=COLORS["accent_blue"], width=1.5, dash="dash"),
-        hovertemplate="Day %{x}: %{y:.2f}%<extra>20d MA</extra>"))
-
-    # ATM vol line
-    fig.add_trace(go.Scatter(x=days, y=hist, mode="lines", name=f"ATM {sel_tenor}",
-        line=dict(color=COLORS["accent_cyan"], width=2),
-        hovertemplate="<b>%{y:.2f}%</b><br>%{x}<extra>ATM</extra>"))
-
     # Current level marker
-    current_vol = float(hist.iloc[-1]) if hasattr(hist, 'iloc') else float(hist[-1])
+    current_vol = float(arr[-1])
     fig.add_trace(go.Scatter(
         x=[days[-1]], y=[current_vol], mode="markers",
-        marker=dict(color=COLORS["accent_orange"], size=8, symbol="diamond"),
-        name=f"Current: {current_vol:.2f}%", showlegend=True,
-        hovertemplate=f"Current: {current_vol:.2f}%<extra></extra>"))
+        marker=dict(color=COLORS["accent_orange"], size=9, symbol="diamond",
+                    line=dict(width=1.5, color="#000000")),
+        name=f"Now: {current_vol:.2f}%", showlegend=False,
+        hovertemplate=f"Now: {current_vol:.2f}%<extra></extra>",
+    ))
 
-    _apply_chart_template(fig, f"ATM Vol Time Series -- {pair} {sel_tenor}")
-    fig.update_layout(xaxis=dict(title="Date"), yaxis=dict(title="Vol (%)"))
+    _apply_chart_template(fig, f"ATM IV vs RV -- {pair} {sel_tenor}")
+    fig.update_layout(
+        xaxis=dict(title="Date"),
+        yaxis=dict(title="Vol (%)"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
+        margin=dict(l=60, r=20, t=45, b=35),
+    )
     return fig
 
 
 @_safe_chart
 def chart_iv_rv(pair, sd, spot, r_dom, r_for, **kw):
-    """9. IV vs RV with filled spread area.
+    """9. IV vs RV: two stacked panels (lines + colored fill above, spread below).
 
-    iv_rv_spread() returns a DataFrame with columns: day, iv, rv, spread, spread_pct.
-    Guard against dict return (edge cases) and missing/renamed columns.
+    Industry standard layout (MRA Vol Insights / BBG IVRV / HVG): top panel
+    shows IV and RV lines with the gap colored by sign (green = IV>RV =
+    variance risk premium; red = IV<RV); bottom panel shows the spread itself
+    with a zero line and 1Y percentile guides.
     """
-    result = iv_rv_spread(pair, tenor="3M", rv_window=20, lookback=252)
+    lookback = int(kw.get("lookback_days") or 252)
+    result = iv_rv_spread(pair, tenor="3M", rv_window=20, lookback=lookback)
 
-    # Handle dict return format: convert to DataFrame
     if isinstance(result, dict):
         if "iv" in result and "rv" in result:
             iv_arr = np.asarray(result["iv"])
@@ -1125,77 +1076,121 @@ def chart_iv_rv(pair, sd, spot, r_dom, r_for, **kw):
         return _empty_fig("IV vs RV: insufficient data")
 
     df = result
-
-    # Resolve column names flexibly (guard against naming drift)
     day_col = "day" if "day" in df.columns else None
     iv_col = next((c for c in df.columns if c.lower() in ("iv", "atm_iv", "impl_vol")), None)
     rv_col = next((c for c in df.columns if c.lower() in ("rv", "realized_vol", "real_vol")), None)
-
     if iv_col is None or rv_col is None:
         return _empty_fig("IV vs RV: missing iv/rv columns")
 
     days = df[day_col].values if day_col else np.arange(len(df))
-    iv_arr = df[iv_col].values
-    rv_arr = df[rv_col].values
-
-    fig = go.Figure()
-
-    # Spread filled area
-    fig.add_trace(go.Scatter(
-        x=np.concatenate([days, days[::-1]]),
-        y=np.concatenate([iv_arr, rv_arr[::-1]]),
-        fill="toself",
-        fillcolor="rgba(255,80,80,0.15)",
-        line=dict(width=0), showlegend=False, hoverinfo="skip",
-    ))
-
-    fig.add_trace(go.Scatter(x=days, y=iv_arr, mode="lines", name="ATM IV 3M",
-        line=dict(color=COLORS["accent_cyan"], width=2.5),
-        hovertemplate="Day %{x}: %{y:.2f}%<extra>IV</extra>"))
-    fig.add_trace(go.Scatter(x=days, y=rv_arr, mode="lines", name="RV 20d",
-        line=dict(color=COLORS["accent_rose"], width=2),
-        hovertemplate="Day %{x}: %{y:.2f}%<extra>RV</extra>"))
-
-    # Spread bar on secondary y-axis
+    iv_arr = df[iv_col].values.astype(float)
+    rv_arr = df[rv_col].values.astype(float)
     spread_arr = iv_arr - rv_arr
-    spread_colors = [COLORS["accent_green"] if s > 0 else COLORS["accent_red"]
+
+    if len(spread_arr) == 0:
+        return _empty_fig("IV vs RV: insufficient data points")
+
+    # Two stacked panels: IV+RV lines on top (~65%), spread bar on bottom (~35%)
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True,
+        row_heights=[0.65, 0.35], vertical_spacing=0.06,
+    )
+
+    # ── Top panel: IV / RV lines + sign-colored fill ──
+    # Build two segmented fills (green where IV>=RV, red where IV<RV) so the
+    # gap encodes the variance-risk-premium sign visually.
+    iv_above = np.where(iv_arr >= rv_arr, iv_arr, rv_arr)
+    iv_below = np.where(iv_arr < rv_arr, iv_arr, rv_arr)
+
+    # Lower envelope (RV) — invisible base for the fills
+    fig.add_trace(go.Scatter(
+        x=days, y=rv_arr, mode="lines",
+        line=dict(width=0), showlegend=False, hoverinfo="skip",
+    ), row=1, col=1)
+    # Green fill (IV > RV) drawn from RV up to max(IV, RV)
+    fig.add_trace(go.Scatter(
+        x=days, y=iv_above, mode="lines",
+        fill="tonexty", fillcolor="rgba(0,204,102,0.14)",
+        line=dict(width=0), showlegend=False, hoverinfo="skip",
+    ), row=1, col=1)
+    # Lower envelope again as base for red fill
+    fig.add_trace(go.Scatter(
+        x=days, y=rv_arr, mode="lines",
+        line=dict(width=0), showlegend=False, hoverinfo="skip",
+    ), row=1, col=1)
+    # Red fill (IV < RV) drawn from RV down to min(IV, RV)
+    fig.add_trace(go.Scatter(
+        x=days, y=iv_below, mode="lines",
+        fill="tonexty", fillcolor="rgba(255,51,51,0.16)",
+        line=dict(width=0), showlegend=False, hoverinfo="skip",
+    ), row=1, col=1)
+
+    # IV / RV lines on top of fills
+    fig.add_trace(go.Scatter(
+        x=days, y=iv_arr, mode="lines", name="ATM IV 3M",
+        line=dict(color=COLORS["accent_orange"], width=2.2),
+        hovertemplate="%{x}: %{y:.2f}%<extra>IV</extra>",
+    ), row=1, col=1)
+    fig.add_trace(go.Scatter(
+        x=days, y=rv_arr, mode="lines", name="RV 20d",
+        line=dict(color=COLORS["accent_cyan"], width=1.8, dash="dot"),
+        hovertemplate="%{x}: %{y:.2f}%<extra>RV</extra>",
+    ), row=1, col=1)
+
+    # ── Bottom panel: spread line + sign fill ──
+    fig.add_hline(y=0, line=dict(color="#3a3a5c", width=0.8), row=2, col=1)
+
+    # 1Y percentile guides on spread (p10, p90)
+    if len(spread_arr) > 20:
+        sp10 = float(np.nanpercentile(spread_arr, 10))
+        sp90 = float(np.nanpercentile(spread_arr, 90))
+        fig.add_hline(y=sp10, line=dict(color=COLORS["accent_red"],
+                                        width=1, dash="dash"),
+                      row=2, col=1, annotation_text=f"p10 {sp10:+.1f}",
+                      annotation_position="left",
+                      annotation_font=dict(size=8, color=COLORS["accent_red"]))
+        fig.add_hline(y=sp90, line=dict(color=COLORS["accent_green"],
+                                        width=1, dash="dash"),
+                      row=2, col=1, annotation_text=f"p90 {sp90:+.1f}",
+                      annotation_position="left",
+                      annotation_font=dict(size=8, color=COLORS["accent_green"]))
+
+    # Spread as colored bars
+    spread_colors = [COLORS["accent_green"] if s >= 0 else COLORS["accent_red"]
                      for s in spread_arr]
     fig.add_trace(go.Bar(
-        x=days, y=spread_arr, name="IV-RV Spread",
-        marker=dict(color=spread_colors, opacity=0.25),
-        yaxis="y2",
-    ))
+        x=days, y=spread_arr, name="IV − RV",
+        marker=dict(color=spread_colors, opacity=0.7,
+                    line=dict(width=0)),
+        hovertemplate="%{x}: %{y:+.2f}v<extra>IV−RV</extra>",
+        showlegend=False,
+    ), row=2, col=1)
 
-    fig.update_layout(
-        yaxis2=dict(
-            title="Spread (vol pts)", overlaying="y", side="right",
-            gridcolor="#1a1a30",
-            tickfont=dict(size=9, color=COLORS["text_muted"]),
-            title_font=dict(color=COLORS["text_muted"], size=10),
-        ),
-    )
-
-    # Zero line for spread (on secondary y2 axis where bars are plotted)
-    fig.add_shape(
-        type="line", x0=0, x1=1, y0=0, y1=0,
-        xref="paper", yref="y2",
-        line=dict(color="#3a3a5c", width=0.8),
-    )
-
-    # Current spread annotation
-    if len(spread_arr) == 0 or len(days) == 0 or len(iv_arr) == 0:
-        return _empty_fig("IV vs RV: insufficient data points")
+    # Current-spread annotation top-right of spread panel
     current_spread = float(spread_arr[-1])
-    spread_label = f"IV-RV: {current_spread:+.1f}v"
-    spread_color = COLORS["accent_green"] if current_spread > 0 else COLORS["accent_red"]
+    badge_color = COLORS["accent_green"] if current_spread >= 0 else COLORS["accent_red"]
     fig.add_annotation(
-        x=days[-1], y=float(iv_arr[-1]),
-        text=spread_label, showarrow=True, arrowhead=2,
-        font=dict(color=spread_color, size=10),
-        arrowcolor=spread_color, ax=40, ay=-25)
+        xref="paper", yref="paper", x=0.99, y=0.98,
+        xanchor="right", yanchor="top",
+        text=f"Now: IV−RV = {current_spread:+.1f}v",
+        showarrow=False,
+        font=dict(size=10, color=badge_color,
+                  family="'JetBrains Mono', monospace"),
+        bgcolor="rgba(0,0,0,0.7)",
+        bordercolor=badge_color, borderwidth=1, borderpad=4,
+    )
 
     _apply_chart_template(fig, f"IV vs Realized Vol -- {pair}")
-    fig.update_layout(xaxis=dict(title="Date"), yaxis=dict(title="Vol (%)"))
+    fig.update_layout(
+        height=CHART_LG,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
+        margin=dict(l=55, r=20, t=45, b=35),
+    )
+    fig.update_yaxes(title_text="Vol (%)", row=1, col=1)
+    fig.update_yaxes(title_text="Spread (v)", row=2, col=1)
+    fig.update_xaxes(title_text="Date", row=2, col=1)
     return fig
 
 
@@ -1212,10 +1207,11 @@ def chart_vol_cone_chart(pair, sd, spot, r_dom, r_for, **kw):
     windows = cone_df["window"].values
     fig = go.Figure()
 
-    # Percentile bands (symmetric fill)
+    # Percentile bands (10–90 outer, 25–75 inner). Min/max already implied
+    # by the band edges -- separate dotted lines were redundant clutter.
     bands = [
-        ("p10", "p90", "rgba(255,136,0,0.08)", "10-90%ile"),
-        ("p25", "p75", "rgba(255,136,0,0.12)", "25-75%ile"),
+        ("p10", "p90", "rgba(255,136,0,0.08)", "10–90 %ile"),
+        ("p25", "p75", "rgba(255,136,0,0.13)", "25–75 %ile"),
     ]
     for lo, hi, color, name in bands:
         fig.add_trace(go.Scatter(
@@ -1226,40 +1222,55 @@ def chart_vol_cone_chart(pair, sd, spot, r_dom, r_for, **kw):
         ))
 
     # Median line
-    fig.add_trace(go.Scatter(x=windows, y=cone_df["median"], mode="lines",
-        name="Median", line=dict(color=COLORS["accent_blue"], width=1.5, dash="dash"),
-        hovertemplate="%{x}d: %{y:.2f}%<extra>Median</extra>"))
+    fig.add_trace(go.Scatter(
+        x=windows, y=cone_df["median"], mode="lines",
+        name="Median",
+        line=dict(color=COLORS["text_muted"], width=1.5, dash="dash"),
+        hovertemplate="%{x}d: %{y:.2f}%<extra>Median</extra>",
+    ))
 
-    # Min/Max
-    fig.add_trace(go.Scatter(x=windows, y=cone_df["min"], mode="lines",
-        name="Min", line=dict(color=COLORS["accent_green"], width=1, dash="dot"),
-        hovertemplate="%{x}d: %{y:.2f}%<extra>Min</extra>"))
-    fig.add_trace(go.Scatter(x=windows, y=cone_df["max"], mode="lines",
-        name="Max", line=dict(color=COLORS["accent_red"], width=1, dash="dot"),
-        hovertemplate="%{x}d: %{y:.2f}%<extra>Max</extra>"))
+    # Current RV (primary)
+    fig.add_trace(go.Scatter(
+        x=windows, y=cone_df["current_c2c"], mode="lines+markers",
+        name="Current RV",
+        line=dict(color=COLORS["accent_orange"], width=2.5),
+        marker=dict(size=8, color=COLORS["accent_orange"],
+                    line=dict(width=1.5, color="#000000")),
+        hovertemplate="%{x}d: %{y:.2f}%<extra>Current RV</extra>",
+    ))
 
-    # Current RV
-    fig.add_trace(go.Scatter(x=windows, y=cone_df["current_c2c"], mode="lines+markers",
-        name="Current RV", line=dict(color=COLORS["accent_cyan"], width=2.5),
-        marker=dict(size=7, color=COLORS["accent_cyan"]),
-        hovertemplate="%{x}d: %{y:.2f}%<extra>Current RV</extra>"))
-
-    # ATM IV reference line (where the market is pricing vol)
+    # ATM IV reference line
     atm_3m = sd["atm"][min(4, len(sd["atm"]) - 1)] if len(sd["atm"]) > 0 else None
     if atm_3m and atm_3m > 0:
-        fig.add_hline(y=atm_3m,
-                      line=dict(color=COLORS["accent_orange"], width=1.5, dash="dashdot"),
-                      annotation_text=f"ATM IV: {atm_3m:.1f}%",
-                      annotation_font=dict(color=COLORS["accent_orange"], size=9))
+        fig.add_hline(
+            y=atm_3m,
+            line=dict(color=COLORS["accent_cyan"], width=1.5, dash="dashdot"),
+            annotation_text=f"ATM IV: {atm_3m:.1f}%",
+            annotation_font=dict(color=COLORS["accent_cyan"], size=9),
+        )
 
     _apply_chart_template(fig, f"Realized Vol Cone -- {pair}")
-    fig.update_layout(xaxis=dict(title="Window (days)"), yaxis=dict(title="Vol (%)"))
+    # Sqrt x-axis prevents short-end crowding (5/10/20 days vs 90/180/252)
+    fig.update_layout(
+        xaxis=dict(title="Window (days)", type="log",
+                   tickvals=[5, 10, 20, 30, 60, 90, 180, 252],
+                   ticktext=["5", "10", "20", "30", "60", "90", "180", "252"]),
+        yaxis=dict(title="Vol (%)"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
+    )
     return fig
 
 
 @_safe_chart
 def chart_fwd_vol(pair, sd, spot, r_dom, r_for, **kw):
-    """11. Forward Vol curve as line chart."""
+    """11. Forward Vol vs Spot Vol with contango/backwardation shading.
+
+    The gap between spot and forward IS the calendar/diagonal carry
+    signal. Coloring by sign (orange = contango = back-end rich;
+    blue = backwardation = front-end rich) makes that visual.
+    """
     try:
         df = forward_vol_curve(pair, start_tenor="1M")
         if df.empty:
@@ -1267,25 +1278,63 @@ def chart_fwd_vol(pair, sd, spot, r_dom, r_for, **kw):
     except Exception:
         return _empty_fig("Forward vol: insufficient data")
 
+    fwd = df["forward_vol"].values
+    spt = df["spot_vol"].values
+    end = df["end_tenor"].tolist()
+
     fig = go.Figure()
+
+    # Lower envelope (spot) -- invisible base for the orange "contango" fill
     fig.add_trace(go.Scatter(
-        x=df["end_tenor"], y=df["forward_vol"], mode="lines+markers",
+        x=end, y=spt, mode="lines",
+        line=dict(width=0), showlegend=False, hoverinfo="skip",
+    ))
+    # Contango fill (forward >= spot, back-end rich)
+    fwd_above = np.where(fwd >= spt, fwd, spt)
+    fig.add_trace(go.Scatter(
+        x=end, y=fwd_above, mode="lines",
+        fill="tonexty", fillcolor="rgba(255,136,0,0.12)",
+        line=dict(width=0), name="Contango", hoverinfo="skip",
+    ))
+    # Lower envelope again as base for blue "backwardation" fill
+    fig.add_trace(go.Scatter(
+        x=end, y=spt, mode="lines",
+        line=dict(width=0), showlegend=False, hoverinfo="skip",
+    ))
+    # Backwardation fill (forward < spot, front-end rich)
+    fwd_below = np.where(fwd < spt, fwd, spt)
+    fig.add_trace(go.Scatter(
+        x=end, y=fwd_below, mode="lines",
+        fill="tonexty", fillcolor="rgba(21,101,192,0.18)",
+        line=dict(width=0), name="Backwardation", hoverinfo="skip",
+    ))
+
+    # Spot vol line (dashed, secondary)
+    fig.add_trace(go.Scatter(
+        x=end, y=spt, mode="lines+markers",
+        name="Spot Vol",
+        line=dict(color=COLORS["accent_cyan"], width=1.8, dash="dash"),
+        marker=dict(size=6, color=COLORS["accent_cyan"]),
+        hovertemplate="%{x}: %{y:.2f}%<extra>Spot</extra>",
+    ))
+    # Forward vol line (primary)
+    fig.add_trace(go.Scatter(
+        x=end, y=fwd, mode="lines+markers",
         name="Forward Vol",
         line=dict(color=COLORS["accent_orange"], width=2.5),
-        marker=dict(size=7, color=COLORS["accent_orange"]),
+        marker=dict(size=7, color=COLORS["accent_orange"],
+                    line=dict(width=1, color="#000000")),
         hovertemplate="%{x}: %{y:.2f}%<extra>Forward</extra>",
-    ))
-    fig.add_trace(go.Scatter(
-        x=df["end_tenor"], y=df["spot_vol"], mode="lines+markers",
-        name="Spot Vol",
-        line=dict(color=COLORS["accent_cyan"], width=2, dash="dash"),
-        marker=dict(size=5, color=COLORS["accent_cyan"]),
-        hovertemplate="%{x}: %{y:.2f}%<extra>Spot</extra>",
     ))
 
     _apply_chart_template(fig, f"Forward Vol Curve -- {pair}")
-    fig.update_layout(xaxis=dict(title="End Tenor", type="category"),
-                      yaxis=dict(title="Vol (%)"))
+    fig.update_layout(
+        xaxis=dict(title="End Tenor", type="category"),
+        yaxis=dict(title="Vol (%)"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
+    )
     return fig
 
 
@@ -1393,7 +1442,12 @@ def chart_sabr_params(pair, sd, spot, r_dom, r_for, **kw):
 
 @_safe_chart
 def chart_implied_dist(pair, sd, spot, r_dom, r_for, **kw):
-    """14. Implied Distribution -- risk-neutral PDF for selected tenor."""
+    """14. Implied Distribution -- risk-neutral PDF + lognormal benchmark.
+
+    Standard BoE / ECB / NY Fed RND presentation. The lognormal overlay
+    (matched ATM vol) is the visual diagnostic for excess kurtosis and
+    skew — divergence between the two curves IS the smile-implied tail risk.
+    """
     sel_tenor = kw.get("pdf_tenor", "3M")
     try:
         pdf_df = smile_implied_pdf(pair, sel_tenor, n_points=150)
@@ -1404,25 +1458,66 @@ def chart_implied_dist(pair, sd, spot, r_dom, r_for, **kw):
     except Exception:
         return no_data_fig(height=CHART_MD, msg="NO PDF DATA")
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=strikes, y=pdf_vals, mode="lines", name="Risk-Neutral PDF",
-        fill="tozeroy", fillcolor="rgba(255,136,0,0.10)",
-        line=dict(color=COLORS["accent_cyan"], width=2),
-    ))
-
-    # Forward price marker
     T = tenor_to_years(sel_tenor)
     F = spot * np.exp((r_dom - r_for) * T)
-    fig.add_vline(x=F, line=dict(color=COLORS["accent_orange"], width=1.5, dash="dash"),
-                  annotation_text=f"Fwd {F:.4f}",
-                  annotation_font=dict(color=COLORS["accent_orange"], size=10))
-    fig.add_vline(x=spot, line=dict(color=COLORS["accent_rose"], width=1, dash="dot"),
-                  annotation_text=f"Spot {spot:.4f}",
-                  annotation_font=dict(color=COLORS["accent_rose"], size=10))
+
+    fig = go.Figure()
+
+    # Lognormal benchmark with same ATM vol (traced first so RND sits on top)
+    try:
+        # Find current ATM vol for the selected tenor
+        surface = sd.get("surface_raw", {}) if isinstance(sd, dict) else {}
+        row = surface.get(sel_tenor, {})
+        atm_vol_pct = row.get("atm", row.get("ATM"))
+        if atm_vol_pct and atm_vol_pct > 0:
+            sigma = float(atm_vol_pct) / 100.0
+            # Lognormal density of S_T given S_0 = spot, drift (r_dom - r_for)
+            sig_sqrt_T = sigma * np.sqrt(T)
+            mu = np.log(spot) + (r_dom - r_for - 0.5 * sigma ** 2) * T
+            # Gaussian density of ln(S_T)
+            ln_k = np.log(strikes)
+            log_pdf = (np.exp(-0.5 * ((ln_k - mu) / sig_sqrt_T) ** 2)
+                       / (sig_sqrt_T * np.sqrt(2 * np.pi)))
+            # Convert to density of S_T: pdf(S) = pdf(ln S) / S
+            ln_pdf = log_pdf / strikes
+            fig.add_trace(go.Scatter(
+                x=strikes, y=ln_pdf, mode="lines",
+                name="Lognormal (same ATM)",
+                line=dict(color=COLORS["text_muted"], width=1.5, dash="dash"),
+                hovertemplate="K %{x:.4f}<br>Density: %{y:.4f}<extra>Lognormal</extra>",
+            ))
+    except Exception:
+        pass
+
+    # Smile-implied risk-neutral PDF (primary)
+    fig.add_trace(go.Scatter(
+        x=strikes, y=pdf_vals, mode="lines",
+        name="Risk-Neutral PDF",
+        fill="tozeroy", fillcolor="rgba(255,136,0,0.10)",
+        line=dict(color=COLORS["accent_orange"], width=2.2),
+        hovertemplate="K %{x:.4f}<br>Density: %{y:.4f}<extra>RND</extra>",
+    ))
+
+    # Forward and spot markers
+    fig.add_vline(
+        x=F, line=dict(color=COLORS["accent_cyan"], width=1.5, dash="dash"),
+        annotation_text=f"Fwd {F:.4f}",
+        annotation_font=dict(color=COLORS["accent_cyan"], size=10),
+    )
+    fig.add_vline(
+        x=spot, line=dict(color=COLORS["accent_rose"], width=1, dash="dot"),
+        annotation_text=f"Spot {spot:.4f}",
+        annotation_font=dict(color=COLORS["accent_rose"], size=10),
+    )
 
     _apply_chart_template(fig, f"Implied PDF -- {pair} {sel_tenor}")
-    fig.update_layout(xaxis=dict(title="Strike"), yaxis=dict(title="Density"))
+    fig.update_layout(
+        xaxis=dict(title="Strike"),
+        yaxis=dict(title="Density"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
+    )
     return fig
 
 
@@ -1691,26 +1786,57 @@ def _lab_study_implied_pdf(pair, sd, spot, r_dom, r_for, **kw):
 
 
 def _lab_study_vol_regime(pair, sd, spot, r_dom, r_for, **kw):
+    """Vol regime: translucent horizontal bands per regime + ATM line.
+
+    Background bands are the FRED / TradingView convention for regime
+    visualisation. Horizontal threshold lines compete visually with the
+    primary line; bands recede into context (Tufte data-ink).
+    """
     window = kw.get("lab_window") or 252
     df = vol_regime_history(pair, lookback=int(window))
     if df is None or df.empty:
         return _empty_fig("No regime data")
+
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df["day"].tolist(), y=df["vol"].tolist(),
-                  mode="lines", name=f"{pair} ATM",
-                  line=dict(color="#ff8800", width=2),
-                  hovertemplate="Day %{x}<br>Vol: %{y:.2f}%<extra></extra>"))
-    for level, color, lbl in [(20, "#ff3333", "CRISIS"), (14, "#ff8800", "HIGH"),
-                               (10, "#ffaa33", "ELEVATED"), (6, "#9a9ab0", "NORMAL")]:
-        fig.add_hline(y=level, line_dash="dot", line_color=color,
-                      annotation_text=lbl, annotation_font_size=8,
-                      annotation_font_color=color)
+
+    # Translucent regime bands (low to high). Plotly add_hrect draws below
+    # other traces by default, which is what we want.
+    # Bands: NORMAL [0,6], ELEVATED [6,10], HIGH [10,14], CRISIS [14,20], EXTREME [20+]
+    regime_bands = [
+        (0, 6, "rgba(154,154,176,0.05)", "NORMAL", "#9a9ab0"),
+        (6, 10, "rgba(255,170,51,0.06)", "ELEVATED", "#ffaa33"),
+        (10, 14, "rgba(255,136,0,0.08)", "HIGH", "#ff8800"),
+        (14, 20, "rgba(255,51,51,0.10)", "CRISIS", "#ff3333"),
+        (20, 60, "rgba(255,51,51,0.16)", "EXTREME", "#ff3333"),
+    ]
+    for lo, hi, fill, label, color in regime_bands:
+        fig.add_hrect(y0=lo, y1=hi, fillcolor=fill, line_width=0)
+        # Right-edge label so the trader can read off the regime at any vol level
+        fig.add_annotation(
+            xref="paper", yref="y", x=1.01, y=(lo + hi) / 2,
+            xanchor="left", yanchor="middle",
+            text=label, showarrow=False,
+            font=dict(size=8, color=color,
+                      family="'JetBrains Mono', monospace"),
+        )
+
+    # Primary ATM vol line on top
+    fig.add_trace(go.Scatter(
+        x=df["day"].tolist(), y=df["vol"].tolist(),
+        mode="lines", name=f"{pair} ATM",
+        line=dict(color="#ff8800", width=2),
+        hovertemplate="Day %{x}<br>Vol: %{y:.2f}%<extra></extra>",
+    ))
+
     regime = vol_regime_detect(pair) or {}
     _apply_chart_template(
         fig, f"{pair} Vol Regime: {regime.get('regime','?')} | "
              f"Trend: {regime.get('trend','?')}")
-    fig.update_layout(xaxis_title="Date", yaxis_title="ATM Vol (%)",
-                      hovermode="x unified")
+    fig.update_layout(
+        xaxis_title="Date", yaxis_title="ATM Vol (%)",
+        hovermode="x unified",
+        margin=dict(l=55, r=80, t=45, b=35),
+    )
     return fig
 
 
@@ -1770,42 +1896,166 @@ def _lab_study_zscore_surface(pair, sd, spot, r_dom, r_for, **kw):
 
 
 def _lab_study_tail_probs(pair, sd, spot, r_dom, r_for, **kw):
+    """Tail probabilities as a horizontal mirror/butterfly chart.
+
+    Move sizes on Y axis, down probabilities fanning left of zero, up
+    probabilities right. Asymmetry (the whole point of FX skew) is read
+    instantly; grouped bars require pairwise height-arithmetic.
+    """
     tenor = kw.get("smile_tenor") or "3M"
     df = tail_probabilities(pair, tenor)
     if df is None or df.empty:
         return _empty_fig("No tail prob data")
+
+    # Y-axis labels: ±X%, sorted small to large so largest tail is at top
+    moves = df["move_pct"].tolist()
+    prob_up = df["prob_up"].tolist()
+    prob_down = df["prob_down"].tolist()
+    move_labels = [f"±{m:.0f}%" if np.isfinite(m) else "?" for m in moves]
+
     fig = go.Figure()
-    move_labels = [f"+{m:.0f}%" if np.isfinite(m) else "?" for m in df["move_pct"]]
-    fig.add_trace(go.Bar(x=move_labels,
-                  y=df["prob_up"].tolist(), name="Up",
-                  marker_color="#00cc66", opacity=0.85))
-    fig.add_trace(go.Bar(x=move_labels,
-                  y=df["prob_down"].tolist(), name="Down",
-                  marker_color="#ff3333", opacity=0.85))
-    _apply_chart_template(fig, f"{pair} {tenor} Tail Probabilities")
-    fig.update_layout(xaxis_title="Move Size", yaxis_title="Probability (%)",
-                      barmode="group")
+
+    # Down probabilities: bars going LEFT (negative direction)
+    fig.add_trace(go.Bar(
+        y=move_labels, x=[-p for p in prob_down], orientation="h",
+        name="Down move",
+        marker=dict(color="#ff3333", opacity=0.85,
+                    line=dict(width=1, color="#000000")),
+        text=[f"{p:.1f}%" for p in prob_down],
+        textposition="outside",
+        textfont=dict(size=10, color="#ff3333",
+                      family="'JetBrains Mono', monospace"),
+        hovertemplate="<b>%{y} down</b><br>Prob: " + "%{text}<extra></extra>",
+        cliponaxis=False,
+    ))
+
+    # Up probabilities: bars going RIGHT (positive direction)
+    fig.add_trace(go.Bar(
+        y=move_labels, x=prob_up, orientation="h",
+        name="Up move",
+        marker=dict(color="#00cc66", opacity=0.85,
+                    line=dict(width=1, color="#000000")),
+        text=[f"{p:.1f}%" for p in prob_up],
+        textposition="outside",
+        textfont=dict(size=10, color="#00cc66",
+                      family="'JetBrains Mono', monospace"),
+        hovertemplate="<b>%{y} up</b><br>Prob: " + "%{text}<extra></extra>",
+        cliponaxis=False,
+    ))
+
+    # Center axis line at zero (separates the two halves visually)
+    fig.add_vline(x=0, line=dict(color=COLORS["text_muted"], width=1))
+
+    # Symmetric x-axis so visual asymmetry == probability asymmetry
+    max_abs = max([max(prob_up + prob_down) * 1.2, 1])
+    tick_vals = [-max_abs * 0.75, -max_abs * 0.5, -max_abs * 0.25, 0,
+                 max_abs * 0.25, max_abs * 0.5, max_abs * 0.75]
+
+    _apply_chart_template(fig, f"Tail Probabilities -- {pair} {tenor}")
+    fig.update_layout(
+        barmode="overlay",
+        xaxis=dict(
+            title="Probability (%)",
+            range=[-max_abs, max_abs],
+            tickvals=tick_vals,
+            ticktext=[f"{abs(t):.0f}%" for t in tick_vals],
+            zeroline=False,
+        ),
+        yaxis=dict(title="Move size", autorange="reversed",
+                   tickfont=dict(size=10)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
+        margin=dict(l=60, r=40, t=45, b=35),
+    )
     return fig
 
 
 def _lab_study_breakeven(pair, sd, spot, r_dom, r_for, **kw):
+    """Breakeven vol as a bullet graph: BE bar + IV marker + qualitative bands.
+
+    Three numbers (IV / BE / cushion) is too few for a bar chart (Few's
+    Information Dashboard Design). A bullet graph packs all three plus
+    qualitative context bands into one horizontal line.
+    """
     from core.fx_conventions import tenor_to_days
     tenor = kw.get("smile_tenor") or "3M"
     days = tenor_to_days(tenor)
     info = breakeven_vol(pair, tenor, days)
     if not info:
         return _empty_fig("No breakeven data")
+
+    atm_iv = float(info.get("atm_iv", 0) or 0)
+    be_rv = float(info.get("breakeven_rv", 0) or 0)
+    cushion = float(info.get("iv_rv_cushion", 0) or 0)
+
+    # Range covers both values with breathing room
+    v_max = max(atm_iv, be_rv) * 1.30
+    if v_max <= 0:
+        v_max = 10.0
+    cushion_color = COLORS["accent_green"] if cushion > 0 else COLORS["accent_red"]
+    signal = "PREMIUM" if cushion > 0 else "DISCOUNT"
+
     fig = go.Figure()
-    labels = ["ATM IV", "Breakeven RV", "Cushion"]
-    vals = [info.get("atm_iv", 0), info.get("breakeven_rv", 0),
-            info.get("iv_rv_cushion", 0)]
-    colors = ["#ff8800", "#e0e0e0",
-              "#00cc66" if info.get("iv_rv_cushion", 0) > 0 else "#ff3333"]
-    fig.add_trace(go.Bar(x=labels, y=vals, marker_color=colors,
-                  text=[f"{v:.2f}" if np.isfinite(v) else "—" for v in vals], textposition="inside",
-                  textfont=dict(color="#e0e0e0", size=10), insidetextanchor="end", constraintext="both"))
-    _apply_chart_template(fig, f"{pair} {tenor} Breakeven Analysis")
-    fig.update_layout(yaxis_title="Vol (%)")
+
+    # Qualitative bands behind the bar (cheap / fair / rich vs breakeven)
+    fig.add_shape(type="rect", x0=0, x1=be_rv * 0.7, y0=0.3, y1=0.7,
+                  fillcolor="rgba(21,101,192,0.10)", line=dict(width=0))
+    fig.add_shape(type="rect", x0=be_rv * 0.7, x1=be_rv * 1.3, y0=0.3, y1=0.7,
+                  fillcolor="rgba(154,154,176,0.10)", line=dict(width=0))
+    fig.add_shape(type="rect", x0=be_rv * 1.3, x1=v_max, y0=0.3, y1=0.7,
+                  fillcolor="rgba(255,136,0,0.10)", line=dict(width=0))
+
+    # Breakeven RV as a thin horizontal bar (centered)
+    fig.add_shape(type="rect", x0=0, x1=be_rv, y0=0.42, y1=0.58,
+                  fillcolor=COLORS["text_muted"],
+                  line=dict(width=1, color=COLORS["border"]))
+
+    # ATM IV as a vertical marker (the "current" line)
+    fig.add_shape(type="line", x0=atm_iv, x1=atm_iv, y0=0.30, y1=0.70,
+                  line=dict(color=COLORS["accent_orange"], width=4))
+
+    # Numeric labels above the bullet
+    fig.add_annotation(x=be_rv, y=0.78, text=f"BE {be_rv:.2f}",
+                       showarrow=False, xanchor="center",
+                       font=dict(size=11, color=COLORS["text_secondary"],
+                                 family="'JetBrains Mono', monospace"))
+    fig.add_annotation(x=atm_iv, y=0.92, text=f"IV {atm_iv:.2f}",
+                       showarrow=False, xanchor="center",
+                       font=dict(size=12, color=COLORS["accent_orange"],
+                                 family="'JetBrains Mono', monospace"))
+
+    # Cushion stat box (bottom right)
+    fig.add_annotation(
+        xref="paper", yref="paper", x=0.99, y=0.10,
+        xanchor="right", yanchor="bottom",
+        text=f"<b>{cushion:+.2f}v {signal}</b>",
+        showarrow=False,
+        font=dict(size=14, color=cushion_color,
+                  family="'JetBrains Mono', monospace"),
+        bgcolor="rgba(0,0,0,0.7)",
+        bordercolor=cushion_color, borderwidth=1, borderpad=6,
+    )
+    # Cushion label
+    fig.add_annotation(
+        xref="paper", yref="paper", x=0.99, y=0.04,
+        xanchor="right", yanchor="bottom",
+        text="IV − BE cushion",
+        showarrow=False,
+        font=dict(size=9, color=COLORS["text_muted"],
+                  family="'JetBrains Mono', monospace"),
+    )
+
+    _apply_chart_template(fig, f"Breakeven Vol Bullet -- {pair} {tenor}")
+    fig.update_layout(
+        xaxis=dict(title="Vol (%)", range=[0, v_max], showgrid=True,
+                   gridcolor="#1a1a30", zeroline=False),
+        yaxis=dict(range=[0, 1], showticklabels=False, showgrid=False,
+                   zeroline=False, fixedrange=True),
+        height=240,
+        margin=dict(l=40, r=40, t=45, b=40),
+        showlegend=False,
+    )
     return fig
 
 
@@ -1836,30 +2086,47 @@ def _lab_study_carry_landscape(pair, sd, spot, r_dom, r_for, **kw):
 
 @_safe_chart
 def chart_skew_term(pair, sd, spot, r_dom, r_for, **kw):
-    """Skew Term Structure: 25D RR plotted across tenors with historical overlay and slope."""
+    """Skew Term Structure: normalised 25D RR (RR/ATM) across tenors with historical overlay.
+
+    Lookback controls how far back the dashed historical overlay reaches.
+    """
     from core.fx_analytics import skew_term_structure
-    df = skew_term_structure(pair, lookback=22)
+    lookback = int(kw.get("lookback_days") or 22)
+    df = skew_term_structure(pair, lookback=lookback)
     if df is None or df.empty:
         return _empty_fig("No skew term structure data")
 
+    # Convert to % of ATM for display. df["normalised_skew"] is rr25/atm (unitless).
+    skew_now = (df["normalised_skew"] * 100).tolist()
+    rr_now = df["rr_25d"].tolist()
+    atm_now = df["atm"].tolist()
+
     fig = make_subplots(rows=2, cols=1, row_heights=[0.65, 0.35],
                         shared_xaxes=True, vertical_spacing=0.08,
-                        subplot_titles=["25D RR Term Structure", "Skew Slope (\u0394 normalised skew)"])
+                        subplot_titles=["Normalised Skew Term Structure (RR / ATM)",
+                                        "Skew Slope (\u0394 normalised skew across tenors)"])
 
-    # Current skew curve
+    # Current normalised skew curve
     fig.add_trace(go.Scatter(
-        x=df["tenor"], y=df["rr_25d"], mode="lines+markers",
-        name="25D RR (current)", line=dict(color=COLORS["accent_orange"], width=3),
+        x=df["tenor"], y=skew_now, mode="lines+markers",
+        name="Skew (current)", line=dict(color=COLORS["accent_orange"], width=3),
         marker=dict(size=7, color=COLORS["accent_orange"]),
-        hovertemplate="%{x}: %{y:+.2f}<extra>Current RR</extra>",
+        customdata=list(zip(rr_now, atm_now)),
+        hovertemplate="%{x}: %{y:+.1f}% of ATM<br>RR: %{customdata[0]:+.2f}v / ATM: %{customdata[1]:.2f}v<extra>Current</extra>",
     ), row=1, col=1)
 
-    # Historical overlay (1M ago)
+    # Historical overlay (lookback days ago) \u2014 normalise prev RR by the current ATM
+    # at each tenor (best available divisor; historical ATM not stored here).
     if "rr_25d_prev" in df.columns:
+        _hist_label = _lookback_label(lookback)
+        prev_skew = [
+            (rr_prev / atm * 100) if atm and atm > 0 else None
+            for rr_prev, atm in zip(df["rr_25d_prev"].tolist(), atm_now)
+        ]
         fig.add_trace(go.Scatter(
-            x=df["tenor"], y=df["rr_25d_prev"], mode="lines",
-            name="1M ago", line=dict(color=COLORS["accent_purple"], width=1.5, dash="dash"),
-            hovertemplate="%{x}: %{y:+.2f}<extra>1M ago</extra>",
+            x=df["tenor"], y=prev_skew, mode="lines",
+            name=f"{_hist_label} ago", line=dict(color=COLORS["accent_purple"], width=1.5, dash="dash"),
+            hovertemplate="%{x}: %{y:+.1f}% of ATM<extra>" + f"{_hist_label} ago" + "</extra>",
         ), row=1, col=1)
 
     # Zero line
@@ -1880,7 +2147,7 @@ def chart_skew_term(pair, sd, spot, r_dom, r_for, **kw):
     _apply_chart_template(fig, f"Skew Term Structure -- {pair}")
     fig.update_layout(
         xaxis=dict(type="category"), xaxis2=dict(title="Tenor", type="category"),
-        yaxis=dict(title="25D RR (vol pts)"), yaxis2=dict(title="Slope"),
+        yaxis=dict(title="Skew (% of ATM)"), yaxis2=dict(title="Slope"),
         height=CHART_LG,
     )
     return fig
@@ -1889,10 +2156,15 @@ def chart_skew_term(pair, sd, spot, r_dom, r_for, **kw):
 @_safe_chart
 def chart_rv_estimators(pair, sd, spot, r_dom, r_for, **kw):
     """RV Term Structure: realized vol across lookback windows vs IV term structure.
-    Shows where IV sits relative to RV at each horizon — the core sell/buy vol signal."""
+    Shows where IV sits relative to RV at each horizon — the core sell/buy vol signal.
+
+    Lookback caps the RV windows used (e.g. 1M lookback hides the 60D/90D/120D bars).
+    """
     from core.bloomberg_fx import get_fx_historical_spot
 
-    spot_hist_raw = get_fx_historical_spot(pair, 300)
+    lookback = int(kw.get("lookback_days") or 300)
+    # Pull at least 30 days extra so the longest RV window has enough room
+    spot_hist_raw = get_fx_historical_spot(pair, max(lookback, 30))
     if spot_hist_raw is None:
         return _empty_fig("No spot history for RV term structure")
 
@@ -1914,39 +2186,41 @@ def chart_rv_estimators(pair, sd, spot, r_dom, r_for, **kw):
     log_ret = np.diff(np.log(closes))
     ann = np.sqrt(252) * 100
 
-    # RV at multiple lookback windows (Yang-Zhang proxy)
+    # RV at multiple lookback windows + historical percentile cone (Burghardt-Lane)
     windows = [10, 20, 40, 60, 90, 120]
     window_labels = ["10D", "20D", "40D", "60D", "90D", "120D"]
+
+    # Current RV per window
     rv_vals = []
     for w in windows:
         if len(log_ret) >= w:
-            rv = np.std(log_ret[-w:]) * ann
-            rv_vals.append(rv)
+            rv_vals.append(np.std(log_ret[-w:]) * ann)
         else:
             rv_vals.append(None)
 
-    # IV term structure for comparison
-    iv_tenors = ["1W", "1M", "2M", "3M", "6M", "1Y"]
-    iv_vals = []
+    # Historical cone: rolling RV over the full history, then take percentiles
+    # of all historical observations per window. Standard cone construction.
+    cone_p10, cone_p25, cone_p50, cone_p75, cone_p90 = [], [], [], [], []
+    for w in windows:
+        if len(log_ret) >= w + 10:
+            rolled = pd.Series(log_ret).rolling(w).std().dropna().values * ann
+            if len(rolled) > 5:
+                cone_p10.append(float(np.nanpercentile(rolled, 10)))
+                cone_p25.append(float(np.nanpercentile(rolled, 25)))
+                cone_p50.append(float(np.nanpercentile(rolled, 50)))
+                cone_p75.append(float(np.nanpercentile(rolled, 75)))
+                cone_p90.append(float(np.nanpercentile(rolled, 90)))
+                continue
+        cone_p10.append(None)
+        cone_p25.append(None)
+        cone_p50.append(None)
+        cone_p75.append(None)
+        cone_p90.append(None)
+
+    # IV term structure mapped to RV windows
     surface = sd.get("surface_raw", {})
-    for t in iv_tenors:
-        row = surface.get(t, {})
-        atm = row.get("atm", row.get("ATM"))
-        iv_vals.append(atm if atm else None)
-
-    fig = go.Figure()
-
-    # RV line
-    fig.add_trace(go.Scatter(
-        x=window_labels, y=rv_vals, mode="lines+markers", name="Realized Vol",
-        line=dict(color=COLORS["accent_orange"], width=2.5),
-        marker=dict(size=8, color=COLORS["accent_orange"],
-                    line=dict(width=2, color="#000000")),
-        hovertemplate="%{x}: %{y:.2f}%<extra>RV</extra>",
-    ))
-
-    # IV line overlaid (mapped to approximate RV windows)
-    iv_map = {"1W": "10D", "1M": "20D", "2M": "40D", "3M": "60D", "6M": "90D", "1Y": "120D"}
+    iv_map = {"1W": "10D", "1M": "20D", "2M": "40D", "3M": "60D",
+              "6M": "90D", "1Y": "120D"}
     iv_x, iv_y = [], []
     for tenor, label in iv_map.items():
         row = surface.get(tenor, {})
@@ -1955,85 +2229,171 @@ def chart_rv_estimators(pair, sd, spot, r_dom, r_for, **kw):
             iv_x.append(label)
             iv_y.append(atm)
 
+    fig = go.Figure()
+
+    # p10–p90 cone band (outer)
+    if all(v is not None for v in cone_p10):
+        fig.add_trace(go.Scatter(
+            x=window_labels + window_labels[::-1],
+            y=cone_p90 + cone_p10[::-1],
+            fill="toself", fillcolor="rgba(255,136,0,0.07)",
+            line=dict(width=0), name="10–90 %ile",
+            hoverinfo="skip", showlegend=True,
+        ))
+    # p25–p75 cone band (inner)
+    if all(v is not None for v in cone_p25):
+        fig.add_trace(go.Scatter(
+            x=window_labels + window_labels[::-1],
+            y=cone_p75 + cone_p25[::-1],
+            fill="toself", fillcolor="rgba(255,136,0,0.13)",
+            line=dict(width=0), name="25–75 %ile",
+            hoverinfo="skip", showlegend=True,
+        ))
+    # Median line
+    if all(v is not None for v in cone_p50):
+        fig.add_trace(go.Scatter(
+            x=window_labels, y=cone_p50, mode="lines",
+            name="Median RV",
+            line=dict(color=COLORS["text_muted"], width=1, dash="dash"),
+            hovertemplate="%{x}: %{y:.2f}%<extra>Median</extra>",
+        ))
+
+    # Current RV (the "where are we now" line)
+    fig.add_trace(go.Scatter(
+        x=window_labels, y=rv_vals, mode="lines+markers",
+        name="Current RV",
+        line=dict(color=COLORS["accent_orange"], width=2.5),
+        marker=dict(size=8, color=COLORS["accent_orange"],
+                    line=dict(width=1.5, color="#000000")),
+        hovertemplate="%{x}: %{y:.2f}%<extra>RV</extra>",
+    ))
+
+    # IV term structure overlay (variance-risk-premium gap)
     if iv_x:
         fig.add_trace(go.Scatter(
-            x=iv_x, y=iv_y, mode="lines+markers", name="ATM IV",
+            x=iv_x, y=iv_y, mode="lines+markers",
+            name="ATM IV",
             line=dict(color=COLORS["accent_cyan"], width=2.5),
             marker=dict(size=8, color=COLORS["accent_cyan"],
-                        line=dict(width=2, color="#000000")),
-            # Fill between IV and RV — green where IV>RV, shows the spread visually
-            fill="tonexty", fillcolor="rgba(0,204,102,0.08)",
+                        line=dict(width=1.5, color="#000000")),
             hovertemplate="%{x}: %{y:.2f}%<extra>IV</extra>",
         ))
 
-    # Compute y-axis range from data (tight, no wasted space)
-    all_vals = [v for v in (rv_vals + iv_y) if v is not None]
+    # Tight y-axis from all visible series
+    all_vals = [v for v in (rv_vals + iv_y + cone_p10 + cone_p90) if v is not None]
     if all_vals:
         y_min = min(all_vals) - 0.5
         y_max = max(all_vals) + 0.5
     else:
         y_min, y_max = 0, 15
 
-    _apply_chart_template(fig, f"RV Term Structure -- {pair}")
+    _apply_chart_template(fig, f"RV Cone vs IV -- {pair}")
     fig.update_layout(
-        xaxis=dict(title="Lookback / Tenor", type="category"),
+        xaxis=dict(title="Lookback window / IV tenor", type="category"),
         yaxis=dict(title="Vol (%)", range=[y_min, y_max]),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
     )
     return fig
 
 
 @_safe_chart
 def chart_vol_of_vol(pair, sd, spot, r_dom, r_for, **kw):
-    """Vol-of-Vol: how volatile is vol itself, across tenors."""
+    """Vol-of-Vol: stacked panels — VoV lines above, regime ratio below.
+
+    Dual-axis ratio plots are a known weak choice (Tufte/Few — eye conflates
+    the two scales). Stacked panels with a shared x-axis is the cleaner
+    pattern, mirroring the skew level+slope (#15) layout.
+    """
     from core.fx_analytics import vol_of_vol_term_structure
     df = vol_of_vol_term_structure(pair)
     if df is None or df.empty:
         return _empty_fig("No vol-of-vol data")
 
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    has_ratio = "vov_ratio" in df.columns and df["vov_ratio"].notna().any()
+    if has_ratio:
+        fig = make_subplots(
+            rows=2, cols=1, shared_xaxes=True,
+            row_heights=[0.65, 0.35], vertical_spacing=0.08,
+            subplot_titles=["VoV (daily ΔATM std-dev) by tenor",
+                            "VoV Ratio (20d / 60d) — regime stress"],
+        )
+    else:
+        fig = make_subplots(rows=1, cols=1)
 
-    # VoV 20d line
+    # ── Top panel: VoV lines ──
     fig.add_trace(go.Scatter(
         x=df["tenor"], y=df["vov_20d"], mode="lines+markers", name="VoV 20d",
         line=dict(color=COLORS["accent_orange"], width=2.5),
         marker=dict(size=7, color=COLORS["accent_orange"]),
         hovertemplate="%{x}: %{y:.3f}<extra>VoV 20d</extra>",
-    ), secondary_y=False)
-
-    # VoV 60d line
+    ), row=1, col=1)
     if "vov_60d" in df.columns:
         fig.add_trace(go.Scatter(
             x=df["tenor"], y=df["vov_60d"], mode="lines+markers",
-            name="VoV 60d", line=dict(color=COLORS["accent_cyan"], width=2, dash="dash"),
-            marker=dict(size=5),
+            name="VoV 60d",
+            line=dict(color=COLORS["accent_cyan"], width=2, dash="dash"),
+            marker=dict(size=5, color=COLORS["accent_cyan"]),
             hovertemplate="%{x}: %{y:.3f}<extra>VoV 60d</extra>",
-        ), secondary_y=False)
+        ), row=1, col=1)
 
-    # VoV ratio on secondary axis
-    if "vov_ratio" in df.columns:
+    # ── Bottom panel: ratio with regime bands ──
+    if has_ratio:
         ratios = [r if r and np.isfinite(r) else None for r in df["vov_ratio"]]
-        ratio_colors = [COLORS["accent_red"] if r and r > 1.2
-                        else (COLORS["accent_green"] if r and r < 0.8 else COLORS["text_muted"])
-                        for r in ratios]
+        # Background bands: <0.8 calming, 0.8–1.2 normal, >1.2 stressing
+        fig.add_hrect(y0=0, y1=0.8, fillcolor="rgba(0,204,102,0.06)",
+                      line_width=0, row=2, col=1)
+        fig.add_hrect(y0=0.8, y1=1.2, fillcolor="rgba(154,154,176,0.04)",
+                      line_width=0, row=2, col=1)
+        fig.add_hrect(y0=1.2, y1=5, fillcolor="rgba(255,51,51,0.07)",
+                      line_width=0, row=2, col=1)
+        fig.add_hline(y=1.0, line=dict(color=COLORS["text_muted"], width=1, dash="dot"),
+                      row=2, col=1)
+        ratio_colors = [
+            COLORS["accent_red"] if r and r > 1.2
+            else (COLORS["accent_green"] if r and r < 0.8 else COLORS["accent_purple"])
+            for r in ratios
+        ]
         fig.add_trace(go.Scatter(
-            x=df["tenor"], y=ratios, mode="markers+text",
-            name="VoV Ratio (20d/60d)",
-            marker=dict(size=10, color=ratio_colors, symbol="diamond",
-                        line=dict(width=1, color=COLORS["text_secondary"])),
-            text=[f"{r:.2f}" if r and np.isfinite(r) else "" for r in ratios],
-            textposition="top center", textfont=dict(size=9, color=COLORS["text_secondary"]),
-            hovertemplate="%{x}: %{y:.2f}x<extra>Ratio</extra>",
-        ), secondary_y=True)
+            x=df["tenor"], y=ratios, mode="lines+markers+text",
+            name="Ratio",
+            line=dict(color=COLORS["accent_purple"], width=2),
+            marker=dict(size=10, color=ratio_colors,
+                        line=dict(width=1.5, color="#000000"),
+                        symbol="diamond"),
+            text=[f"{r:.2f}x" if r and np.isfinite(r) else "" for r in ratios],
+            textposition="top center",
+            textfont=dict(size=9, color=COLORS["text_secondary"]),
+            hovertemplate="%{x}: %{y:.2f}x<extra>20d/60d</extra>",
+            showlegend=False,
+        ), row=2, col=1)
 
     _apply_chart_template(fig, f"Vol-of-Vol Term Structure -- {pair}")
-    fig.update_layout(
-        xaxis=dict(title="Tenor", type="category"),
-        yaxis=dict(title="VoV (daily vol change std)"),
-        yaxis2=dict(title="VoV Ratio (20d/60d)", overlaying="y", side="right",
-                    gridcolor="#1a1a30",
-                    tickfont=dict(size=10, color=COLORS["accent_cyan"]),
-                    title_font=dict(color=COLORS["accent_cyan"], size=11)),
+    base_layout = dict(
+        height=CHART_LG if has_ratio else CHART_MD,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
     )
+    if has_ratio:
+        base_layout.update(
+            xaxis=dict(type="category"),
+            xaxis2=dict(title="Tenor", type="category"),
+            yaxis=dict(title="VoV"),
+            yaxis2=dict(title="Ratio (×)"),
+        )
+    else:
+        base_layout.update(
+            xaxis=dict(title="Tenor", type="category"),
+            yaxis=dict(title="VoV"),
+        )
+    fig.update_layout(**base_layout)
+    if has_ratio:
+        for ann in fig.layout.annotations:
+            txt = ann.text or ""
+            if "VoV" in txt or "Ratio" in txt:
+                ann.update(font=dict(size=10, color="#9a9ab0"))
     return fig
 
 
@@ -2086,7 +2446,8 @@ def chart_pdf_comparison(pair, sd, spot, r_dom, r_for, **kw):
 def chart_smile_pca(pair, sd, spot, r_dom, r_for, **kw):
     """Smile PCA: Level/Skew/Curvature decomposition of vol surface moves."""
     from core.fx_analytics import smile_pca
-    result = smile_pca(pair, lookback=252)
+    lookback = int(kw.get("lookback_days") or 252)
+    result = smile_pca(pair, lookback=lookback)
     if result is None:
         return _empty_fig("No PCA data — need 20+ days of vol history")
 
@@ -2108,54 +2469,70 @@ def chart_smile_pca(pair, sd, spot, r_dom, r_for, **kw):
     pc_labels = {"Level": "Lvl", "Skew": "Skew", "Curvature": "Curv",
                  "Wings": "Wing", "Residual": "Res"}
 
-    # Left panel: loading bars grouped by PC
+    # Left panel: loading LINES (Cont/da Fonseca convention).
+    # Bars treat the metrics as categorical and break the visual cue that
+    # sign-changes give (0 sign changes = level, 1 = slope/skew, 2 = curvature).
+    # Lines preserve that ordering.
+    fig.add_hline(y=0, line=dict(color="#3a3a5c", width=0.8), row=1, col=1)
     for pi, pc_name in enumerate(pc_names[:3]):
         pc = components[pc_name]
         loadings = [pc["loadings"].get(m, 0) for m in metrics]
-        fig.add_trace(go.Bar(
-            x=metric_labels, y=loadings, name=f"{pc_name} ({pc['explained_pct']:.0f}%)",
-            marker=dict(color=pc_colors[pi], opacity=0.85,
-                        line=dict(width=1, color=COLORS["border"])),
+        fig.add_trace(go.Scatter(
+            x=metric_labels, y=loadings, mode="lines+markers",
+            name=f"{pc_name} ({pc['explained_pct']:.0f}%)",
+            line=dict(color=pc_colors[pi], width=2.5),
+            marker=dict(size=9, color=pc_colors[pi],
+                        line=dict(width=1.5, color="#000000")),
             hovertemplate=f"{pc_name}<br>" + "%{x}: %{y:.3f}<extra></extra>",
         ), row=1, col=1)
 
-    # Right panel: cumulative variance explained
+    # Right panel: cumulative variance explained as a step/scree plot
     short_names = [pc_labels.get(n, n[:4]) for n in pc_names[:len(cum_explained)]]
-    fig.add_trace(go.Bar(
-        x=short_names, y=cum_explained,
-        marker=dict(color=[pc_colors[i] if i < len(pc_colors) else COLORS["text_muted"]
-                           for i in range(len(cum_explained))],
-                    line=dict(width=1, color=COLORS["border"])),
+    fig.add_trace(go.Scatter(
+        x=short_names, y=cum_explained, mode="lines+markers+text",
+        line=dict(color=COLORS["accent_orange"], width=2, shape="hv"),
+        marker=dict(size=9, color=COLORS["accent_orange"],
+                    line=dict(width=1.5, color="#000000")),
         text=[f"{v:.0f}%" for v in cum_explained],
-        textposition="inside", textfont=dict(size=9, color="#e0e0e0"),
-        insidetextanchor="end", constraintext="both",
+        textposition="top center",
+        textfont=dict(size=9, color=COLORS["text_secondary"]),
         hovertemplate="%{x}: %{y:.1f}% cumulative<extra></extra>",
         showlegend=False,
     ), row=1, col=2)
+    # 80% reference line: most surface dynamics fit within first 2 PCs
+    fig.add_hline(y=80, line=dict(color=COLORS["text_muted"], width=1, dash="dot"),
+                  annotation_text="80%", annotation_font=dict(size=8),
+                  row=1, col=2)
 
     _apply_chart_template(fig, f"Smile PCA -- {pair}")
     fig.update_layout(
         xaxis=dict(type="category", tickangle=0),
         xaxis2=dict(type="category", tickangle=0),
-        yaxis=dict(title="Loading"), yaxis2=dict(title="Cum %", range=[0, 108]),
-        barmode="group",
+        yaxis=dict(title="Loading"), yaxis2=dict(title="Cum %", range=[0, 110]),
         margin=dict(l=50, r=20, t=55, b=40),
         height=CHART_LG,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="left", x=0, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
     )
-    # Style subplot titles to not overlap main title
     for ann in fig.layout.annotations:
-        ann.update(font=dict(size=10, color="#9a9ab0"), y=0.98)
+        if ann.text in ("PC Loadings", "Variance Explained"):
+            ann.update(font=dict(size=10, color="#9a9ab0"), y=0.98)
     return fig
 
 
 @_safe_chart
 def chart_wing_richness(pair, sd, spot, r_dom, r_for, **kw):
-    """Wing Richness: 10D BF / 25D BF ratio across tenors — shows far-wing pricing."""
+    """Wing Richness: BF lines on top, ratio panel below with cheap/fair/rich bands.
+
+    The 10D/25D BF ratio is the actual trading signal. Promoting it to its
+    own subplot (with horizontal threshold bands at 2.0/3.5) makes the
+    rich/cheap read instant. Risk.net "Harvesting the FX skew premium"
+    framework uses the same two-panel pattern.
+    """
     from core.fx_analytics import wing_richness
     tenors = sd["tenors"]
-    ratios = []
-    bf10_vals = []
-    bf25_vals = []
+    ratios, bf10_vals, bf25_vals = [], [], []
     for t in tenors:
         wr = wing_richness(pair, t)
         if wr:
@@ -2170,63 +2547,102 @@ def chart_wing_richness(pair, sd, spot, r_dom, r_for, **kw):
     if all(r is None for r in ratios):
         return _empty_fig("No wing richness data")
 
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True,
+        row_heights=[0.55, 0.45], vertical_spacing=0.08,
+        subplot_titles=["10D & 25D Butterfly (vol pts)",
+                        "Wing Ratio (10D BF / 25D BF)"],
+    )
 
-    # BF lines — no fill, clean lines
+    # ── Top panel: BF lines ──
     fig.add_trace(go.Scatter(
         x=tenors, y=bf25_vals, mode="lines+markers", name="25D BF",
         line=dict(color=COLORS["accent_cyan"], width=2.5),
         marker=dict(size=7, color=COLORS["accent_cyan"]),
-        hovertemplate="%{x}: %{y:.2f}<extra>25D BF</extra>",
-    ), secondary_y=False)
+        hovertemplate="%{x}: %{y:.2f}v<extra>25D BF</extra>",
+    ), row=1, col=1)
     fig.add_trace(go.Scatter(
         x=tenors, y=bf10_vals, mode="lines+markers", name="10D BF",
         line=dict(color=COLORS["accent_orange"], width=2.5),
         marker=dict(size=7, color=COLORS["accent_orange"]),
-        hovertemplate="%{x}: %{y:.2f}<extra>10D BF</extra>",
-    ), secondary_y=False)
+        hovertemplate="%{x}: %{y:.2f}v<extra>10D BF</extra>",
+    ), row=1, col=1)
 
-    # Wing ratio as annotations per tenor instead of secondary axis
-    for i, t in enumerate(tenors):
-        r = ratios[i]
+    # ── Bottom panel: ratio with cheap/fair/rich background bands ──
+    # Bands behind the line make rich/cheap glanceable
+    fig.add_hrect(y0=0, y1=2.0, fillcolor="rgba(0,204,102,0.08)",
+                  line_width=0, row=2, col=1)
+    fig.add_hrect(y0=2.0, y1=3.5, fillcolor="rgba(154,154,176,0.05)",
+                  line_width=0, row=2, col=1)
+    fig.add_hrect(y0=3.5, y1=10, fillcolor="rgba(255,51,51,0.08)",
+                  line_width=0, row=2, col=1)
+    fig.add_hline(y=2.0, line=dict(color=COLORS["accent_green"], width=1, dash="dot"),
+                  row=2, col=1, annotation_text="2.0× cheap",
+                  annotation_position="left",
+                  annotation_font=dict(size=8, color=COLORS["accent_green"]))
+    fig.add_hline(y=3.5, line=dict(color=COLORS["accent_red"], width=1, dash="dot"),
+                  row=2, col=1, annotation_text="3.5× rich",
+                  annotation_position="left",
+                  annotation_font=dict(size=8, color=COLORS["accent_red"]))
+
+    # Color markers by zone
+    marker_colors = []
+    for r in ratios:
         if r is None or not np.isfinite(r):
-            continue
-        color = COLORS["accent_red"] if r > 3.5 else (
-            COLORS["accent_green"] if r < 2.0 else COLORS["accent_purple"])
-        # Place ratio label above the 10D BF line
-        y_pos = bf10_vals[i] if bf10_vals[i] is not None else 0
-        fig.add_annotation(
-            x=t, y=y_pos, yshift=16, text=f"{r:.1f}x",
-            showarrow=False,
-            font=dict(size=10, color=color, family="'JetBrains Mono', monospace"),
-        )
+            marker_colors.append(COLORS["text_muted"])
+        elif r > 3.5:
+            marker_colors.append(COLORS["accent_red"])
+        elif r < 2.0:
+            marker_colors.append(COLORS["accent_green"])
+        else:
+            marker_colors.append(COLORS["accent_purple"])
 
-    # Average ratio as a summary stat
+    fig.add_trace(go.Scatter(
+        x=tenors, y=ratios, mode="lines+markers+text",
+        name="Ratio",
+        line=dict(color=COLORS["accent_purple"], width=2.5),
+        marker=dict(size=10, color=marker_colors,
+                    line=dict(width=1.5, color="#000000")),
+        text=[f"{r:.1f}x" if r is not None and np.isfinite(r) else ""
+              for r in ratios],
+        textposition="top center",
+        textfont=dict(size=9, color=COLORS["text_secondary"]),
+        hovertemplate="%{x}: %{y:.2f}x<extra>Wing ratio</extra>",
+        showlegend=False,
+    ), row=2, col=1)
+
+    # Average ratio summary stat
     valid_ratios = [r for r in ratios if r is not None and np.isfinite(r)]
     if valid_ratios:
-        avg_ratio = np.mean(valid_ratios)
+        avg_ratio = float(np.mean(valid_ratios))
         ratio_color = COLORS["accent_red"] if avg_ratio > 3.5 else (
             COLORS["accent_green"] if avg_ratio < 2.0 else COLORS["accent_purple"])
         signal = "EXPENSIVE" if avg_ratio > 3.5 else ("CHEAP" if avg_ratio < 2.0 else "FAIR")
         fig.add_annotation(
-            x=0.99, y=0.98, xref="paper", yref="paper", xanchor="right", yanchor="top",
-            text=f"Avg Ratio: {avg_ratio:.1f}x  {signal}",
+            x=0.99, y=0.98, xref="paper", yref="paper",
+            xanchor="right", yanchor="top",
+            text=f"Avg ratio: {avg_ratio:.2f}x  {signal}",
             showarrow=False,
-            font=dict(size=11, color=ratio_color, family="'JetBrains Mono', monospace"),
-            bgcolor="rgba(0,0,0,0.7)", bordercolor=ratio_color, borderwidth=1, borderpad=5,
+            font=dict(size=11, color=ratio_color,
+                      family="'JetBrains Mono', monospace"),
+            bgcolor="rgba(0,0,0,0.7)", bordercolor=ratio_color,
+            borderwidth=1, borderpad=5,
         )
-
-    # Tight y-axis
-    all_bf = [v for v in (bf25_vals + bf10_vals) if v is not None]
-    y_min = min(all_bf) * 0.8 if all_bf else 0
-    y_max = max(all_bf) * 1.3 if all_bf else 2
 
     _apply_chart_template(fig, f"Wing Richness -- {pair}")
     fig.update_layout(
-        xaxis=dict(title="Tenor", type="category"),
-        yaxis=dict(title="Butterfly (vol pts)", range=[y_min, y_max]),
-        showlegend=True,
+        xaxis=dict(type="category"), xaxis2=dict(title="Tenor", type="category"),
+        yaxis=dict(title="BF (vol pts)"),
+        yaxis2=dict(title="Ratio (×)"),
+        height=CHART_LG,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
     )
+    for ann in fig.layout.annotations:
+        if ann.text in ("10D & 25D Butterfly (vol pts)",
+                        "Wing Ratio (10D BF / 25D BF)"):
+            ann.update(font=dict(size=10, color="#9a9ab0"))
     return fig
 
 
@@ -2295,27 +2711,66 @@ def chart_tail_risk(pair, sd, spot, r_dom, r_for, **kw):
     log_ret = np.diff(np.log(closes))
     metrics = tail_risk_metrics(log_ret)
 
-    fig = go.Figure()
+    from scipy.stats import norm as norm_dist
+    mu = float(np.mean(log_ret * 100))
+    sigma = float(np.std(log_ret * 100))
 
-    # Full-width histogram of returns
+    # Two-panel layout: log-y histogram (tails visible) + QQ plot (canonical
+    # EVT diagnostic per McNeil/Frey/Embrechts QRM). Histogram on linear
+    # scale hides the tails — log-y is the standard fix.
+    fig = make_subplots(
+        rows=1, cols=2, column_widths=[0.55, 0.45],
+        horizontal_spacing=0.12,
+        subplot_titles=["Return distribution (log-y)", "QQ plot vs Normal"],
+    )
+
+    # ── Left panel: histogram with log-y ──
+    ret_pct = log_ret * 100
     fig.add_trace(go.Histogram(
-        x=log_ret * 100, nbinsx=60, name="Actual Returns",
-        marker=dict(color=COLORS["accent_orange"], opacity=0.7,
+        x=ret_pct, nbinsx=60, name="Actual returns",
+        marker=dict(color=COLORS["accent_orange"], opacity=0.75,
                     line=dict(width=1, color=COLORS["border"])),
         hovertemplate="Return: %{x:.2f}%<br>Count: %{y}<extra></extra>",
-    ))
+    ), row=1, col=1)
 
-    # Normal overlay
-    from scipy.stats import norm as norm_dist
-    mu, sigma = np.mean(log_ret * 100), np.std(log_ret * 100)
-    x_norm = np.linspace(mu - 4 * sigma, mu + 4 * sigma, 200)
-    y_norm = norm_dist.pdf(x_norm, mu, sigma) * len(log_ret) * (log_ret.max() - log_ret.min()) * 100 / 60
+    # Normal density overlay (scaled to expected counts per bin)
+    bin_width = (ret_pct.max() - ret_pct.min()) / 60.0
+    x_norm = np.linspace(mu - 5 * sigma, mu + 5 * sigma, 250)
+    y_norm = norm_dist.pdf(x_norm, mu, sigma) * len(ret_pct) * bin_width
     fig.add_trace(go.Scatter(
-        x=x_norm, y=y_norm, mode="lines", name="Normal",
+        x=x_norm, y=y_norm, mode="lines", name="Normal fit",
         line=dict(color=COLORS["text_muted"], width=2, dash="dash"),
-    ))
+    ), row=1, col=1)
 
-    # Tail metrics as stat annotations (right side) — no bars needed
+    # ── Right panel: QQ plot vs Normal ──
+    sorted_ret = np.sort(ret_pct)
+    n = len(sorted_ret)
+    # Theoretical quantiles using the standard plotting position
+    quantiles = norm_dist.ppf((np.arange(1, n + 1) - 0.5) / n)
+    # Reference line: theoretical = standardised, plot vs (mu + sigma * q)
+    theo_line = mu + sigma * quantiles
+
+    fig.add_trace(go.Scatter(
+        x=quantiles, y=theo_line, mode="lines",
+        name="Normal reference",
+        line=dict(color=COLORS["text_muted"], width=1.5, dash="dash"),
+        hoverinfo="skip", showlegend=False,
+    ), row=1, col=2)
+    # Color by tail location (extreme deviations are the tail-risk signal)
+    abs_dev = np.abs((sorted_ret - theo_line) / sigma)
+    qq_colors = [
+        COLORS["accent_red"] if d > 1.5
+        else (COLORS["accent_orange"] if d > 0.6 else COLORS["accent_cyan"])
+        for d in abs_dev
+    ]
+    fig.add_trace(go.Scatter(
+        x=quantiles, y=sorted_ret, mode="markers",
+        name="Empirical", marker=dict(size=4, color=qq_colors, opacity=0.8),
+        hovertemplate="Theo q: %{x:.2f}σ<br>Empirical: %{y:.2f}%<extra></extra>",
+        showlegend=False,
+    ), row=1, col=2)
+
+    # Tail metrics (right-side stat overlay over QQ)
     skew_v = metrics["skewness"]
     kurt_v = metrics["excess_kurtosis"]
     hill_v = metrics["hill_tail_index"]
@@ -2323,55 +2778,57 @@ def chart_tail_risk(pair, sd, spot, r_dom, r_for, **kw):
     tail_assess = metrics.get("tail_assessment", "")
 
     def _mc(label, val):
-        """Metric color based on thresholds."""
         if label == "SKEW":
             return COLORS["accent_red"] if abs(val) > 0.5 else COLORS["accent_green"]
         elif label == "EX.KURT":
             return COLORS["accent_red"] if val > 1.0 else COLORS["accent_green"]
-        else:  # HILL
+        else:
             return COLORS["accent_red"] if val < 3 else COLORS["accent_green"]
 
-    # Stat boxes as annotations (stacked on right)
+    # Stat boxes anchored to top-left of the QQ panel for compactness
     stat_items = [
-        ("SKEW", skew_v, 0.88),
-        ("EX.KURT", kurt_v, 0.72),
-        ("HILL", hill_v, 0.56),
+        ("SKEW", skew_v, 0.96),
+        ("EX.KURT", kurt_v, 0.86),
+        ("HILL", hill_v, 0.76),
     ]
     for label, val, y_pos in stat_items:
         color = _mc(label, val)
         fig.add_annotation(
-            x=0.99, y=y_pos, xref="paper", yref="paper", xanchor="right",
-            text=f"<b>{val:+.2f}</b>", showarrow=False,
-            font=dict(color=color, size=18, family="'JetBrains Mono', monospace"),
-        )
-        fig.add_annotation(
-            x=0.99, y=y_pos - 0.06, xref="paper", yref="paper", xanchor="right",
-            text=label, showarrow=False,
-            font=dict(color="#9a9ab0", size=9, family="'JetBrains Mono', monospace"),
+            xref="x2 domain", yref="paper", x=0.04, y=y_pos,
+            xanchor="left", yanchor="top",
+            text=f"<b>{val:+.2f}</b> <span style='font-size:9px;color:#9a9ab0'>{label}</span>",
+            showarrow=False,
+            font=dict(color=color, size=13,
+                      family="'JetBrains Mono', monospace"),
         )
 
-    # Normality badge (bottom right)
+    # Normality badge bottom-right of QQ
     badge_color = COLORS["accent_red"] if normality == "REJECTED" else (
         COLORS["accent_orange"] if normality == "BORDERLINE" else COLORS["accent_green"])
     fig.add_annotation(
-        x=0.99, y=0.38, xref="paper", yref="paper", xanchor="right",
-        text=f"{normality.replace('_', ' ')}",
-        showarrow=False, font=dict(color=badge_color, size=11, family="'JetBrains Mono', monospace"),
-        bgcolor="rgba(0,0,0,0.8)", bordercolor=badge_color, borderwidth=1, borderpad=4,
-    )
-    fig.add_annotation(
-        x=0.99, y=0.30, xref="paper", yref="paper", xanchor="right",
-        text=f"Tails: {tail_assess.replace('_', ' ')}",
-        showarrow=False, font=dict(color="#9a9ab0", size=9, family="'JetBrains Mono', monospace"),
+        xref="paper", yref="paper", x=0.99, y=0.04,
+        xanchor="right", yanchor="bottom",
+        text=f"{normality.replace('_', ' ')} | {tail_assess.replace('_', ' ')}",
+        showarrow=False,
+        font=dict(color=badge_color, size=10,
+                  family="'JetBrains Mono', monospace"),
+        bgcolor="rgba(0,0,0,0.8)", bordercolor=badge_color,
+        borderwidth=1, borderpad=4,
     )
 
     _apply_chart_template(fig, f"Tail Risk -- {pair}")
     fig.update_layout(
-        xaxis=dict(title="Daily Return (%)"),
-        yaxis=dict(title="Frequency"),
-        margin=dict(l=50, r=140, t=40, b=40),
         height=CHART_LG,
+        margin=dict(l=55, r=20, t=55, b=40),
+        showlegend=False,
     )
+    fig.update_xaxes(title_text="Daily return (%)", row=1, col=1)
+    fig.update_yaxes(title_text="Frequency (log)", type="log", row=1, col=1)
+    fig.update_xaxes(title_text="Theoretical quantile (σ)", row=1, col=2)
+    fig.update_yaxes(title_text="Empirical return (%)", row=1, col=2)
+    for ann in fig.layout.annotations:
+        if ann.text in ("Return distribution (log-y)", "QQ plot vs Normal"):
+            ann.update(font=dict(size=10, color="#9a9ab0"))
     return fig
 
 
@@ -2381,24 +2838,25 @@ def chart_tail_risk(pair, sd, spot, r_dom, r_for, **kw):
 
 @_safe_chart
 def chart_radar_profile(pair, sd, spot, r_dom, r_for, **kw):
-    """Radar chart: 6-axis vol profile for current pair vs a comparison pair."""
+    """Pair Profile: horizontal grouped bars, current pair vs cross pair, 6 percentile metrics.
+
+    Replaces the prior radar/spider chart. Radar charts are well-known anti-patterns
+    for finance comparison (area scales as squared values, axis order changes
+    apparent shape, non-adjacent axes are uncomparable). Grouped horizontal bars
+    are the JPM Volatility Compass / Bloomberg WCRS convention.
+    """
 
     def _get_profile(p):
-        """Get 6 normalised metrics (0-100 scale) for radar."""
+        """Get 6 normalised metrics (0-100 percentile scale)."""
         metrics = {}
-        # ATM vol percentile
         vp = vol_percentile(p, "3M", "ATM")
         metrics["ATM Vol"] = vp["percentile"] if vp else 50
-        # Skew intensity (abs RR percentile)
         rp = vol_percentile(p, "3M", "25D_RR")
         metrics["Skew"] = rp["percentile"] if rp else 50
-        # Wings (BF percentile)
         bp = vol_percentile(p, "3M", "25D_BF")
         metrics["Wings"] = bp["percentile"] if bp else 50
-        # IV-RV spread percentile
         irp = iv_rv_percentile(p, "3M")
         metrics["IV-RV"] = irp.get("percentile", 50) if irp else 50
-        # Vol-of-vol (normalise to 0-100 via percentile proxy)
         vov = vol_of_vol_term_structure(p)
         if vov is not None and not vov.empty and "vov_20d" in vov.columns:
             vov_val = vov.loc[vov["tenor"] == "3M", "vov_20d"]
@@ -2406,259 +2864,260 @@ def chart_radar_profile(pair, sd, spot, r_dom, r_for, **kw):
             metrics["Vol-of-Vol"] = min(float(raw) * 200, 100) if raw is not None and np.isfinite(raw) else 50
         else:
             metrics["Vol-of-Vol"] = 50
-        # Term structure steepness
         z1m = vol_zscore(p, "1M", "ATM")
         z1y = vol_zscore(p, "1Y", "ATM")
         term_z = abs((z1m["zscore"] if z1m else 0) - (z1y["zscore"] if z1y else 0))
-        metrics["Term Slope"] = min(term_z * 25, 100)  # scale to 0-100
+        metrics["Term Slope"] = min(term_z * 25, 100)
         return metrics
 
     profile = _get_profile(pair)
-    categories = list(profile.keys())
-    # Clamp all values to 0-100
-    values = [max(0, min(100, v)) for v in profile.values()]
-    # Close the polygon
-    categories_closed = categories + [categories[0]]
-    values_closed = values + [values[0]]
+    # Order top-to-bottom by importance (top of chart is read first)
+    categories = ["ATM Vol", "Skew", "Wings", "IV-RV", "Vol-of-Vol", "Term Slope"]
+    values_a = [max(0, min(100, profile.get(c, 50))) for c in categories]
+
+    cross = kw.get("cross_pair", "USDJPY")
+    has_cross = bool(cross) and cross != pair
+    if has_cross:
+        profile2 = _get_profile(cross)
+        values_b = [max(0, min(100, profile2.get(c, 50))) for c in categories]
+    else:
+        values_b = None
 
     fig = go.Figure()
-    fig.add_trace(go.Scatterpolar(
-        r=values_closed, theta=categories_closed,
-        fill="toself", fillcolor="rgba(255,136,0,0.12)",
-        line=dict(color=COLORS["accent_orange"], width=2.5),
-        marker=dict(size=8, color=COLORS["accent_orange"]),
+
+    # Primary pair bars (top of each row pair, orange)
+    fig.add_trace(go.Bar(
+        y=categories, x=values_a, orientation="h",
         name=pair,
-        hovertemplate="<b>%{theta}</b><br>%{r:.0f}th percentile<extra>" + pair + "</extra>",
+        marker=dict(color=COLORS["accent_orange"], opacity=0.9,
+                    line=dict(width=1, color="#000000")),
+        text=[f"{v:.0f}" for v in values_a],
+        textposition="outside",
+        textfont=dict(size=10, color=COLORS["accent_orange"],
+                      family="'JetBrains Mono', monospace"),
+        hovertemplate="<b>%{y}</b><br>" + pair + ": %{x:.0f}th %ile<extra></extra>",
+        cliponaxis=False,
     ))
 
-    # Comparison pair (cross-pair from sidebar)
-    cross = kw.get("cross_pair", "USDJPY")
-    if cross and cross != pair:
-        profile2 = _get_profile(cross)
-        values2 = [max(0, min(100, profile2[c])) for c in categories]
-        values2_closed = values2 + [values2[0]]
-        fig.add_trace(go.Scatterpolar(
-            r=values2_closed, theta=categories_closed,
-            fill="toself", fillcolor="rgba(0,180,216,0.08)",
-            line=dict(color=COLORS["accent_cyan"], width=2, dash="dash"),
-            marker=dict(size=6, color=COLORS["accent_cyan"]),
+    # Cross pair bars (cyan)
+    if has_cross:
+        fig.add_trace(go.Bar(
+            y=categories, x=values_b, orientation="h",
             name=cross,
-            hovertemplate="<b>%{theta}</b><br>%{r:.0f}th percentile<extra>" + cross + "</extra>",
+            marker=dict(color=COLORS["accent_cyan"], opacity=0.85,
+                        line=dict(width=1, color="#000000")),
+            text=[f"{v:.0f}" for v in values_b],
+            textposition="outside",
+            textfont=dict(size=10, color=COLORS["accent_cyan"],
+                          family="'JetBrains Mono', monospace"),
+            hovertemplate="<b>%{y}</b><br>" + cross + ": %{x:.0f}th %ile<extra></extra>",
+            cliponaxis=False,
         ))
 
-    # 50th percentile reference circle
-    fig.add_trace(go.Scatterpolar(
-        r=[50] * (len(categories) + 1), theta=categories_closed,
-        line=dict(color=COLORS["text_muted"], width=1, dash="dot"),
-        showlegend=False, hoverinfo="skip",
-    ))
+    # 50th percentile reference line (median)
+    fig.add_vline(x=50, line=dict(color=COLORS["text_muted"], width=1, dash="dot"),
+                  annotation_text="median", annotation_position="top",
+                  annotation_font=dict(size=8, color=COLORS["text_muted"]))
 
+    # Cheap/rich shading at extremes (Bloomberg WCRS convention)
+    fig.add_vrect(x0=0, x1=20, fillcolor="rgba(21,101,192,0.06)", line_width=0)
+    fig.add_vrect(x0=80, x1=100, fillcolor="rgba(255,136,0,0.06)", line_width=0)
+
+    title = f"Vol Profile -- {pair}" + (f" vs {cross}" if has_cross else "")
+    _apply_chart_template(fig, title)
     fig.update_layout(
-        polar=dict(
-            bgcolor="#000000",
-            radialaxis=dict(visible=True, range=[0, 100], showticklabels=True,
-                            tickfont=dict(size=8, color=COLORS["text_muted"]),
-                            gridcolor="#1e1e38", linecolor="#2d2d50"),
-            angularaxis=dict(tickfont=dict(size=10, color=COLORS["text_primary"],
-                                           family="'JetBrains Mono', monospace"),
-                             gridcolor="#1e1e38", linecolor="#2d2d50"),
-        ),
-        paper_bgcolor="#000000",
-        font=dict(family="'JetBrains Mono', monospace", color=COLORS["text_primary"]),
-        title=dict(text=f"Vol Profile Radar -- {pair}" + (f" vs {cross}" if cross and cross != pair else ""),
-                   font=dict(color="#ffffff", size=13)),
-        legend=dict(font=dict(color=COLORS["text_secondary"], size=10), bgcolor="rgba(0,0,0,0)"),
-        margin=dict(l=80, r=80, t=50, b=60),
-        height=420,
+        barmode="group",
+        bargap=0.25, bargroupgap=0.05,
+        xaxis=dict(title="Percentile vs 1Y history", range=[0, 115],
+                   tickvals=[0, 25, 50, 75, 100],
+                   ticktext=["0", "25", "50", "75", "100"]),
+        yaxis=dict(autorange="reversed", title=None,
+                   tickfont=dict(size=11, color=COLORS["text_primary"],
+                                 family="'JetBrains Mono', monospace")),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)"),
+        margin=dict(l=90, r=40, t=55, b=40),
+        height=CHART_LG,
     )
     return fig
 
 
 @_safe_chart
 def chart_vol_timelapse(pair, sd, spot, r_dom, r_for, **kw):
-    """Animated vol surface heatmap: scrub through last 20 trading days."""
+    """Vol Surface Evolution -- static tenor x days heatmap.
+
+    Animation forces serial perception of data the eye could compare in
+    parallel (Munzner / Tufte). Industry standard for "vol over the last N
+    days" is a static heatmap with tenor on rows, calendar days on columns,
+    color = ATM vol. Lets a trader scan all days at once.
+    """
     tenors = ["1W", "1M", "2M", "3M", "6M", "9M", "1Y"]
-    metrics = ["ATM"]
     n_days = 20
 
-    # Build daily snapshots
-    frames = []
-    frame_labels = []
+    # Build matrix: rows = tenors, columns = day offsets (oldest left, today right)
+    z = np.full((len(tenors), n_days + 1), np.nan, dtype=float)
     for d in range(n_days, 0, -1):
-        row_data = []
-        for t in tenors:
+        for ti, t in enumerate(tenors):
             ch = vol_change(pair, t, "ATM", days_ago=d)
             if ch:
-                row_data.append(ch.get("previous", 0))
-            else:
-                row_data.append(0)
-        frames.append(row_data)
-        frame_labels.append(f"{d}D ago")
+                z[ti, n_days - d] = float(ch.get("previous", np.nan))
 
-    # Add current
-    current_row = []
-    for t in tenors:
+    # Today column (rightmost)
+    for ti, t in enumerate(tenors):
         idx = sd["tenors"].index(t) if t in sd["tenors"] else -1
-        current_row.append(float(sd["atm"][idx]) if idx >= 0 else 0)
-    frames.append(current_row)
-    frame_labels.append("Today")
+        if idx >= 0:
+            z[ti, n_days] = float(sd["atm"][idx])
 
-    if not frames or all(all(v == 0 for v in f) for f in frames):
-        return _empty_fig("No historical data for timelapse")
+    if not np.any(np.isfinite(z)):
+        return _empty_fig("No historical data for vol evolution")
 
-    # Build animated figure
-    z_all = np.array(frames)
-    z_min = float(np.nanmin(z_all[z_all > 0])) if np.any(z_all > 0) else 0
-    z_max = float(np.nanmax(z_all)) if np.any(z_all > 0) else 20
+    # X labels: -20D .. -1D, Today
+    x_labels = [f"-{d}D" for d in range(n_days, 0, -1)] + ["Today"]
 
-    fig = go.Figure(
-        data=[go.Bar(
-            x=tenors, y=frames[-1],
-            marker=dict(color=frames[-1],
-                        colorscale=[[0, "#1a1a3e"], [0.3, "#2a2a5e"], [0.5, "#6b4400"],
-                                    [0.7, "#bf6b00"], [0.85, "#ff8800"], [1.0, "#ffcc66"]],
-                        cmin=z_min, cmax=z_max,
-                        colorbar=dict(title=dict(text="Vol %", font=dict(color=COLORS["text_muted"], size=10)),
-                                      tickfont=dict(color=COLORS["text_muted"], size=9),
-                                      len=0.6, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)")),
-            text=[f"{v:.2f}" for v in frames[-1]],
-            textposition="inside", textfont=dict(size=10, color="#e0e0e0"),
-            insidetextanchor="end", constraintext="both",
-            hovertemplate="<b>%{x}</b><br>ATM: %{y:.2f}%<extra></extra>",
-        )],
-        frames=[
-            go.Frame(
-                data=[go.Bar(
-                    x=tenors, y=f,
-                    marker=dict(color=f,
-                                colorscale=[[0, "#1a1a3e"], [0.3, "#2a2a5e"], [0.5, "#6b4400"],
-                                            [0.7, "#bf6b00"], [0.85, "#ff8800"], [1.0, "#ffcc66"]],
-                                cmin=z_min, cmax=z_max),
-                    text=[f"{v:.2f}" for v in f],
-                    textposition="inside", textfont=dict(size=10, color="#e0e0e0"),
-                    insidetextanchor="end", constraintext="both",
-                )],
-                name=label,
-            )
-            for f, label in zip(frames, frame_labels)
-        ],
-    )
+    finite = z[np.isfinite(z)]
+    z_min = float(np.nanmin(finite))
+    z_max = float(np.nanmax(finite))
 
+    # Show numbers only on bookend columns to keep the grid readable
+    n_rows, n_cols = z.shape
+    text_vals = []
+    for r in range(n_rows):
+        row_txt = []
+        for c in range(n_cols):
+            if c == 0 or c == n_cols - 1:
+                v = z[r, c]
+                row_txt.append(f"{v:.1f}" if np.isfinite(v) else "")
+            else:
+                row_txt.append("")
+        text_vals.append(row_txt)
+
+    fig = go.Figure(go.Heatmap(
+        x=x_labels, y=tenors, z=z,
+        colorscale=CS_VOL_SURFACE,
+        zmin=z_min, zmax=z_max,
+        text=text_vals,
+        texttemplate="%{text}",
+        textfont=dict(size=9, color="#d0d0d0"),
+        hovertemplate="Day %{x}<br>Tenor %{y}<br>ATM: %{z:.2f}%<extra></extra>",
+        colorbar=dict(
+            title=dict(text="ATM %", font=dict(color=COLORS["text_muted"], size=10)),
+            tickfont=dict(color=COLORS["text_muted"], size=9),
+            len=0.8, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)",
+        ),
+        xgap=2, ygap=2,
+    ))
+
+    _apply_chart_template(fig, f"Vol Surface Evolution -- {pair} (last {n_days}D)")
     fig.update_layout(
-        updatemenus=[dict(
-            type="buttons", showactive=False,
-            x=0.0, y=1.15, xanchor="left",
-            buttons=[
-                dict(label="\u25b6 Play", method="animate",
-                     args=[None, {"frame": {"duration": 400, "redraw": True},
-                                  "fromcurrent": True, "transition": {"duration": 200}}]),
-                dict(label="\u23f8 Pause", method="animate",
-                     args=[[None], {"frame": {"duration": 0, "redraw": False},
-                                    "mode": "immediate", "transition": {"duration": 0}}]),
-            ],
-            font=dict(color=COLORS["accent_orange"], size=10, family="'JetBrains Mono', monospace"),
-            bgcolor="#000000", bordercolor=COLORS["accent_orange"], borderwidth=1,
-        )],
-        sliders=[dict(
-            active=len(frames) - 1,
-            steps=[dict(args=[[label], {"frame": {"duration": 0, "redraw": True},
-                                        "mode": "immediate"}],
-                        label=label, method="animate")
-                   for label in frame_labels],
-            x=0.0, len=1.0, y=-0.05,
-            currentvalue=dict(prefix="", font=dict(color=COLORS["accent_orange"], size=12,
-                                                    family="'JetBrains Mono', monospace")),
-            font=dict(color=COLORS["text_muted"], size=9),
-            tickcolor=COLORS["border"], bordercolor=COLORS["border"],
-            bgcolor="#06060f", activebgcolor=COLORS["accent_orange"],
-        )],
-    )
-
-    _apply_chart_template(fig, f"Vol Surface Timelapse -- {pair}")
-    fig.update_layout(
-        xaxis=dict(title="Tenor", type="category"),
-        yaxis=dict(title="ATM Vol (%)", range=[z_min * 0.9, z_max * 1.1]),
-        height=450,
-        margin=dict(l=50, r=20, t=60, b=60),
+        xaxis=dict(title="Trading days", type="category", side="bottom",
+                   tickfont=dict(size=8, color=COLORS["text_muted"])),
+        yaxis=dict(title="Tenor", type="category", autorange="reversed",
+                   tickfont=dict(size=10, color=COLORS["text_secondary"])),
+        height=CHART_LG,
+        margin=dict(l=55, r=60, t=45, b=40),
     )
     return fig
 
 
 @_safe_chart
 def chart_iv_rv_scatter(pair, sd, spot, r_dom, r_for, **kw):
-    """IV vs Realized Vol scatter: each point is a historical observation, colored by regime."""
+    """IV vs Realized Vol scatter, points colored by TIME (not regime).
 
-    df = iv_rv_spread(pair, "3M", rv_window=20, lookback=504)
+    Switched from regime coloring (semi-circular: regime is itself derived
+    from vol level) to a time gradient. Industry preference per bank vol
+    decks: the trader question is "where do recent obs sit in the cloud?".
+    Adds an OLS regression line so slope-vs-1 (state-dependent premium)
+    is visually obvious.
+    """
+
+    lookback = int(kw.get("lookback_days") or 504)
+    df = iv_rv_spread(pair, "3M", rv_window=20, lookback=lookback)
     if df is None or df.empty or len(df) < 20:
         return _empty_fig("Insufficient IV/RV history for scatter")
 
-    iv_vals = df["iv"].values
-    rv_vals = df["rv"].values
-
-    # Get regime colors for each data point
-    regime_hist = vol_regime_history(pair, lookback=504)
-    regime_colors = []
-    regime_labels = []
-    if regime_hist is not None and not regime_hist.empty and len(regime_hist) >= len(df):
-        rh = regime_hist.tail(len(df))
-        regime_colors = rh["color"].tolist()
-        regime_labels = rh["regime"].tolist()
-    else:
-        regime_colors = [COLORS["text_muted"]] * len(df)
-        regime_labels = ["UNKNOWN"] * len(df)
+    iv_vals = df["iv"].values.astype(float)
+    rv_vals = df["rv"].values.astype(float)
+    n = len(iv_vals)
 
     fig = go.Figure()
 
-    # 45-degree "fair pricing" line
+    # Axis bounds
     all_vals = np.concatenate([iv_vals, rv_vals])
-    v_min = float(np.nanmin(all_vals[np.isfinite(all_vals)])) * 0.8
-    v_max = float(np.nanmax(all_vals[np.isfinite(all_vals)])) * 1.1
+    finite = all_vals[np.isfinite(all_vals)]
+    v_min = float(np.nanmin(finite)) * 0.8
+    v_max = float(np.nanmax(finite)) * 1.1
+
+    # 45-degree fair-pricing line
     fig.add_trace(go.Scatter(
         x=[v_min, v_max], y=[v_min, v_max], mode="lines",
         line=dict(color=COLORS["text_muted"], width=1, dash="dash"),
-        name="Fair (IV=RV)", showlegend=True, hoverinfo="skip",
+        name="Fair (IV=RV)", hoverinfo="skip",
     ))
 
-    # Scatter points colored by regime
-    # Group by regime for proper legend
-    regime_types = list(set(regime_labels))
-    regime_color_map = {}
-    for rl, rc in zip(regime_labels, regime_colors):
-        regime_color_map[rl] = rc
+    # OLS regression through the cloud (slope != 1 means state-dependent VRP)
+    try:
+        mask = np.isfinite(iv_vals) & np.isfinite(rv_vals)
+        if mask.sum() > 5:
+            slope, intercept = np.polyfit(iv_vals[mask], rv_vals[mask], 1)
+            x_fit = np.array([v_min, v_max])
+            y_fit = slope * x_fit + intercept
+            fig.add_trace(go.Scatter(
+                x=x_fit, y=y_fit, mode="lines",
+                line=dict(color=COLORS["accent_purple"], width=1.2, dash="dot"),
+                name=f"OLS: y={slope:.2f}x+{intercept:.2f}",
+                hoverinfo="skip",
+            ))
+    except Exception:
+        pass
 
-    for regime in regime_types:
-        mask = [r == regime for r in regime_labels]
-        mask_arr = np.array(mask)
-        if not mask_arr.any():
-            continue
-        fig.add_trace(go.Scatter(
-            x=iv_vals[mask_arr], y=rv_vals[mask_arr],
-            mode="markers", name=regime,
-            marker=dict(size=5, color=regime_color_map.get(regime, COLORS["text_muted"]),
-                        opacity=0.6, line=dict(width=0.5, color="rgba(255,255,255,0.2)")),
-            hovertemplate="IV: %{x:.1f}%<br>RV: %{y:.1f}%<extra>" + regime + "</extra>",
-        ))
+    # Scatter colored by time index (cool blue = oldest, warm orange = recent)
+    time_idx = np.arange(n)
+    fig.add_trace(go.Scatter(
+        x=iv_vals, y=rv_vals, mode="markers",
+        name="Observations",
+        marker=dict(
+            size=5, color=time_idx,
+            colorscale=[
+                [0.0, "#1565c0"],
+                [0.4, "#5b6b94"],
+                [0.7, "#bf6b00"],
+                [1.0, "#ff8800"],
+            ],
+            showscale=True,
+            colorbar=dict(
+                title=dict(text="Time", font=dict(size=9, color=COLORS["text_muted"])),
+                tickvals=[0, n / 2, n - 1],
+                ticktext=["oldest", "mid", "now"],
+                tickfont=dict(size=8, color=COLORS["text_muted"]),
+                len=0.55, thickness=10,
+                outlinewidth=0, bgcolor="rgba(0,0,0,0)",
+            ),
+            opacity=0.75,
+            line=dict(width=0.4, color="rgba(255,255,255,0.2)"),
+        ),
+        hovertemplate="IV: %{x:.1f}%<br>RV: %{y:.1f}%<extra>obs</extra>",
+        showlegend=False,
+    ))
 
     # Highlight current point with direct label
-    if len(iv_vals) > 0 and len(rv_vals) > 0:
-        cur_iv, cur_rv = iv_vals[-1], rv_vals[-1]
-        spread = cur_iv - cur_rv
-        spread_color = COLORS["accent_green"] if spread > 0 else COLORS["accent_red"]
-        fig.add_trace(go.Scatter(
-            x=[cur_iv], y=[cur_rv], mode="markers",
-            marker=dict(size=14, color=COLORS["accent_orange"], symbol="diamond",
-                        line=dict(width=2, color="#ffffff")),
-            name="Current", showlegend=False,
-            hovertemplate=f"<b>NOW</b><br>IV: {cur_iv:.2f}%<br>RV: {cur_rv:.2f}%<br>Spread: {spread:+.1f}<extra></extra>",
-        ))
-        # Direct annotation on the current point
-        fig.add_annotation(
-            x=cur_iv, y=cur_rv, xshift=12, yshift=-14,
-            text=f"<b>IV {cur_iv:.1f} | RV {cur_rv:.1f}</b><br>{spread:+.1f}v {'RICH' if spread > 0 else 'CHEAP'}",
-            showarrow=False, xanchor="left",
-            font=dict(size=10, color=spread_color, family="'JetBrains Mono', monospace"),
-            bgcolor="rgba(0,0,0,0.7)", bordercolor=spread_color, borderwidth=1, borderpad=4,
-        )
+    cur_iv, cur_rv = float(iv_vals[-1]), float(rv_vals[-1])
+    spread = cur_iv - cur_rv
+    spread_color = COLORS["accent_green"] if spread > 0 else COLORS["accent_red"]
+    fig.add_trace(go.Scatter(
+        x=[cur_iv], y=[cur_rv], mode="markers",
+        marker=dict(size=15, color=COLORS["accent_orange"], symbol="diamond",
+                    line=dict(width=2, color="#ffffff")),
+        name="Current", showlegend=False,
+        hovertemplate=f"<b>NOW</b><br>IV: {cur_iv:.2f}%<br>RV: {cur_rv:.2f}%<br>Spread: {spread:+.1f}<extra></extra>",
+    ))
+    fig.add_annotation(
+        x=cur_iv, y=cur_rv, xshift=12, yshift=-14,
+        text=f"<b>IV {cur_iv:.1f} | RV {cur_rv:.1f}</b><br>{spread:+.1f}v {'RICH' if spread > 0 else 'CHEAP'}",
+        showarrow=False, xanchor="left",
+        font=dict(size=10, color=spread_color, family="'JetBrains Mono', monospace"),
+        bgcolor="rgba(0,0,0,0.7)", bordercolor=spread_color, borderwidth=1, borderpad=4,
+    )
 
     # Quadrant labels — bigger, more visible
     fig.add_annotation(
@@ -2680,7 +3139,10 @@ def chart_iv_rv_scatter(pair, sd, spot, r_dom, r_for, **kw):
         yaxis=dict(title="Realized Vol (20d, %)", range=[v_min, v_max],
                    scaleanchor="x", scaleratio=1),
         height=420,
-        legend=dict(font=dict(color=COLORS["text_secondary"], size=9), bgcolor="rgba(0,0,0,0)"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(size=9),
+                    bgcolor="rgba(0,0,0,0)"),
+        margin=dict(l=55, r=70, t=45, b=40),
     )
     return fig
 
@@ -2734,66 +3196,22 @@ def _render_chart(chart_type, pair, sd, spot, r_dom, r_for, **kw):
     Lab time-series metrics (lab_atm, lab_25d_rr, etc.) are handled
     by _lab_build_ts_chart.  Lab study metrics and surface charts go
     through the dispatch table.
-
-    In history mode, adds date annotation to supported charts and
-    a "LIVE DATA" badge to unsupported charts.
     """
-    history_mode = kw.get("history_mode", False)
-    history_date = kw.get("history_date", "")
-
     # Lab time-series metrics → multi-pair TS builder
     if chart_type in _LAB_METRIC_MAP:
         try:
-            fig = _lab_build_ts_chart(chart_type, pair, sd, spot, r_dom, r_for, **kw)
+            return _lab_build_ts_chart(chart_type, pair, sd, spot, r_dom, r_for, **kw)
         except Exception as exc:
             return _empty_fig(f"Lab TS error: {exc}")
-        if history_mode:
-            _add_live_data_badge(fig)
-        return fig
 
     # Surface + study dispatch
     fn = CHART_DISPATCH.get(chart_type)
     if fn is None:
         return _empty_fig(f"Unknown chart: {chart_type}")
     try:
-        fig = fn(pair, sd, spot, r_dom, r_for, **kw)
+        return fn(pair, sd, spot, r_dom, r_for, **kw)
     except Exception as exc:
         return _empty_fig(f"Error: {exc}")
-
-    # History mode annotations
-    if history_mode:
-        if chart_type in _HISTORY_SUPPORTED:
-            _add_history_date_badge(fig, history_date)
-        else:
-            _add_live_data_badge(fig)
-
-    return fig
-
-
-def _add_history_date_badge(fig, date_label):
-    """Add a small date badge to a chart in history mode."""
-    fig.add_annotation(
-        text=date_label, xref="paper", yref="paper",
-        x=0.01, y=0.98, xanchor="left", yanchor="top",
-        showarrow=False,
-        font=dict(color=COLORS["accent_orange"], size=10,
-                  family="'JetBrains Mono', monospace"),
-        bgcolor="rgba(0,0,0,0.7)", bordercolor=COLORS["accent_orange"],
-        borderwidth=1, borderpad=3,
-    )
-
-
-def _add_live_data_badge(fig):
-    """Add a 'LIVE DATA' warning badge to unsupported charts in history mode."""
-    fig.add_annotation(
-        text="LIVE DATA", xref="paper", yref="paper",
-        x=0.01, y=0.98, xanchor="left", yanchor="top",
-        showarrow=False,
-        font=dict(color=COLORS["accent_red"], size=9,
-                  family="'JetBrains Mono', monospace"),
-        bgcolor="rgba(0,0,0,0.7)", bordercolor=COLORS["accent_red"],
-        borderwidth=1, borderpad=3,
-    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2837,8 +3255,10 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
     except Exception:
         pass
 
-    # 25D RR 3M + percentile
+    # 25D RR 3M (normalised by ATM 3M) + percentile
     rr_3m = 0.0
+    atm_3m = 0.0
+    skew_3m_pct = 0.0   # RR / ATM as %
     rr_pctile = 50.0
     try:
         if "3M" in sd["tenors"]:
@@ -2848,6 +3268,8 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
         else:
             idx = -1
         rr_3m = sd["rr25"][idx] if 0 <= idx < len(sd.get("rr25", [])) else 0.0
+        atm_3m = sd["atm"][idx] if 0 <= idx < len(sd.get("atm", [])) else 0.0
+        skew_3m_pct = (rr_3m / atm_3m * 100) if atm_3m > 0 else 0.0
         p = vol_percentile(pair, "3M", "25D_RR")
         rr_pctile = p.get("percentile", 50.0) if p else 50.0
     except Exception:
@@ -2939,7 +3361,7 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
         _box("FWD 1M", _fmt_spot(fwd_1m, pair), COLORS["accent_blue"]),
         _cbox("ATM 1M", f"{_fmt_vol(atm_1m)} ({delta_str})", pair, "ATM", "1M", COLORS["accent_cyan"]),
         _cbox("ATM 1Y", _fmt_vol(atm_1y), pair, "ATM", "1Y", COLORS["accent_purple"]),
-        _cbox("25D RR 3M", f"{rr_3m:+.2f}v ({_fmt_pctile(rr_pctile)})", pair, "25D_RR", "3M", COLORS["accent_orange"]),
+        _cbox("SKEW 3M", f"{skew_3m_pct:+.1f}% ({_fmt_pctile(rr_pctile)})", pair, "25D_RR", "3M", COLORS["accent_orange"]),
         _cbox("25D BF 3M", _fmt_vol(bf_3m), pair, "25D_BF", "3M", COLORS["accent_pink"]),
         _cbox("IV-RV SPREAD", f"{iv_rv_spr:+.2f}v", pair, "IV_RV", "3M", delta_color),
         _box("TERM 1Y-1M", f"{term_spr:+.2f}v", COLORS["accent_teal"]),
@@ -2962,68 +3384,6 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
         ], style={
             **make_stat_style(regime_color), "flex": "1", "minWidth": "110px",
             "borderLeft": f"3px solid {regime_color}",
-        }),
-    ]
-    return boxes
-
-
-def _build_stat_boxes_history(pair, sd, spot, date_label):
-    """Build simplified stat boxes for history mode (no Bloomberg calls)."""
-    def _tenor_val(tenors, arr, label):
-        try:
-            idx = tenors.index(label)
-            return float(arr[idx])
-        except (ValueError, IndexError):
-            return 0.0
-
-    def _box(label, value_str, color):
-        return html.Div([
-            html.Div(str(value_str), style={
-                "fontFamily": "'JetBrains Mono', monospace",
-                "fontSize": "20px", "fontWeight": "700",
-                "color": color, "lineHeight": "1.1",
-            }),
-            html.Div(label, style={
-                "fontFamily": "'JetBrains Mono', monospace",
-                "fontSize": "9px", "fontWeight": "600",
-                "color": COLORS["text_muted"], "textTransform": "uppercase",
-                "letterSpacing": "1px", "marginTop": "4px",
-            }),
-        ], style={**make_stat_style(color), "flex": "1", "minWidth": "110px"})
-
-    tenors = sd["tenors"]
-    atm_1m = _tenor_val(tenors, sd["atm"], "1M")
-    atm_1y = _tenor_val(tenors, sd["atm"], "1Y")
-    rr_3m = _tenor_val(tenors, sd["rr25"], "3M")
-    bf_3m = _tenor_val(tenors, sd["bf25"], "3M")
-    term_spread = atm_1y - atm_1m if atm_1m and atm_1y else 0.0
-
-    spot_str = _fmt_spot(spot, pair)
-
-    boxes = [
-        _box("SPOT", spot_str, COLORS["text_primary"]),
-        _box("ATM 1M", _fmt_vol(atm_1m), COLORS["accent_cyan"]),
-        _box("ATM 1Y", _fmt_vol(atm_1y), COLORS["accent_purple"]),
-        _box("TERM 1Y-1M", f"{term_spread:+.2f}v",
-             COLORS["accent_green"] if term_spread > 0 else COLORS["accent_red"]),
-        _box("25D RR 3M", f"{rr_3m:+.2f}v", COLORS["accent_orange"]),
-        _box("25D BF 3M", _fmt_vol(bf_3m), COLORS["accent_pink"]),
-        _box("DATE", date_label, COLORS["accent_orange"]),
-        html.Div([
-            html.Div("HISTORY", style={
-                "fontFamily": "'JetBrains Mono', monospace",
-                "fontSize": "16px", "fontWeight": "700",
-                "color": COLORS["accent_orange"], "lineHeight": "1.1",
-            }),
-            html.Div("MODE", style={
-                "fontFamily": "'JetBrains Mono', monospace",
-                "fontSize": "9px", "fontWeight": "600",
-                "color": COLORS["text_muted"], "textTransform": "uppercase",
-                "letterSpacing": "1px", "marginTop": "4px",
-            }),
-        ], style={
-            **make_stat_style(COLORS["accent_orange"]), "flex": "1", "minWidth": "110px",
-            "borderLeft": f"3px solid {COLORS['accent_orange']}",
         }),
     ]
     return boxes
@@ -3249,11 +3609,6 @@ def layout():
         dcc.Interval(id="vsfx-interval", interval=30000, n_intervals=0, disabled=True),
         dcc.Store(id="vsfx-preset-store", data="Trader"),
         dcc.Download(id="vsfx-csv-download"),
-        # History mode stores
-        dcc.Store(id="vsfx-history-frames", data=None),
-        dcc.Store(id="vsfx-history-idx", data=0),
-        dcc.Store(id="vsfx-history-playing", data=False),
-        dcc.Interval(id="vsfx-history-tick", interval=400, n_intervals=0, disabled=True),
 
         # ── Outer flex container ──────────────────────────────────
         html.Div([
@@ -3322,47 +3677,11 @@ def layout():
                                     style={**PRESET_BTN, "color": COLORS["text_secondary"]}),
                         html.Button("Carry", id="vsfx-preset-carry", n_clicks=0,
                                     style={**PRESET_BTN, "color": COLORS["text_secondary"]}),
-                        html.Button("History", id="vsfx-preset-history", n_clicks=0,
-                                    style={**PRESET_BTN, "color": COLORS["accent_orange"]}),
                     ], style={"display": "flex", "flexWrap": "wrap"}),
                 ], style=SIDEBAR_SECTION),
 
                 # ── Group divider: core selection → comparison settings ──
                 html.Div(style={"borderBottom": "1px solid #3a3a5c", "margin": "8px 0 12px 0"}),
-
-                # ── History Mode ──
-                html.Div([
-                    html.Label("HISTORY MODE", style=SIDEBAR_LABEL),
-                    dcc.RadioItems(id="vsfx-history-mode", options=[
-                        {"label": " Live", "value": "live"},
-                        {"label": " Playback", "value": "playback"},
-                    ], value="live",
-                    style={"color": COLORS["text_secondary"], "fontSize": "10px",
-                           "fontFamily": "'JetBrains Mono', monospace"},
-                    inputStyle={"marginRight": "4px"},
-                    labelStyle={"display": "inline-block", "marginRight": "10px",
-                                "marginBottom": "3px", "cursor": "pointer"}),
-                    html.Div([
-                        html.Label("LOOKBACK", style={**SIDEBAR_LABEL, "marginTop": "6px"}),
-                        dcc.Dropdown(id="vsfx-history-lookback", options=[
-                            {"label": "5D", "value": 5},
-                            {"label": "10D", "value": 10},
-                            {"label": "20D", "value": 20},
-                            {"label": "44D (2M)", "value": 44},
-                            {"label": "66D (3M)", "value": 66},
-                        ], value=20, clearable=False,
-                        style={"fontSize": "10px", "marginBottom": "4px"}),
-                        html.Label("SPEED", style=SIDEBAR_LABEL),
-                        dcc.Dropdown(id="vsfx-history-speed", options=[
-                            {"label": "Slow", "value": 1200},
-                            {"label": "Normal", "value": 600},
-                            {"label": "Fast", "value": 400},
-                            {"label": "Fastest", "value": 200},
-                        ], value=600, clearable=False,
-                        style={"fontSize": "10px"}),
-                    ], id="vsfx-history-options",
-                       style={"display": "none"}),  # hidden until playback mode
-                ], style=SIDEBAR_SECTION),
 
                 # Comparison toggle
                 html.Div([
@@ -3533,55 +3852,19 @@ def layout():
             # ──── Main Content Area ────────────────────────────────
             html.Div([
 
-                # ── History Playback Control Strip ──
-                html.Div([
-                    html.Div([
-                        html.Button("\u25c0", id="vsfx-history-prev", n_clicks=0,
-                                    style={"background": "none", "border": f"1px solid {COLORS['border']}",
-                                           "color": COLORS["text_secondary"], "padding": "4px 10px",
-                                           "fontFamily": "'JetBrains Mono', monospace", "fontSize": "12px",
-                                           "cursor": "pointer", "marginRight": "4px"}),
-                        html.Button("\u25b6 PLAY", id="vsfx-history-play", n_clicks=0,
-                                    style={"background": COLORS["accent_orange"], "border": "none",
-                                           "color": COLORS["bg_primary"], "padding": "4px 14px",
-                                           "fontFamily": "'JetBrains Mono', monospace", "fontSize": "10px",
-                                           "fontWeight": "700", "cursor": "pointer", "marginRight": "4px",
-                                           "letterSpacing": "0.5px"}),
-                        html.Button("\u25b6", id="vsfx-history-next", n_clicks=0,
-                                    style={"background": "none", "border": f"1px solid {COLORS['border']}",
-                                           "color": COLORS["text_secondary"], "padding": "4px 10px",
-                                           "fontFamily": "'JetBrains Mono', monospace", "fontSize": "12px",
-                                           "cursor": "pointer", "marginRight": "12px"}),
-                    ], style={"display": "flex", "alignItems": "center"}),
-                    html.Div([
-                        dcc.Slider(id="vsfx-history-slider", min=0, max=19, step=1, value=0,
-                                   marks=None, tooltip={"placement": "bottom", "always_visible": False},
-                                   updatemode="drag"),
-                    ], style={"flex": "1", "minWidth": "200px", "marginRight": "12px"}),
-                    html.Div(id="vsfx-history-status",
-                             style={"color": COLORS["accent_orange"], "fontSize": "11px",
-                                    "fontFamily": "'JetBrains Mono', monospace",
-                                    "fontWeight": "700", "whiteSpace": "nowrap",
-                                    "minWidth": "160px", "textAlign": "right"}),
-                    html.Div("HISTORY", style={
-                        "color": COLORS["accent_orange"], "fontSize": "9px",
-                        "fontWeight": "700", "fontFamily": "'JetBrains Mono', monospace",
-                        "border": f"1px solid {COLORS['accent_orange']}",
-                        "padding": "2px 8px", "marginLeft": "12px",
-                        "letterSpacing": "1px",
-                    }),
-                ], id="vsfx-history-bar", style={
-                    "display": "none",  # hidden until playback mode
-                    "alignItems": "center", "gap": "4px",
-                    "padding": "6px 12px", "marginBottom": GAP,
-                    "backgroundColor": COLORS["bg_secondary"],
-                    "border": f"1px solid {COLORS['accent_orange']}40",
-                }),
-
                 # 2x2 Chart Grid
                 html.Div([
                     html.Div([
-                        html.Button("CSV", id="vsfx-csv-q1", n_clicks=0, style=CSV_BTN_STYLE),
+                        html.Div([
+                            dcc.Dropdown(id="vsfx-q1-lookback",
+                                         options=CHART_LOOKBACK_OPTIONS,
+                                         value=CHART_LOOKBACK_DEFAULT, clearable=False,
+                                         persistence=True, persistence_type="local",
+                                         className="chart-lookback",
+                                         style={"width": "70px", "fontSize": "9px"}),
+                            html.Button("CSV", id="vsfx-csv-q1", n_clicks=0, style=CSV_BTN_STYLE),
+                        ], style={"display": "flex", "gap": "6px", "alignItems": "center",
+                                  "justifyContent": "flex-end", "marginBottom": "4px"}),
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q1",
                                       config={"displayModeBar": True, "scrollZoom": True},
@@ -3591,7 +3874,16 @@ def layout():
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px",
                               "padding": "12px", "marginRight": GAP, "marginBottom": GAP}),
                     html.Div([
-                        html.Button("CSV", id="vsfx-csv-q2", n_clicks=0, style=CSV_BTN_STYLE),
+                        html.Div([
+                            dcc.Dropdown(id="vsfx-q2-lookback",
+                                         options=CHART_LOOKBACK_OPTIONS,
+                                         value=CHART_LOOKBACK_DEFAULT, clearable=False,
+                                         persistence=True, persistence_type="local",
+                                         className="chart-lookback",
+                                         style={"width": "70px", "fontSize": "9px"}),
+                            html.Button("CSV", id="vsfx-csv-q2", n_clicks=0, style=CSV_BTN_STYLE),
+                        ], style={"display": "flex", "gap": "6px", "alignItems": "center",
+                                  "justifyContent": "flex-end", "marginBottom": "4px"}),
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q2",
                                       config={"displayModeBar": True, "scrollZoom": True},
@@ -3603,7 +3895,16 @@ def layout():
                 ], style={"display": "flex", "flexWrap": "wrap", "gap": GAP}),
                 html.Div([
                     html.Div([
-                        html.Button("CSV", id="vsfx-csv-q3", n_clicks=0, style=CSV_BTN_STYLE),
+                        html.Div([
+                            dcc.Dropdown(id="vsfx-q3-lookback",
+                                         options=CHART_LOOKBACK_OPTIONS,
+                                         value=CHART_LOOKBACK_DEFAULT, clearable=False,
+                                         persistence=True, persistence_type="local",
+                                         className="chart-lookback",
+                                         style={"width": "70px", "fontSize": "9px"}),
+                            html.Button("CSV", id="vsfx-csv-q3", n_clicks=0, style=CSV_BTN_STYLE),
+                        ], style={"display": "flex", "gap": "6px", "alignItems": "center",
+                                  "justifyContent": "flex-end", "marginBottom": "4px"}),
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q3",
                                       config={"displayModeBar": True, "scrollZoom": True},
@@ -3613,7 +3914,16 @@ def layout():
                     ], style={**CARD_STYLE, "flex": "1", "minWidth": "400px",
                               "padding": "12px", "marginRight": GAP, "marginBottom": GAP}),
                     html.Div([
-                        html.Button("CSV", id="vsfx-csv-q4", n_clicks=0, style=CSV_BTN_STYLE),
+                        html.Div([
+                            dcc.Dropdown(id="vsfx-q4-lookback",
+                                         options=CHART_LOOKBACK_OPTIONS,
+                                         value=CHART_LOOKBACK_DEFAULT, clearable=False,
+                                         persistence=True, persistence_type="local",
+                                         className="chart-lookback",
+                                         style={"width": "70px", "fontSize": "9px"}),
+                            html.Button("CSV", id="vsfx-csv-q4", n_clicks=0, style=CSV_BTN_STYLE),
+                        ], style={"display": "flex", "gap": "6px", "alignItems": "center",
+                                  "justifyContent": "flex-end", "marginBottom": "4px"}),
                         dcc.Loading(
                             dcc.Graph(id="vsfx-chart-q4",
                                       config={"displayModeBar": True, "scrollZoom": True},
@@ -3772,8 +4082,7 @@ def register_callbacks(app):
          Input("vsfx-preset-regime", "n_clicks"),
          Input("vsfx-preset-vov", "n_clicks"),
          Input("vsfx-preset-full", "n_clicks"),
-         Input("vsfx-preset-carry", "n_clicks"),
-         Input("vsfx-preset-history", "n_clicks")],
+         Input("vsfx-preset-carry", "n_clicks")],
         prevent_initial_call=True,
     )
     def update_preset(*args):
@@ -3794,11 +4103,40 @@ def register_callbacks(app):
             "vsfx-preset-vov": "Vol-of-Vol",
             "vsfx-preset-full": "Full Scan",
             "vsfx-preset-carry": "Carry",
-            "vsfx-preset-history": "History",
         }
         preset_name = preset_map.get(trigger_id, "Trader")
         charts = VIEW_PRESETS.get(preset_name, VIEW_PRESETS["Trader"])
         return charts[0], charts[1], charts[2], charts[3]
+
+    # ------------------------------------------------------------------
+    # Callback 1b: Trade Ideas → VOL handoff
+    # When the user clicks "Send to VOL" on the Trade Ideas panel, the
+    # ideas-to-vol-store fires with {pair, tenor, vol_view}. Resolve the
+    # vol_view to a VIEW_PRESETS entry and pre-load: pair, the 4 chart
+    # slots, and the smile tenor.
+    # ------------------------------------------------------------------
+    @app.callback(
+        [Output("vsfx-pair", "value", allow_duplicate=True),
+         Output("vsfx-q1", "value", allow_duplicate=True),
+         Output("vsfx-q2", "value", allow_duplicate=True),
+         Output("vsfx-q3", "value", allow_duplicate=True),
+         Output("vsfx-q4", "value", allow_duplicate=True),
+         Output("vsfx-smile-tenor", "value", allow_duplicate=True)],
+        [Input("ideas-to-vol-store", "data")],
+        prevent_initial_call=True,
+    )
+    def receive_idea_handoff(idea):
+        if not idea or not isinstance(idea, dict):
+            return (no_update,) * 6
+        pair = idea.get("pair")
+        tenor = idea.get("tenor") or "3M"
+        view = idea.get("vol_view") or "Trader"
+        charts = VIEW_PRESETS.get(view, VIEW_PRESETS["Trader"])
+        return (
+            pair if pair else no_update,
+            charts[0], charts[1], charts[2], charts[3],
+            tenor,
+        )
 
     # ------------------------------------------------------------------
     # Callback 2: Auto-refresh interval control
@@ -3812,205 +4150,6 @@ def register_callbacks(app):
         if not interval_ms or interval_ms == 0:
             return 86400000, True
         return interval_ms, False
-
-    # ------------------------------------------------------------------
-    # History Mode callbacks (A-F)
-    # ------------------------------------------------------------------
-
-    # Callback A: Activate/deactivate history mode + prefetch frames
-    @app.callback(
-        [Output("vsfx-history-frames", "data"),
-         Output("vsfx-history-idx", "data", allow_duplicate=True),
-         Output("vsfx-history-slider", "max"),
-         Output("vsfx-history-bar", "style"),
-         Output("vsfx-history-options", "style"),
-         Output("vsfx-history-status", "children", allow_duplicate=True),
-         Output("vsfx-history-playing", "data", allow_duplicate=True),
-         Output("vsfx-history-tick", "disabled", allow_duplicate=True),
-         Output("vsfx-history-play", "children", allow_duplicate=True)],
-        [Input("vsfx-history-mode", "value"),
-         Input("vsfx-pair", "value"),
-         Input("vsfx-history-lookback", "value")],
-        prevent_initial_call="initial_duplicate",
-    )
-    def activate_history_mode(mode, pair, lookback):
-        pair = pair or "EURUSD"
-        lookback = lookback or 20
-        bar_hidden = {"display": "none"}
-        opts_hidden = {"display": "none"}
-        bar_visible = {
-            "display": "flex", "alignItems": "center", "gap": "4px",
-            "padding": "6px 12px", "marginBottom": GAP,
-            "backgroundColor": COLORS["bg_secondary"],
-            "border": f"1px solid {COLORS['accent_orange']}40",
-        }
-        opts_visible = {"display": "block"}
-
-        if mode != "playback":
-            # Reset everything: stop timer, clear frames, hide bar
-            return (None, 0, 0, bar_hidden, opts_hidden, "",
-                    False, True, "\u25b6 PLAY")
-
-        # Prefetch historical frames
-        frames = _prefetch_history_frames(pair, lookback)
-        if not frames:
-            return (None, 0, 0, bar_hidden, opts_visible, "No historical data",
-                    False, True, "\u25b6 PLAY")
-
-        n = len(frames)
-        status = f"{frames[-1].get('date_label', 'Today')}  [{n}/{n}]"
-        # Start paused, user clicks Play to begin
-        return (frames, n - 1, n - 1, bar_visible, opts_visible, status,
-                False, True, "\u25b6 PLAY")
-
-    # Callback B: Timer tick (clientside — increment frame index)
-    # IMPORTANT: Each tick disables the timer. Callback G re-enables it
-    # after update_workstation finishes rendering. This "gate" pattern
-    # prevents rapid-fire ticks from cancelling in-flight server renders.
-    app.clientside_callback(
-        """
-        function(n, playing, idx, frames) {
-            var nu = window.dash_clientside.no_update;
-            if (!playing || !frames || frames.length === 0) {
-                return [nu, nu, nu, nu];
-            }
-            var next_idx = (idx || 0) + 1;
-            if (next_idx >= frames.length) {
-                // Reached end — stop playback, keep timer disabled
-                return [frames.length - 1, frames.length - 1, false, true];
-            }
-            // Advance frame and disable timer (re-enabled after render completes)
-            return [next_idx, next_idx, true, true];
-        }
-        """,
-        [Output("vsfx-history-idx", "data", allow_duplicate=True),
-         Output("vsfx-history-slider", "value", allow_duplicate=True),
-         Output("vsfx-history-playing", "data", allow_duplicate=True),
-         Output("vsfx-history-tick", "disabled", allow_duplicate=True)],
-        [Input("vsfx-history-tick", "n_intervals")],
-        [State("vsfx-history-playing", "data"),
-         State("vsfx-history-idx", "data"),
-         State("vsfx-history-frames", "data")],
-        prevent_initial_call=True,
-    )
-
-    # Callback C: Play/Pause toggle
-    app.clientside_callback(
-        """
-        function(n_clicks, playing, idx, frames) {
-            var nu = window.dash_clientside.no_update;
-            if (!frames || frames.length === 0) {
-                return [false, true, "\\u25b6 PLAY", nu, nu];
-            }
-            var new_playing = !playing;
-            // If at the end, restart from beginning
-            var new_idx = nu;
-            var new_slider = nu;
-            if (new_playing && idx >= frames.length - 1) {
-                new_idx = 0;
-                new_slider = 0;
-            }
-            return [
-                new_playing,
-                !new_playing,
-                new_playing ? "\\u23f8 PAUSE" : "\\u25b6 PLAY",
-                new_idx,
-                new_slider
-            ];
-        }
-        """,
-        [Output("vsfx-history-playing", "data", allow_duplicate=True),
-         Output("vsfx-history-tick", "disabled", allow_duplicate=True),
-         Output("vsfx-history-play", "children", allow_duplicate=True),
-         Output("vsfx-history-idx", "data", allow_duplicate=True),
-         Output("vsfx-history-slider", "value", allow_duplicate=True)],
-        [Input("vsfx-history-play", "n_clicks")],
-        [State("vsfx-history-playing", "data"),
-         State("vsfx-history-idx", "data"),
-         State("vsfx-history-frames", "data")],
-        prevent_initial_call=True,
-    )
-
-    # Callback D: Step prev/next + slider manual scrub
-    app.clientside_callback(
-        """
-        function(prev_clicks, next_clicks, slider_val, idx, frames) {
-            var nu = window.dash_clientside.no_update;
-            if (!frames || frames.length === 0) {
-                return [nu, nu];
-            }
-            var ctx = window.dash_clientside.callback_context;
-            if (!ctx.triggered || ctx.triggered.length === 0) {
-                return [nu, nu];
-            }
-            var trigger = ctx.triggered[0].prop_id;
-            var new_idx = idx || 0;
-            if (trigger.indexOf("prev") >= 0) {
-                new_idx = Math.max(0, new_idx - 1);
-                return [new_idx, new_idx];
-            } else if (trigger.indexOf("next") >= 0) {
-                new_idx = Math.min(frames.length - 1, new_idx + 1);
-                return [new_idx, new_idx];
-            } else if (trigger.indexOf("slider") >= 0) {
-                // Slider triggered — only update idx, don't write back to slider
-                return [slider_val || 0, nu];
-            }
-            return [nu, nu];
-        }
-        """,
-        [Output("vsfx-history-idx", "data", allow_duplicate=True),
-         Output("vsfx-history-slider", "value", allow_duplicate=True)],
-        [Input("vsfx-history-prev", "n_clicks"),
-         Input("vsfx-history-next", "n_clicks"),
-         Input("vsfx-history-slider", "value")],
-        [State("vsfx-history-idx", "data"),
-         State("vsfx-history-frames", "data")],
-        prevent_initial_call=True,
-    )
-
-    # Callback E: Speed change
-    @app.callback(
-        Output("vsfx-history-tick", "interval"),
-        [Input("vsfx-history-speed", "value")],
-        prevent_initial_call=True,
-    )
-    def set_history_speed(speed_ms):
-        return speed_ms or 600
-
-    # Callback F: Status display update
-    app.clientside_callback(
-        """
-        function(idx, frames) {
-            if (!frames || frames.length === 0) {
-                return "";
-            }
-            var i = Math.min(idx || 0, frames.length - 1);
-            var frame = frames[i];
-            var label = frame.date_label || ("Day " + (i + 1));
-            return label + "  [" + (i + 1) + "/" + frames.length + "]";
-        }
-        """,
-        Output("vsfx-history-status", "children", allow_duplicate=True),
-        [Input("vsfx-history-idx", "data")],
-        [State("vsfx-history-frames", "data")],
-        prevent_initial_call=True,
-    )
-
-    # Callback G: Re-enable timer after charts finish rendering ("render gate")
-    # This fires when update_workstation completes and the chart figure is
-    # delivered to the browser. If we're in playback and still playing,
-    # re-enable the timer so the next frame can advance.
-    @app.callback(
-        Output("vsfx-history-tick", "disabled", allow_duplicate=True),
-        Input("vsfx-chart-q1", "figure"),
-        [State("vsfx-history-mode", "value"),
-         State("vsfx-history-playing", "data")],
-        prevent_initial_call=True,
-    )
-    def reenable_timer_after_render(_fig, mode, playing):
-        if mode == "playback" and playing:
-            return False  # re-enable timer → next tick after interval ms
-        raise PreventUpdate
 
     # ------------------------------------------------------------------
     # Callback 3: Main update -- all 4 charts + stat boxes + overnight
@@ -4039,88 +4178,20 @@ def register_callbacks(app):
          Input("vsfx-lab-overlay", "value"),
          Input("vsfx-lab-window", "value"),
          Input("vsfx-lab-normalize", "value"),
-         Input("vsfx-history-idx", "data")],
-        [State("vsfx-history-mode", "value"),
-         State("vsfx-history-frames", "data")],
+         Input("vsfx-q1-lookback", "value"),
+         Input("vsfx-q2-lookback", "value"),
+         Input("vsfx-q3-lookback", "value"),
+         Input("vsfx-q4-lookback", "value")],
     )
     def update_workstation(pair, model, q1, q2, q3, q4,
                            compare, hist_offset, cross_pair,
                            selected_tenors, delta_range, smile_tenor,
                            n_intervals,
                            lab_pairs, lab_overlay, lab_window, lab_normalize,
-                           history_idx,
-                           history_mode, history_frames):
+                           q1_lookback, q2_lookback, q3_lookback, q4_lookback):
         pair = pair or "EURUSD"
         model = model or "market"
 
-        # ── Guard: if trigger was history-idx but mode is live, skip ──
-        ctx = callback_context
-        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
-        if trigger_id == "vsfx-history-idx" and history_mode != "playback":
-            raise PreventUpdate
-
-        # ── History playback mode ──
-        if (history_mode == "playback" and history_frames
-                and history_idx is not None and len(history_frames) > 0):
-            frame_idx = max(0, min(history_idx, len(history_frames) - 1))
-            frame = history_frames[frame_idx]
-            sd_full = _frame_to_sd(frame)
-            spot = frame.get("spot", 1.0)
-            _, _, r_dom, r_for = _get_spot_and_rates(pair)
-
-            sd = _filter_surface_data(sd_full, selected_tenors)
-            sd = _filter_delta_range(sd, delta_range or "10-50")
-
-            date_label = frame.get("date_label", f"{frame.get('days_ago', '?')}D ago")
-
-            extra = {
-                "days_ago": frame.get("days_ago", 1),
-                "smile_tenor": smile_tenor or "3M",
-                "ts_tenor": smile_tenor or "3M",
-                "pdf_tenor": smile_tenor or "3M",
-                "compare": "none",  # disable comparison in history mode
-                "cross_pair": cross_pair,
-                "model": model,
-                "selected_tenors": selected_tenors,
-                "delta_range": delta_range or "10-50",
-                "lab_pairs": lab_pairs or [pair],
-                "lab_overlay": lab_overlay or "",
-                "lab_window": lab_window or 252,
-                "lab_normalize": lab_normalize or "raw",
-                "history_mode": True,
-                "history_date": date_label,
-            }
-
-            # Inject historical surface for Tier 2 charts (fwd_vol, implied_dist, etc.)
-            saved_cache = cache_inject_surface(pair, frame["surface_raw"])
-            try:
-                fig1 = _render_chart(q1, pair, sd, spot, r_dom, r_for, **extra)
-                fig2 = _render_chart(q2, pair, sd, spot, r_dom, r_for, **extra)
-                fig3 = _render_chart(q3, pair, sd, spot, r_dom, r_for, **extra)
-                fig4 = _render_chart(q4, pair, sd, spot, r_dom, r_for, **extra)
-            finally:
-                cache_restore_surface(pair, saved_cache)
-
-            # Simplified stat boxes for history mode
-            stats = _build_stat_boxes_history(pair, sd_full, spot, date_label)
-
-            overnight = html.Div([
-                html.Span("\u23f2 HISTORY MODE", style={
-                    "color": COLORS["accent_orange"], "fontWeight": "700",
-                    "fontFamily": "'JetBrains Mono', monospace", "fontSize": "11px",
-                    "marginRight": "12px",
-                }),
-                html.Span(f"{date_label}  [{frame_idx + 1}/{len(history_frames)}]", style={
-                    "color": COLORS["text_secondary"],
-                    "fontFamily": "'JetBrains Mono', monospace", "fontSize": "10px",
-                }),
-            ], style={"padding": "6px 12px", "marginTop": "4px",
-                      "border": f"1px solid {COLORS['accent_orange']}40",
-                      "backgroundColor": COLORS["bg_secondary"]})
-
-            return fig1, fig2, fig3, fig4, stats, overnight
-
-        # ── Normal (live) mode ──
         # Fetch data and apply tenor / delta filters
         sd_full = _get_surface_data(pair)
         if sd_full is None:
@@ -4167,11 +4238,15 @@ def register_callbacks(app):
             elif model == "vv":
                 extra["model"] = "vv"
 
-            # Render 4 charts
-            fig1 = _render_chart(q1, pair, sd, spot, r_dom, r_for, **extra)
-            fig2 = _render_chart(q2, pair, sd, spot, r_dom, r_for, **extra)
-            fig3 = _render_chart(q3, pair, sd, spot, r_dom, r_for, **extra)
-            fig4 = _render_chart(q4, pair, sd, spot, r_dom, r_for, **extra)
+            # Render 4 charts -- each gets its own per-quadrant lookback
+            fig1 = _render_chart(q1, pair, sd, spot, r_dom, r_for,
+                                 **{**extra, "lookback_days": q1_lookback or CHART_LOOKBACK_DEFAULT})
+            fig2 = _render_chart(q2, pair, sd, spot, r_dom, r_for,
+                                 **{**extra, "lookback_days": q2_lookback or CHART_LOOKBACK_DEFAULT})
+            fig3 = _render_chart(q3, pair, sd, spot, r_dom, r_for,
+                                 **{**extra, "lookback_days": q3_lookback or CHART_LOOKBACK_DEFAULT})
+            fig4 = _render_chart(q4, pair, sd, spot, r_dom, r_for,
+                                 **{**extra, "lookback_days": q4_lookback or CHART_LOOKBACK_DEFAULT})
 
             # ── Comparison overlay support (item 5) ──
             # Apply comparison overlays to figures that are ATM term structure

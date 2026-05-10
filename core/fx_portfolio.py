@@ -896,7 +896,7 @@ def hedge_suggestion(portfolio_risk, target="delta_neutral") -> List[Dict]:
     return suggestions
 
 
-def what_if_add(positions, new_trade, spots, rates, vol_surfaces):
+def what_if_add(positions, new_trade, spots, rates, vol_surfaces) -> Dict:
     """
     Preview the impact of adding a new trade.
 
@@ -950,7 +950,7 @@ def _ensure_data_dir():
     os.makedirs(d, exist_ok=True)
 
 
-def save_portfolio(filepath=None):
+def save_portfolio(filepath=None) -> None:
     """Save the current portfolio state to JSON."""
     filepath = filepath or PORTFOLIO_FILE
     _ensure_data_dir()
@@ -963,7 +963,7 @@ def save_portfolio(filepath=None):
         logger.error("Failed to save portfolio to %s: %s", filepath, exc)
 
 
-def load_portfolio(filepath=None):
+def load_portfolio(filepath=None) -> Dict:
     """Load portfolio state from JSON. Returns the portfolio dict."""
     global _PORTFOLIO
     filepath = filepath or PORTFOLIO_FILE
@@ -986,7 +986,7 @@ def load_portfolio(filepath=None):
     return _PORTFOLIO
 
 
-def get_portfolio():
+def get_portfolio() -> Dict:
     """Get the current in-memory portfolio state (returns a deep copy for safety)."""
     from copy import deepcopy
     with _portfolio_lock:

@@ -64,7 +64,9 @@ _CB_BANKS = {
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-_empty_fig = no_data_fig
+def _empty_fig(msg="NO DATA", height=300):
+    """Empty figure with message — wraps no_data_fig to accept msg first."""
+    return no_data_fig(height=height, msg=msg)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -344,31 +346,46 @@ def _build_rr_bf_spreads(pair_a, pair_b, tenor="3M"):
 
 
 def _build_skew_scatter(pair_a, pair_b, tenor, lookback):
-    """25D RR scatter with regression."""
+    """Normalised skew scatter (RR/ATM, in % of ATM) with regression."""
     try:
         from core.bloomberg_fx import get_fx_historical_vol
         from scipy.stats import linregress
 
         rr_a = get_fx_historical_vol(pair_a, tenor, "25D_RR", lookback)
         rr_b = get_fx_historical_vol(pair_b, tenor, "25D_RR", lookback)
-        if rr_a is None or rr_b is None:
+        atm_a = get_fx_historical_vol(pair_a, tenor, "ATM", lookback)
+        atm_b = get_fx_historical_vol(pair_b, tenor, "ATM", lookback)
+        if rr_a is None or rr_b is None or atm_a is None or atm_b is None:
             return _empty_fig("NO SKEW DATA")
 
-        a = np.array(rr_a, dtype=float)
-        b = np.array(rr_b, dtype=float)
-        min_len = min(len(a), len(b))
-        a, b = a[-min_len:], b[-min_len:]
+        rra = np.array(rr_a, dtype=float)
+        rrb = np.array(rr_b, dtype=float)
+        ata = np.array(atm_a, dtype=float)
+        atb = np.array(atm_b, dtype=float)
+        min_len = min(len(rra), len(rrb), len(ata), len(atb))
+        rra, rrb = rra[-min_len:], rrb[-min_len:]
+        ata, atb = ata[-min_len:], atb[-min_len:]
+
+        # Normalise to skew = RR / ATM * 100 (% of ATM)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            a = np.where(ata > 0, rra / ata * 100, np.nan)
+            b = np.where(atb > 0, rrb / atb * 100, np.nan)
+        # Drop NaNs paired
+        mask = np.isfinite(a) & np.isfinite(b)
+        a, b = a[mask], b[mask]
+        if len(a) < 2:
+            return _empty_fig("NO SKEW DATA")
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=a[:-1], y=b[:-1], mode="markers",
                                  marker=dict(color="#9a9ab0", size=3, opacity=0.5),
                                  name="History",
-                                 hovertemplate=pair_a + " RR: %{x:.2f}<br>" + pair_b + " RR: %{y:.2f}<extra>History</extra>"))
+                                 hovertemplate=pair_a + " skew: %{x:.1f}%<br>" + pair_b + " skew: %{y:.1f}%<extra>History</extra>"))
         fig.add_trace(go.Scatter(x=[a[-1]], y=[b[-1]], mode="markers",
                                  marker=dict(color="#ff3333", size=10, symbol="diamond"),
                                  name="Current",
-                                 hovertemplate=pair_a + " RR: %{x:.2f}<br>" + pair_b + " RR: %{y:.2f}<extra>Current</extra>"))
-        if min_len > 5:
+                                 hovertemplate=pair_a + " skew: %{x:.1f}%<br>" + pair_b + " skew: %{y:.1f}%<extra>Current</extra>"))
+        if len(a) > 5:
             slope, intercept, r, _, _ = linregress(a, b)
             x_line = np.linspace(a.min(), a.max(), 50)
             fig.add_trace(go.Scatter(x=x_line, y=slope * x_line + intercept, mode="lines",
@@ -377,10 +394,10 @@ def _build_skew_scatter(pair_a, pair_b, tenor, lookback):
 
         fig.update_layout(**chart_layout(height=CHART_MD,
                           margin=dict(l=50, r=20, t=30, b=30),
-                          title=dict(text=f"SKEW SCATTER: {pair_a} vs {pair_b} ({tenor})",
+                          title=dict(text=f"NORMALISED SKEW SCATTER: {pair_a} vs {pair_b} ({tenor})",
                                      font=dict(size=10, color="#9a9ab0")),
-                          xaxis=dict(title=dict(text=f"{pair_a} 25D RR", font=dict(size=9))),
-                          yaxis=dict(title=dict(text=f"{pair_b} 25D RR", font=dict(size=9))),
+                          xaxis=dict(title=dict(text=f"{pair_a} skew (% of ATM)", font=dict(size=9))),
+                          yaxis=dict(title=dict(text=f"{pair_b} skew (% of ATM)", font=dict(size=9))),
                           legend=dict(x=0.02, y=0.98, font=dict(size=8))))
         return fig
     except Exception:

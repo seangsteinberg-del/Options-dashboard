@@ -41,6 +41,47 @@
     --fx-emerald: #00cc66;
     --fx-crimson: #ff3333;
     --fx-silver: #808080;
+
+    /* ── Dash 4 Design System overrides ──────────────────────────────────
+       Dash 4.0+ ships components (Dropdown, etc.) that read these variables
+       for color. Defaults are dark-navy text designed for LIGHT themes —
+       which renders as invisible faint blue on our pure-black background.
+       Re-bind them all to the Bloomberg palette. */
+    --Dash-Text-Primary: #e0e0e0 !important;
+    --Dash-Text-Strong: #ffffff !important;
+    --Dash-Text-Weak: #9a9ab0 !important;
+    --Dash-Text-Disabled: #555566 !important;
+    --Dash-Background-Primary: #000000 !important;
+    --Dash-Background-Secondary: #06060f !important;
+    --Dash-Stroke-Strong: #2d2d50 !important;
+    --Dash-Stroke-Weak: #1a1a30 !important;
+    --Dash-Fill-Primary: #000000 !important;
+    --Dash-Fill-Primary-Hover: #1a1a2a !important;
+    --Dash-Fill-Primary-Active: #1a1a2a !important;
+    --Dash-Fill-Interactive-Strong: #ff8800 !important;
+    --Dash-Fill-Interactive-Weak: #1a1a2a !important;
+    --Dash-Fill-Inverse-Strong: #000000 !important;
+    --Dash-Fill-Disabled: #1a1a30 !important;
+}
+
+/* Re-declare under html and body too — Dash 4 sometimes scopes overrides
+   to specific containers that out-specify :root */
+html, body, .dash-dropdown, .dash-dropdown-content, .dash-dropdown-options {
+    --Dash-Text-Primary: #e0e0e0 !important;
+    --Dash-Text-Strong: #ffffff !important;
+    --Dash-Text-Weak: #9a9ab0 !important;
+    --Dash-Text-Disabled: #555566 !important;
+    --Dash-Background-Primary: #000000 !important;
+    --Dash-Background-Secondary: #06060f !important;
+    --Dash-Stroke-Strong: #2d2d50 !important;
+    --Dash-Stroke-Weak: #1a1a30 !important;
+    --Dash-Fill-Primary: #000000 !important;
+    --Dash-Fill-Primary-Hover: #1a1a2a !important;
+    --Dash-Fill-Primary-Active: #1a1a2a !important;
+    --Dash-Fill-Interactive-Strong: #ff8800 !important;
+    --Dash-Fill-Interactive-Weak: #1a1a2a !important;
+    --Dash-Fill-Inverse-Strong: #000000 !important;
+    --Dash-Fill-Disabled: #1a1a30 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -307,7 +348,13 @@ div[class*="-clearIndicator"] {
 .dash-dropdown span,
 .dash-dropdown input,
 .dash-dropdown ul,
-.dash-dropdown li {
+.dash-dropdown li,
+.dash-dropdown a,
+.dash-dropdown button,
+.dash-dropdown-options,
+.dash-dropdown-options *,
+.dash-dropdown-content,
+.dash-dropdown-content * {
     background-color: #000000 !important;
     background: #000000 !important;
     color: #e0e0e0 !important;
@@ -315,6 +362,95 @@ div[class*="-clearIndicator"] {
     border-radius: 0 !important;
     box-shadow: none !important;
     outline: none !important;
+}
+
+/* Dash 4 dropdown options — explicit by class name */
+.dash-dropdown-option {
+    color: #e0e0e0 !important;
+    background-color: #000000 !important;
+    font-family: var(--font) !important;
+    font-size: 11px !important;
+    cursor: pointer !important;
+    text-decoration: none !important;
+    display: block !important;
+}
+.dash-dropdown-option:hover,
+.dash-dropdown-option.is-focused,
+.dash-dropdown-option[aria-selected="true"],
+.dash-dropdown-option.is-selected {
+    background-color: #1a1a2a !important;
+    color: #ff8800 !important;
+}
+.dash-dropdown-option:hover *,
+.dash-dropdown-option.is-focused *,
+.dash-dropdown-option[aria-selected="true"] *,
+.dash-dropdown-option.is-selected * {
+    color: #ff8800 !important;
+}
+.dash-dropdown-search,
+.dash-dropdown-search input {
+    background-color: #000000 !important;
+    color: #e0e0e0 !important;
+    border: 1px solid #2d2d50 !important;
+    font-family: var(--font) !important;
+}
+
+/* ── React-Select v5 portal menus ──────────────────────────────────────────
+   Dash 2.x dropdowns portal their menu to document.body, so .dash-dropdown
+   selectors don't reach it. Target the portaled menu directly with high
+   specificity. */
+body > div[class*="-menu"],
+body > div[class*="-MenuPortal"],
+div[class*="-menu"][class*="css-"],
+div[class*="MenuList"][class*="css-"] {
+    background-color: #000000 !important;
+    background: #000000 !important;
+    border: 1px solid #2d2d50 !important;
+    border-radius: 0 !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.8) !important;
+    z-index: 99999 !important;
+}
+/* Every text-bearing descendant of a portaled menu — force light gray */
+body > div[class*="-menu"] *,
+body > div[class*="-MenuPortal"] *,
+div[class*="-menu"][class*="css-"] *,
+div[class*="MenuList"][class*="css-"] * {
+    color: #e0e0e0 !important;
+    background-color: transparent !important;
+    background: transparent !important;
+    font-family: var(--font) !important;
+    font-size: 11px !important;
+}
+/* Put the option row itself back to opaque black so hover bg shows correctly */
+body > div[class*="-menu"] div[class*="-option"],
+div[class*="-menu"][class*="css-"] div[class*="-option"] {
+    background-color: #000000 !important;
+    background: #000000 !important;
+    color: #e0e0e0 !important;
+    padding: 6px 10px !important;
+    cursor: pointer !important;
+}
+/* Hover / focused option — Bloomberg orange */
+body > div[class*="-menu"] div[class*="-option"]:hover,
+body > div[class*="-menu"] div[class*="-option"][class*="focused"],
+div[class*="-menu"][class*="css-"] div[class*="-option"]:hover,
+div[class*="-menu"][class*="css-"] div[class*="-option"][class*="focused"] {
+    background-color: #1a1a2a !important;
+    background: #1a1a2a !important;
+    color: #ff8800 !important;
+}
+body > div[class*="-menu"] div[class*="-option"]:hover *,
+body > div[class*="-menu"] div[class*="-option"][class*="focused"] *,
+div[class*="-menu"][class*="css-"] div[class*="-option"]:hover *,
+div[class*="-menu"][class*="css-"] div[class*="-option"][class*="focused"] * {
+    color: #ff8800 !important;
+}
+/* Selected option */
+body > div[class*="-menu"] div[class*="-option"][class*="selected"],
+div[class*="-menu"][class*="css-"] div[class*="-option"][class*="selected"] {
+    background-color: #1a1a2a !important;
+    color: #ff8800 !important;
+    font-weight: 700 !important;
 }
 /* Every input on the entire page — no white boxes anywhere */
 input, input[type="text"], input[type="search"], input[type="number"] {

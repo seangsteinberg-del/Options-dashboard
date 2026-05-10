@@ -48,6 +48,17 @@ _P = "mdash"  # prefix for all IDs
 
 _MONO = "'JetBrains Mono', monospace"
 _CHART_H = CHART_MD
+
+# Per-chart lookback options (1M / 3M / 6M / 1Y / 2Y / 5Y in trading days)
+_CHART_LOOKBACK_OPTIONS = [
+    {"label": "1M",  "value": 22},
+    {"label": "3M",  "value": 66},
+    {"label": "6M",  "value": 132},
+    {"label": "1Y",  "value": 252},
+    {"label": "2Y",  "value": 504},
+    {"label": "5Y",  "value": 1260},
+]
+_CHART_LOOKBACK_DEFAULT = 66  # 3M
 _SMALL_H = CHART_SM
 
 # Central bank calendar (static dates, rotated quarterly)
@@ -246,9 +257,13 @@ def _build_movers(pairs):
             except Exception:
                 pass
 
+            # Normalised skew: 25D RR as % of ATM vol \u2014 comparable across pairs
+            rr25_norm = (rr25 / atm_3m * 100) if atm_3m > 0 else 0.0
+
             rows.append({
                 "pair": pair, "spot": spot, "chg_pct": chg,
-                "atm_1m": atm_1m, "vol_chg": vol_chg, "rr25": rr25,
+                "atm_1m": atm_1m, "vol_chg": vol_chg,
+                "rr25": rr25, "rr25_norm": rr25_norm,
                 "atm_3m": atm_3m, "pctile": pctile,
                 "term_spread": term_spread, "breakeven_pips": breakeven_pips,
                 "iv_rv": iv_rv, "vol_mom": vol_mom,
@@ -256,7 +271,8 @@ def _build_movers(pairs):
             })
         except Exception:
             rows.append({"pair": pair, "spot": 0, "chg_pct": 0,
-                         "atm_1m": 0, "vol_chg": 0, "rr25": 0,
+                         "atm_1m": 0, "vol_chg": 0,
+                         "rr25": 0, "rr25_norm": 0,
                          "atm_3m": 0, "pctile": 50, "term_spread": 0,
                          "breakeven_pips": 0, "iv_rv": 0, "vol_mom": 0,
                          "spot_spark": "\u2014", "vol_spark": "\u2014"})
@@ -490,20 +506,22 @@ def _detect_crossings(current_rows, previous):
     return alerts[:8]
 
 
-def _build_vol_index_chart(pairs):
-    """60-day G10 vol index line chart."""
+def _build_vol_index_chart(pairs, lookback=_CHART_LOOKBACK_DEFAULT):
+    """G10 vol index line chart, length controlled by `lookback` (trading days)."""
     try:
         from core.fx_analytics import vol_percentile
         from core.bloomberg_fx import get_fx_historical_vol
+
+        lookback = int(lookback or _CHART_LOOKBACK_DEFAULT)
 
         # Try to get real history, fall back to synthetic
         hist_vols = []
         for pair in G10_PAIRS[:8]:
             try:
-                h = get_fx_historical_vol(pair, "1M", "ATM", 60)
+                h = get_fx_historical_vol(pair, "1M", "ATM", lookback)
                 if h is not None and len(h) >= 5:
                     arr = np.array(h, dtype=float) if not isinstance(h, np.ndarray) else h
-                    hist_vols.append(arr[-60:])
+                    hist_vols.append(arr[-lookback:])
             except Exception:
                 continue
 
@@ -543,9 +561,11 @@ def _build_vol_index_chart(pairs):
         fig.add_trace(go.Scatter(x=[len(index)-1], y=[float(index[-1])],
                                  mode="markers", marker=dict(color="#ff8800", size=7),
                                  showlegend=False))
+        # Build a friendly label for the title (e.g. 66 -> "3M")
+        _label = next((o["label"] for o in _CHART_LOOKBACK_OPTIONS if o["value"] == lookback), f"{lookback}D")
         fig.update_layout(**chart_layout( height=_CHART_H,
                           margin=dict(l=50, r=15, t=35, b=28), showlegend=False,
-                          title=dict(text="G10 VOL INDEX (60D)", font=dict(size=10, color="#9a9ab0")),
+                          title=dict(text=f"G10 VOL INDEX ({_label})", font=dict(size=10, color="#9a9ab0")),
                           xaxis_title="Trading Days", yaxis_title="Vol (%)"))
         return fig
     except Exception:
@@ -554,38 +574,45 @@ def _build_vol_index_chart(pairs):
 
 
 def _build_skew_chart(pairs):
-    """25D RR horizontal bar chart."""
+    """Normalised 25D RR horizontal bar chart (RR / ATM as %)."""
     try:
         from core.bloomberg_fx import get_fx_vol_surface
         data = []
         for pair in pairs[:20]:
             try:
                 surf = get_fx_vol_surface(pair) or {}
-                rr = _sf(surf.get("3M", {}).get("rr25", surf.get("3M", {}).get("25D_RR", 0)))
-                if rr != 0:
-                    data.append({"pair": pair, "rr": rr})
+                row = surf.get("3M", {})
+                rr = _sf(row.get("rr25", row.get("25D_RR", 0)))
+                atm = _sf(row.get("atm", row.get("ATM", 0)))
+                if rr != 0 and atm > 0:
+                    data.append({"pair": pair, "rr": rr, "atm": atm,
+                                 "skew_pct": rr / atm * 100})
             except Exception:
                 continue
 
         if not data:
             return _empty_fig("SKEW MONITOR", _SMALL_H, "No RR data available")
 
-        data.sort(key=lambda d: d["rr"])
+        data.sort(key=lambda d: d["skew_pct"])
         pairs_l = [d["pair"] for d in data]
-        rrs = [d["rr"] for d in data]
-        colors = [COLORS["accent_red"] if r < -0.3 else COLORS["accent_green"] if r > 0.3
-                  else "#9a9ab0" for r in rrs]
+        skews = [d["skew_pct"] for d in data]
+        # Threshold ±5% of ATM for color cue (roughly equivalent to old ±0.3v on a ~6v ATM)
+        colors = [COLORS["accent_red"] if s < -5 else COLORS["accent_green"] if s > 5
+                  else "#9a9ab0" for s in skews]
+        # Hover shows both normalised and raw RR + ATM for context
+        customdata = [[d["rr"], d["atm"]] for d in data]
 
-        fig = go.Figure(go.Bar(y=pairs_l, x=rrs, orientation="h",
-                                marker_color=colors, text=[f"{r:+.1f}" for r in rrs],
+        fig = go.Figure(go.Bar(y=pairs_l, x=skews, orientation="h",
+                                marker_color=colors, text=[f"{s:+.1f}%" for s in skews],
                                 textposition="outside", textfont=dict(size=8, color="#e0e0e0"),
-                                hovertemplate="%{y}: %{x:+.2f}v<br>Skew: %{text}<extra></extra>"))
+                                customdata=customdata,
+                                hovertemplate="%{y}: %{x:+.1f}% of ATM<br>RR: %{customdata[0]:+.2f}v / ATM: %{customdata[1]:.2f}v<extra></extra>"))
         fig.update_layout(**chart_layout( height=_SMALL_H,
                           margin=dict(l=55, r=10, t=25, b=10), showlegend=False,
-                          title=dict(text="25D RR (SKEW)", font=dict(size=10, color="#9a9ab0")),
+                          title=dict(text="SKEW (25D RR / ATM)", font=dict(size=10, color="#9a9ab0")),
                           xaxis=dict(zeroline=True, zerolinecolor="#9a9ab0", zerolinewidth=1,
                                      gridcolor="#111111", tickfont=dict(size=8),
-                                     title=dict(text="Risk Reversal (vol pts)", font=dict(size=9, color="#9a9ab0"))),
+                                     title=dict(text="Normalised Skew (% of ATM)", font=dict(size=9, color="#9a9ab0"))),
                           yaxis=dict(tickfont=dict(size=8, color="#e0e0e0"))))
         return fig
     except Exception:
@@ -692,7 +719,11 @@ def _build_vol_richness_heatmap(pairs):
         return _empty_fig("VOL RICHNESS", _SMALL_H, "No percentile data")
 
 
-_empty_fig = no_data_fig
+def _empty_fig(title="", height=300, msg=None):
+    """Empty figure — accepts (title, height, msg) call signature; falls back
+    to title if msg is omitted. Wraps no_data_fig (which only takes height/msg)."""
+    text = msg if msg else (title or "NO DATA")
+    return no_data_fig(height=height, msg=text)
 
 
 # ── Layout ───────────────────────────────────────────────────────────────────
@@ -773,7 +804,16 @@ def layout():
 
             # Right column: charts stacked
             html.Div([
-                html.Button("CSV", id=f"{_P}-csv-vol", n_clicks=0, style=CSV_BTN_STYLE),
+                html.Div([
+                    dcc.Dropdown(id=f"{_P}-vol-index-lookback",
+                                 options=_CHART_LOOKBACK_OPTIONS,
+                                 value=_CHART_LOOKBACK_DEFAULT, clearable=False,
+                                 persistence=True, persistence_type="local",
+                                 className="chart-lookback",
+                                 style={"width": "70px", "fontSize": "9px"}),
+                    html.Button("CSV", id=f"{_P}-csv-vol", n_clicks=0, style=CSV_BTN_STYLE),
+                ], style={"display": "flex", "gap": "6px", "alignItems": "center",
+                          "justifyContent": "flex-end", "marginBottom": "4px"}),
                 dcc.Loading(type="dot", color=COLORS["accent_cyan"], children=
                     dcc.Graph(id=f"{_P}-vol-index", config={"displayModeBar": False, "responsive": True},
                               style={"height": f"{_CHART_H}px"})),
@@ -880,7 +920,7 @@ def _render_movers_table(rows, sort_key):
 
     header = html.Tr([
         html.Th(h, style=TABLE_HEADER_STYLE)
-        for h in ["PAIR", "SPOT", "\u0394%", "SPT5D", "ATM 1M", "ATM 3M", "\u0394Vol", "VOL5D", "MOM", "RR25", "%ILE", "TERM", "IV-RV", "BEV"]
+        for h in ["PAIR", "SPOT", "\u0394%", "SPT5D", "ATM 1M", "ATM 3M", "\u0394Vol", "VOL5D", "MOM", "SKEW%", "%ILE", "TERM", "IV-RV", "BEV"]
     ])
 
     body_rows = []
@@ -930,7 +970,7 @@ def _render_movers_table(rows, sort_key):
             html.Td(_sf_display(r.get('vol_mom', 0), "+.1f", "%"), style={**TABLE_CELL_STYLE,
                      "color": COLORS["accent_red"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) > 2 else
                               COLORS["accent_green"] if r.get("vol_mom", 0) and r.get("vol_mom", 0) < -2 else COLORS["text_secondary"]}),
-            html.Td(_sf_display(r['rr25'], "+.1f", "v"), style=TABLE_CELL_STYLE),
+            html.Td(_sf_display(r.get('rr25_norm', 0), "+.1f", "%"), style=TABLE_CELL_STYLE),
             html.Td(_ordinal(pctile), style={**TABLE_CELL_STYLE, "color": _pct_color(pctile)}),
             html.Td(_sf_display(term_spread, "+.1f", "v"), style={**TABLE_CELL_STYLE, "color": term_color}),
             html.Td(_sf_display(iv_rv, "+.1f", "v"), style={**TABLE_CELL_STYLE, "color": ivrv_color}),
@@ -1046,11 +1086,13 @@ def register_callbacks(app):
         [
             Input(f"{_P}-interval", "n_intervals"),
             Input(f"{_P}-group", "value"),
+            Input(f"{_P}-vol-index-lookback", "value"),
         ],
     )
-    def update_charts(n, group):
+    def update_charts(n, group, vol_index_lookback):
         pairs = _pairs_for(group or "ALL")
-        return (_build_vol_index_chart(pairs), _build_skew_chart(pairs),
+        return (_build_vol_index_chart(pairs, lookback=vol_index_lookback),
+                _build_skew_chart(pairs),
                 _build_term_chart(pairs), _build_vol_richness_heatmap(pairs))
 
     # ── Slow callback: book greeks + events + positioning ──

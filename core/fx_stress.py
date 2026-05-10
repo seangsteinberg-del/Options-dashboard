@@ -866,7 +866,7 @@ def _stress_portfolio_with_scenario(positions, spots, rates, vol_surfaces, scena
     }
 
 
-def stress_portfolio(positions, spots, rates, vol_surfaces, scenario_name):
+def stress_portfolio(positions, spots, rates, vol_surfaces, scenario_name) -> dict:
     """
     Stress test an entire FX options portfolio.
 
@@ -965,7 +965,7 @@ def stress_portfolio(positions, spots, rates, vol_surfaces, scenario_name):
 # Scenario Comparison
 # =====================================================================
 
-def compare_scenarios(positions, spots, rates, vol_surfaces, scenario_names=None):
+def compare_scenarios(positions, spots, rates, vol_surfaces, scenario_names=None) -> pd.DataFrame:
     """
     Compare all (or selected) scenarios side by side.
 
@@ -1001,7 +1001,7 @@ def compare_scenarios(positions, spots, rates, vol_surfaces, scenario_names=None
 # Custom Stress
 # =====================================================================
 
-def custom_stress(positions, spots, rates, vol_surfaces, custom_shocks):
+def custom_stress(positions, spots, rates, vol_surfaces, custom_shocks) -> dict:
     """
     Run a user-defined custom stress scenario.
 
@@ -1041,7 +1041,7 @@ def custom_stress(positions, spots, rates, vol_surfaces, custom_shocks):
 # =====================================================================
 
 def reverse_stress_test(positions, spots, rates, vol_surfaces,
-                        target_loss, metric="total_pnl"):
+                        target_loss, metric="total_pnl") -> dict:
     """
     Find the shock vector that produces a given target loss.
 
@@ -1120,7 +1120,7 @@ def reverse_stress_test(positions, spots, rates, vol_surfaces,
 # =====================================================================
 
 def scenario_sensitivity(positions, spots, rates, vol_surfaces,
-                         scenario_name, scale_range=None):
+                         scenario_name, scale_range=None) -> pd.DataFrame:
     """
     Scale a named scenario from 0% to 200% intensity and compute P&L
     at each scale level. Useful for understanding non-linear risk exposure.

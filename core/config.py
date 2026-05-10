@@ -9,7 +9,7 @@ __all__ = [
     "TENORS_FULL", "TENORS_LIQUID", "TENORS_TRADING", "TENORS_SURFACE",
     "TENORS_HEATMAP", "TENORS_HEATMAP_COMPACT",
     "DELTA_LABELS", "DELTA_NUMERIC",
-    "VOL_METRICS", "HISTORY_METRICS", "METRIC_TO_KEY",
+    "VOL_METRICS",
     "TRADING_DAYS_PER_YEAR", "CALENDAR_DAYS_PER_YEAR",
     "RV_WINDOWS", "PERCENTILE_LOOKBACK", "HISTORY_LOOKBACK_DEFAULT",
     "MC_DEFAULT_PATHS", "VAR_CONFIDENCE",
@@ -43,14 +43,6 @@ DELTA_NUMERIC = [-0.50, -0.25, 0.0, 0.25, 0.50]
 
 # ── Vol Metrics ──────────────────────────────────────────────────────────────
 VOL_METRICS = ["ATM", "25D_RR", "25D_BF", "10D_RR", "10D_BF"]
-
-
-# ── History Mode Metrics ─────────────────────────────────────────────────────
-HISTORY_METRICS = ["ATM", "25D_RR", "25D_BF", "10D_RR", "10D_BF"]
-METRIC_TO_KEY = {
-    "ATM": "atm", "25D_RR": "rr25", "25D_BF": "bf25",
-    "10D_RR": "rr10", "10D_BF": "bf10",
-}
 
 
 # ── Calendar & Trading Constants ───────────────────────────────────────────
