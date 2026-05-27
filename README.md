@@ -7,6 +7,7 @@ Built with Dash/Plotly and Python. Requires a live Bloomberg Terminal connection
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![Dash](https://img.shields.io/badge/dash-2.14%2B-orange)
 ![Bloomberg](https://img.shields.io/badge/data-Bloomberg%20Terminal-green)
+<img width="641" height="1568" alt="image" src="https://github.com/user-attachments/assets/3a46a7a5-ec3c-4f0c-9cfb-2e02a70b28fb" />
 
 ---
 
