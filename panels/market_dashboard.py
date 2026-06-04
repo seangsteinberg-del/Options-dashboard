@@ -284,38 +284,29 @@ def _build_kpi_data(rows):
     from datetime import datetime
     kpis = {}
 
-    # DXY proxy — ICE methodology (geometric weighted index)
-    # Weights sum to 1.0; SEK weight redistributed to AUD/NZD
+    # DXY — the ACTUAL ICE U.S. Dollar Index, computed from real spots with the
+    # published ICE formula and constant (50.14348112).  No arbitrary baselines
+    # and no fabricated level: the index is shown ONLY when every constituent has
+    # a real spot, otherwise it is None (rendered "—").  This makes the displayed
+    # number match the real DXY rather than a home-anchored proxy.
     try:
         from core.bloomberg_fx import get_fx_spots
         spots = get_fx_spots() or {}
-        # ICE DXY basket weights with neutral baselines (updated Q1 2026)
-        _dxy_cfg = [
-            # (pair,  weight, baseline, is_usd_base)
-            ("EURUSD", 0.576, 1.0500, False),   # XXX/USD — lower = stronger USD
-            ("USDJPY", 0.136, 148.00, True),     # USD/XXX — higher = stronger USD
-            ("GBPUSD", 0.119, 1.2600, False),    # XXX/USD
-            ("USDCAD", 0.091, 1.3800, True),     # USD/XXX
-            ("USDCHF", 0.036, 0.8900, True),     # USD/XXX
-            ("AUDUSD", 0.021, 0.6400, False),    # XXX/USD
-            ("NZDUSD", 0.021, 0.5700, False),    # XXX/USD
-        ]
-        index = 1.0
-        for pair, weight, baseline, is_usd_base in _dxy_cfg:
+        # (pair, exponent) per ICE DXY definition. EUR/GBP quoted XXX/USD -> negative.
+        _dxy_legs = [("EURUSD", -0.576), ("USDJPY", 0.136), ("GBPUSD", -0.119),
+                     ("USDCAD", 0.091), ("USDSEK", 0.042), ("USDCHF", 0.036)]
+        index = 50.14348112
+        ok = True
+        for pair, exp in _dxy_legs:
             s = spots.get(pair, {})
-            mid = _sf(s.get("mid", s.get("close", baseline)), baseline)
-            if mid <= 0:
-                mid = baseline
-            if is_usd_base:
-                # USD/XXX: higher spot = stronger USD
-                ratio = mid / baseline
-            else:
-                # XXX/USD: lower spot = stronger USD → invert
-                ratio = baseline / mid
-            index *= ratio ** weight
-        kpis["dxy"] = round(index * 100.0, 2)
+            mid = _sf(s.get("mid", s.get("close")), 0.0) if isinstance(s, dict) else _sf(s, 0.0)
+            if not mid or mid <= 0:
+                ok = False
+                break
+            index *= mid ** exp
+        kpis["dxy"] = round(index, 2) if ok else None
     except Exception:
-        kpis["dxy"] = 100.0
+        kpis["dxy"] = None
 
     # G10 / EM avg vol
     g10_vols = [r["atm_1m"] for r in rows if r["pair"] in G10_PAIRS and r["atm_1m"] > 0]
@@ -344,25 +335,31 @@ def _build_kpi_data(rows):
         from core.fx_portfolio import compute_portfolio_risk
         from core.bloomberg_fx import get_fx_spots as _md_spots, get_fx_rates as _md_rates, get_fx_vol_surface as _md_volsurf
         from core.fx_conventions import FX_PAIR_REGISTRY as _md_registry
-        # Build market data dicts matching compute_portfolio_risk(spots, rates, vol_surfaces) signature
+        from core.market_data import atm_vol_from_surface as _md_atm
+        # Build REAL-only market data — pairs with missing spot/rate/vol are
+        # omitted, and compute_portfolio_risk (strict) excludes positions in those
+        # pairs.  Book vega/theta then reflect ONLY positions priced from real
+        # Bloomberg data, never a fabricated 1.0 spot / 8% vol / 4% rate.
         _md_pairs = list(_md_registry.keys())
         _md_spot_raw = _md_spots(_md_pairs) or {}
-        _md_s = {p: d.get("mid", 1.0) if isinstance(d, dict) else float(d)
-                 for p, d in _md_spot_raw.items()}
+        _md_s = {}
+        for p, d in _md_spot_raw.items():
+            mid = d.get("mid", d.get("bid")) if isinstance(d, dict) else d
+            try:
+                mid = float(mid)
+            except (TypeError, ValueError):
+                continue
+            if mid > 0:
+                _md_s[p] = mid
         _md_r = {}
         _md_v = {}
         for _p in _md_pairs:
             _rr = _md_rates(_p)
-            _md_r[_p] = {"r_d": _rr.get("r_dom", 0.04), "r_f": _rr.get("r_for", 0.02)} if isinstance(_rr, dict) else {"r_d": 0.04, "r_f": 0.02}
-            _sv = _md_volsurf(_p) or {}
-            # Extract flat decimal vol from surface for portfolio pricing
-            _flat = 0.10
-            for _t in ("3M", "1M", "6M", "1Y"):
-                if _t in _sv and isinstance(_sv[_t], dict):
-                    _raw = _sv[_t].get("atm", 8.0)
-                    _flat = _raw / 100.0 if _raw > 1.0 else _raw
-                    break
-            _md_v[_p] = max(_flat, 0.001)
+            if isinstance(_rr, dict) and _rr.get("r_dom") is not None and _rr.get("r_for") is not None:
+                _md_r[_p] = {"r_d": float(_rr["r_dom"]), "r_f": float(_rr["r_for"])}
+            _vv = _md_atm(_md_volsurf(_p))
+            if _vv is not None:
+                _md_v[_p] = _vv
         risk = compute_portfolio_risk(_md_s, _md_r, _md_v)
         totals = risk.get("totals", {})
         book_vega = totals.get("vega", 0)
@@ -514,7 +511,8 @@ def _build_vol_index_chart(pairs, lookback=_CHART_LOOKBACK_DEFAULT):
 
         lookback = int(lookback or _CHART_LOOKBACK_DEFAULT)
 
-        # Try to get real history, fall back to synthetic
+        # Real Bloomberg history only — if there isn't enough, show an empty
+        # "INSUFFICIENT VOL DATA" state below (never a synthetic series).
         hist_vols = []
         for pair in G10_PAIRS[:8]:
             try:
@@ -867,7 +865,7 @@ def _render_kpis(kpis):
     g10_pctile = kpis.get("g10_pctile", 50)
     ivrv_agg = kpis.get("ivrv_agg", 0)
     items = [
-        ("DXY PROXY",      str(kpis.get("dxy", "—")),          COLORS["accent_orange"]),
+        ("DXY",            (f"{kpis['dxy']:.2f}" if kpis.get("dxy") is not None else "—"), COLORS["accent_orange"]),
         ("G10 AVG VOL",    f"{kpis.get('g10_vol', 0):.1f}v",   COLORS["accent_orange"]),
         ("EM AVG VOL",     f"{kpis.get('em_vol', 0):.1f}v",    COLORS["accent_orange"]),
         ("G10 %ILE",       _ordinal(g10_pctile),              _pct_color(g10_pctile)),

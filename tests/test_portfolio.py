@@ -58,7 +58,10 @@ from core.fx_portfolio import (
     roll_position,
     save_portfolio,
     what_if_add,
+    compute_book_risk,
+    pnl_attribution_since_entry,
 )
+from core.market_data import MarketDataUnavailable
 import core.fx_portfolio as portfolio_mod
 
 
@@ -612,14 +615,15 @@ class TestLookupVol:
         vol = _lookup_vol("EURUSD", 1.10, 0.25, 1.10, surfaces)
         assert vol == 0.09
 
-    def test_missing_pair_returns_default(self):
+    def test_missing_pair_raises(self):
+        """A missing surface must raise, never fabricate a 'typical' vol."""
         surfaces = {"GBPUSD": 0.07}
-        vol = _lookup_vol("EURUSD", 1.10, 0.25, 1.10, surfaces)
-        assert vol == 0.10
+        with pytest.raises(MarketDataUnavailable):
+            _lookup_vol("EURUSD", 1.10, 0.25, 1.10, surfaces)
 
-    def test_empty_surface_returns_default(self):
-        vol = _lookup_vol("EURUSD", 1.10, 0.25, 1.10, {})
-        assert vol == 0.10
+    def test_empty_surface_raises(self):
+        with pytest.raises(MarketDataUnavailable):
+            _lookup_vol("EURUSD", 1.10, 0.25, 1.10, {})
 
     def test_dict_with_ATM_key(self):
         surfaces = {"EURUSD": {"ATM": 0.075}}
@@ -647,17 +651,20 @@ class TestGetRate:
         assert _get_rate("EURUSD", rates, "domestic") == 0.045
         assert _get_rate("EURUSD", rates, "foreign") == 0.025
 
-    def test_missing_pair_returns_default(self):
+    def test_missing_pair_raises(self):
+        """A missing rate must raise, never fabricate a 'typical' 4%."""
         rates = {"GBPUSD": (0.04, 0.03)}
-        assert _get_rate("EURUSD", rates, "domestic") == 0.04  # default
+        with pytest.raises(MarketDataUnavailable):
+            _get_rate("EURUSD", rates, "domestic")
 
     def test_single_element_tuple(self):
         rates = {"EURUSD": (0.05,)}
         assert _get_rate("EURUSD", rates, "domestic") == 0.05
 
-    def test_empty_tuple_returns_default(self):
+    def test_empty_tuple_raises(self):
         rates = {"EURUSD": ()}
-        assert _get_rate("EURUSD", rates, "domestic") == 0.04
+        with pytest.raises(MarketDataUnavailable):
+            _get_rate("EURUSD", rates, "domestic")
 
 
 # ============================================================================
@@ -1013,6 +1020,70 @@ class TestComputePositionGreeks:
         }
         greeks = compute_position_greeks(pos, 1.10, 0.04, 0.02, {"EURUSD": 0.10})
         assert greeks["bucket"] in TENOR_BUCKETS
+
+    def test_missing_spot_raises_not_fabricated(self):
+        """No real spot -> raise, never price off a fabricated S=1.0."""
+        pos = {
+            "id": "ns", "pair": "EURUSD", "option_type": "call",
+            "direction": "buy", "strike": 1.10, "expiry": 0.25,
+            "notional": 1_000_000, "status": "open",
+        }
+        # spot passed as a dict that does not contain the pair
+        with pytest.raises(MarketDataUnavailable):
+            compute_position_greeks(pos, {"GBPUSD": 1.25}, 0.04, 0.02, {"EURUSD": 0.10})
+
+    def test_missing_vol_raises_not_fabricated(self):
+        """No real vol -> raise, never price off a fabricated 10% vol."""
+        pos = {
+            "id": "nv", "pair": "EURUSD", "option_type": "call",
+            "direction": "buy", "strike": 1.10, "expiry": 0.25,
+            "notional": 1_000_000, "status": "open",
+        }
+        with pytest.raises(MarketDataUnavailable):
+            compute_position_greeks(pos, 1.10, 0.04, 0.02, {"GBPUSD": 0.10})
+
+
+# ============================================================================
+# compute_book_risk / unpriceable handling (no fabrication on missing data)
+# ============================================================================
+
+class TestUnpriceableHandling:
+
+    def _pos(self, pair="EURUSD"):
+        return {
+            "pair": pair, "option_type": "call", "direction": "buy",
+            "strike": 1.10, "expiry": (date.today() + timedelta(days=90)).isoformat(),
+            "notional": 1_000_000, "entry_spot": 1.10, "entry_vol": 0.10,
+        }
+
+    def test_unpriceable_excluded_from_totals(self):
+        """A position whose pair has no market data is reported as unpriceable
+        and contributes nothing to the totals — never a fabricated/zero Greek
+        blended silently into the aggregate."""
+        create_sample_portfolio()
+        add_position("G10_FLOW", self._pos("EURUSD"))
+        add_position("G10_FLOW", self._pos("GBPUSD"))
+        # Only EURUSD has market data; GBPUSD is missing entirely.
+        br = compute_book_risk("G10_FLOW", {"EURUSD": 1.10}, {"EURUSD": (0.04, 0.02)},
+                               {"EURUSD": 0.10})
+        assert len(br["positions"]) == 1
+        assert len(br["unpriceable"]) == 1
+        assert br["unpriceable"][0]["pair"] == "GBPUSD"
+
+    def test_since_entry_attribution_excludes_no_live_data(self):
+        """Positions with no live mark are excluded and counted, not attributed
+        against a fabricated move."""
+        create_sample_portfolio()
+        add_position("G10_FLOW", self._pos("EURUSD"))
+        add_position("G10_FLOW", self._pos("GBPUSD"))
+        attr = pnl_attribution_since_entry(
+            get_all_positions(),
+            spots_now={"EURUSD": 1.12},
+            surfaces_now={"EURUSD": 0.11},
+            rates={"EURUSD": (0.04, 0.02)},
+        )
+        assert attr["n_attributed"] == 1
+        assert attr["n_unattributable"] == 1
 
 
 # ============================================================================

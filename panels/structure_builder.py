@@ -38,6 +38,10 @@ from core.fx_analytics import (
     smile_implied_pdf, vol_regime_detect,
 )
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs
+from core.market_data import (
+    get_spot, get_rates, get_atm_vol, atm_vol_from_surface,
+    normalize_vol, MarketDataUnavailable, NA,
+)
 from core.fx_conventions import (
     tenor_to_years, tenor_to_days, years_to_nearest_tenor,
     delta_to_strike, atm_dns_strike, bf_rr_to_smile,
@@ -343,10 +347,12 @@ def _interp_vol_for_delta(vol_surface_data, tenor, delta_abs, cp_sign):
     vol_surface_data: {tenor: {atm, rr25, bf25, rr10, bf10}}
     delta_abs: absolute delta (e.g. 0.25)
     cp_sign: +1 call, -1 put
-    Returns vol as a fraction (e.g. 0.07 for 7%).
+    Returns vol as a fraction (e.g. 0.07 for 7%), or None when no real vol
+    exists for the tenor (caller must treat None as MARKET DATA UNAVAILABLE,
+    never as a default).
     """
     if not vol_surface_data:
-        return 0.08
+        return None
     if tenor not in vol_surface_data:
         def _safe_tenor_dist(t):
             try:
@@ -355,14 +361,20 @@ def _interp_vol_for_delta(vol_surface_data, tenor, delta_abs, cp_sign):
                 return 999
         available = sorted(vol_surface_data.keys(), key=_safe_tenor_dist)
         if not available:
-            return 0.08
+            return None
         tenor = available[0]
 
     q = vol_surface_data.get(tenor, {})
     if not q:
-        return 0.08
-    # bf_rr_to_smile expects vol-point inputs (e.g., 8.5, -0.3, 0.25)
-    atm = q.get("atm", 8.0)
+        return None
+    # ATM must be a real quote; a missing ATM is NO vol, not a flat 8%.
+    atm_dec = normalize_vol(q.get("atm"))
+    if atm_dec is None:
+        return None
+    # bf_rr_to_smile expects vol-point inputs (e.g., 8.5, -0.3, 0.25).
+    # ATM is real; absent skew prices ATM-only (RR/BF=0) — no fabricated
+    # market skew is shown to the trader from this pricing path.
+    atm = atm_dec * 100.0
     rr25 = q.get("rr25", 0)
     bf25 = q.get("bf25", 0)
     rr10 = q.get("rr10", 0)
@@ -405,9 +417,13 @@ def _fmt_strike(K, pair):
 
 
 def _get_atm_vol(vol_surface_data, tenor):
-    """Get ATM vol for a tenor in decimal form."""
+    """Get the real ATM vol for a tenor in decimal form, or None.
+
+    Returns None (never a default 8%) when no real ATM quote exists; the
+    caller must surface MARKET DATA UNAVAILABLE rather than price off it.
+    """
     if not vol_surface_data:
-        return 0.08
+        return None
     if tenor not in vol_surface_data:
         def _safe_td(t):
             try:
@@ -416,9 +432,10 @@ def _get_atm_vol(vol_surface_data, tenor):
                 return 999
         available = sorted(vol_surface_data.keys(), key=_safe_td)
         if not available:
-            return 0.08
+            return None
         tenor = available[0]
-    return vol_surface_data.get(tenor, {}).get("atm", 8.0) / 100.0
+    node = vol_surface_data.get(tenor, {})
+    return normalize_vol(node.get("atm") if isinstance(node, dict) else node)
 
 
 # ============================================================================
@@ -429,10 +446,28 @@ def _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surf
     """
     For each leg: convert delta to strike, look up vol, price via GK.
     Returns list of leg dicts with all computed fields.
+
+    Raises MarketDataUnavailable when real spot, rates, or vol are missing —
+    no leg is ever priced off a placeholder 1.0 spot / 3%-2% rates / 8% vol.
     """
-    S = spot_data.get("mid", spot_data.get("bid", 1.0))
-    r_d = rates.get("r_dom", 0.03)
-    r_f = rates.get("r_for", 0.02)
+    S = (spot_data or {}).get("mid", (spot_data or {}).get("bid"))
+    try:
+        S = float(S)
+    except (TypeError, ValueError):
+        S = None
+    if S is None or not np.isfinite(S) or S <= 0:
+        raise MarketDataUnavailable("spot", pair)
+    r_d = (rates or {}).get("r_dom")
+    r_f = (rates or {}).get("r_for")
+    if r_d is None or r_f is None:
+        raise MarketDataUnavailable("rates", pair)
+    try:
+        r_d = float(r_d)
+        r_f = float(r_f)
+    except (TypeError, ValueError):
+        raise MarketDataUnavailable("rates", pair)
+    if not (np.isfinite(r_d) and np.isfinite(r_f)):
+        raise MarketDataUnavailable("rates", pair)
     T = tenor_to_years(tenor)
     pip_size = 0.0001
     if pair in FX_PAIR_REGISTRY:
@@ -454,6 +489,9 @@ def _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surf
         leg_tenor = years_to_nearest_tenor(leg_T) if tenor_mult != 1.0 else tenor
 
         vol = _interp_vol_for_delta(vol_surface, leg_tenor, delta_abs, cp_sign)
+        if vol is None:
+            # No real vol for this leg's tenor — refuse to price off a default.
+            raise MarketDataUnavailable("vol", pair, leg_tenor)
         vol = max(vol, 1e-6)  # guard against zero/negative vol from lookup
 
         target_delta = delta_abs * cp_sign
@@ -844,11 +882,15 @@ def _build_suggestions(pair, tenor, vol_surface, spots, rates):
 # ============================================================================
 
 def _build_tenor_scan(legs_config, pair, notional, spots, rates, vol_surface):
-    """Price the same structure across multiple tenors for comparison."""
-    spot_data = spots.get(pair, {"mid": 1.0})
-    S = spot_data.get("mid", spot_data.get("bid", 1.0))
-    r_d = rates.get("r_dom", 0.03)
-    r_f = rates.get("r_for", 0.02)
+    """Price the same structure across multiple tenors for comparison.
+
+    Tenors with no real spot/rates/vol are returned as unavailable rows
+    (None fields) rather than fabricated zeros.
+    """
+    spot_data = spots.get(pair, {})
+    S = spot_data.get("mid", spot_data.get("bid"))
+    r_d = (rates or {}).get("r_dom")
+    r_f = (rates or {}).get("r_for")
     pip_size = FX_PAIR_REGISTRY[pair].pip if pair in FX_PAIR_REGISTRY else 0.0001
 
     rows = []
@@ -868,9 +910,10 @@ def _build_tenor_scan(legs_config, pair, notional, spots, rates, vol_surface):
                 "max_loss": agg["max_loss"],
             })
         except Exception:
-            rows.append({"tenor": t, "premium_pips": 0, "pop": 0,
-                         "theta_day": 0, "theta_pips": 0, "vol_pctile": 50,
-                         "be": None, "max_loss": 0})
+            # No real data for this tenor — mark unavailable, do not fabricate.
+            rows.append({"tenor": t, "premium_pips": None, "pop": None,
+                         "theta_day": None, "theta_pips": None, "vol_pctile": None,
+                         "be": None, "max_loss": None, "unavailable": True})
     return rows
 
 
@@ -887,10 +930,15 @@ def _solve_for_parameter(target_metric, target_value, solve_leg, solve_param,
 
     Returns: {"success": bool, "value": float, "message": str}
     """
-    S = spot_data.get("mid", spot_data.get("bid", 1.0))
+    # Real inputs only — _process_legs (called in objective) raises
+    # MarketDataUnavailable if any are missing, surfaced as a solver error.
+    S = get_spot(pair)
+    rate_pair = get_rates(pair)
+    if S is None or rate_pair is None:
+        return {"success": False, "value": None,
+                "message": "Market data unavailable"}
+    r_d, r_f = rate_pair
     T = tenor_to_years(tenor)
-    r_d = rates.get("r_dom", 0.03)
-    r_f = rates.get("r_for", 0.02)
     pip_size = FX_PAIR_REGISTRY[pair].pip if pair in FX_PAIR_REGISTRY else 0.0001
 
     if solve_param == "delta":
@@ -2995,23 +3043,28 @@ def register_callbacks(app):
         vol_surface = get_fx_vol_surface(pair) or {}
         rates = get_fx_rates(pair) or {}
 
-        # Guard: only block if we have no spot data at all (vol/rates have fallbacks)
-        if not spots or pair not in spots:
-            ndf = no_data_fig(height=380, msg="NO MARKET DATA")
-            empty_table = html.Div("No market data", style={"color": COLORS["text_muted"],
-                                   "fontSize": "11px", "padding": "8px"})
-            empty_stats = [html.Div("--", style=STAT_BOX_STYLE) for _ in range(10)]
-            ndf_surface = no_data_fig(height=400, msg="NO MARKET DATA")
+        # Guard: block unless we have REAL spot AND rates AND an ATM vol for the
+        # selected tenor.  Every priced number below is GK off these inputs, so a
+        # missing one means MARKET DATA UNAVAILABLE — never a placeholder level.
+        S = get_spot(pair)
+        rate_pair = get_rates(pair)
+        atm_vol = get_atm_vol(pair, tenor)
+        if atm_vol is None:
+            atm_vol = atm_vol_from_surface(vol_surface, tenor)
+        if S is None or rate_pair is None or atm_vol is None:
+            ndf = no_data_fig(height=380, msg="MARKET DATA UNAVAILABLE")
+            empty_table = html.Div("MARKET DATA UNAVAILABLE",
+                                   style={"color": COLORS["text_muted"],
+                                          "fontSize": "11px", "padding": "8px"})
+            empty_stats = [html.Div(NA, style=STAT_BOX_STYLE) for _ in range(10)]
+            ndf_surface = no_data_fig(height=400, msg="MARKET DATA UNAVAILABLE")
             return ([empty_div, [], empty_stats, ndf, ndf, ndf, ndf, empty_table, ndf, ndf,
                      empty_div, empty_div, ndf_surface, ndf]
                     + [""] * MAX_LEGS + [""] * MAX_LEGS + [""] * MAX_LEGS)
 
         try:
-            spot_data = spots.get(pair, {"mid": 1.0, "bid": 1.0, "ask": 1.0})
-
-            S = spot_data.get("mid", spot_data.get("bid", 1.0))
-            r_d = rates.get("r_dom", 0.03)
-            r_f = rates.get("r_for", 0.02)
+            spot_data = spots.get(pair, {})
+            r_d, r_f = rate_pair
             T = tenor_to_years(tenor)
 
             pip_size = 0.0001
@@ -3024,7 +3077,9 @@ def register_callbacks(app):
 
             # Aggregates
             agg = _compute_aggregates(processed, S, T, r_d, r_f, notional, pip_size)
-            atm_vol = _get_atm_vol(vol_surface, tenor)
+            # Prefer a same-tenor real ATM if present; else keep the validated
+            # ATM from the guard above (already confirmed real, never a default).
+            atm_vol = _get_atm_vol(vol_surface, tenor) or atm_vol
 
             # ── NEW: Expected Value ──
             ev_data = None
@@ -3152,11 +3207,21 @@ def register_callbacks(app):
                           "padding": "4px 6px", "fontFamily": "'JetBrains Mono', monospace",
                           "borderBottom": f"1px solid {COLORS['border_subtle']}"}
                 # Find cheapest vol percentile — only highlight if actually cheap (<50th)
-                min_pct = min((r["vol_pctile"] for r in ts_rows), default=50)
+                min_pct = min((r["vol_pctile"] for r in ts_rows
+                               if r.get("vol_pctile") is not None), default=50)
                 t_head = html.Tr([html.Th(h, style=hdr_s) for h in
                                   ["Tenor", "Prem (pips)", "POP", "Θ/day", "Vol %ile", "Breakeven"]])
                 t_rows = []
                 for r in ts_rows:
+                    if r.get("unavailable") or r.get("vol_pctile") is None:
+                        # No real data for this tenor — show NA, never zeros.
+                        t_rows.append(html.Tr([
+                            html.Td(r["tenor"], style=cell_s),
+                            html.Td(NA, style=cell_s), html.Td(NA, style=cell_s),
+                            html.Td(NA, style=cell_s), html.Td(NA, style=cell_s),
+                            html.Td(NA, style=cell_s),
+                        ]))
+                        continue
                     is_cheapest = r["vol_pctile"] <= min_pct + 1 and min_pct < 50
                     row_color = COLORS["accent_green"] if is_cheapest else COLORS["text_primary"]
                     be_s = f"{r['be']:.5f}" if r["be"] else "--"
@@ -3451,7 +3516,7 @@ def register_callbacks(app):
         spots = get_fx_spots([pair]) or {}
         rates = get_fx_rates(pair) or {}
         vol_surface = get_fx_vol_surface(pair) or {}
-        spot_data = spots.get(pair, {"mid": 1.0})
+        spot_data = spots.get(pair, {})
 
         result = _solve_for_parameter(
             target_metric, target_value, solve_leg, solve_param,
@@ -3560,7 +3625,7 @@ def register_callbacks(app):
         spots = get_fx_spots([pair]) or {}
         rates = get_fx_rates(pair) or {}
         vol_surface = get_fx_vol_surface(pair) or {}
-        spot_data = spots.get(pair, {"mid": 1.0})
+        spot_data = spots.get(pair, {})
 
         result = _solve_for_parameter(
             "net_premium_pips", 0.0, sell_idx, "delta",
@@ -3600,15 +3665,20 @@ def register_callbacks(app):
         spots = get_fx_spots([pair]) or {}
         rates = get_fx_rates(pair) or {}
         vol_surface = get_fx_vol_surface(pair) or {}
-        spot_data = spots.get(pair, {"mid": 1.0})
-        S = spot_data.get("mid", 1.0)
+        spot_data = spots.get(pair, {})
+        S = get_spot(pair)
+        rate_pair = get_rates(pair)
+        if S is None or rate_pair is None:
+            return no_update, "A: MARKET DATA UNAVAILABLE"
+        r_d, r_f = rate_pair
         T = tenor_to_years(tenor)
-        r_d = rates.get("r_dom", 0.03)
-        r_f = rates.get("r_for", 0.02)
         pip_size = FX_PAIR_REGISTRY[pair].pip if pair in FX_PAIR_REGISTRY else 0.0001
 
-        proc = _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surface)
-        agg = _compute_aggregates(proc, S, T, r_d, r_f, notional, pip_size)
+        try:
+            proc = _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surface)
+            agg = _compute_aggregates(proc, S, T, r_d, r_f, notional, pip_size)
+        except MarketDataUnavailable:
+            return no_update, "A: MARKET DATA UNAVAILABLE"
 
         snap = {
             "label": f"{tenor} {pair} {preset or 'Custom'}",
@@ -3644,15 +3714,20 @@ def register_callbacks(app):
         spots = get_fx_spots([pair]) or {}
         rates = get_fx_rates(pair) or {}
         vol_surface = get_fx_vol_surface(pair) or {}
-        spot_data = spots.get(pair, {"mid": 1.0})
-        S = spot_data.get("mid", 1.0)
+        spot_data = spots.get(pair, {})
+        S = get_spot(pair)
+        rate_pair = get_rates(pair)
+        if S is None or rate_pair is None:
+            return no_update, "B: MARKET DATA UNAVAILABLE"
+        r_d, r_f = rate_pair
         T = tenor_to_years(tenor)
-        r_d = rates.get("r_dom", 0.03)
-        r_f = rates.get("r_for", 0.02)
         pip_size = FX_PAIR_REGISTRY[pair].pip if pair in FX_PAIR_REGISTRY else 0.0001
 
-        proc = _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surface)
-        agg = _compute_aggregates(proc, S, T, r_d, r_f, notional, pip_size)
+        try:
+            proc = _process_legs(legs_config, pair, tenor, notional, spot_data, rates, vol_surface)
+            agg = _compute_aggregates(proc, S, T, r_d, r_f, notional, pip_size)
+        except MarketDataUnavailable:
+            return no_update, "B: MARKET DATA UNAVAILABLE"
 
         snap = {
             "label": f"{tenor} {pair} {preset or 'Custom'}",

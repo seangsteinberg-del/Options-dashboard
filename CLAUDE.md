@@ -69,6 +69,16 @@ Callbacks never hit Bloomberg directly. The cache layer (`bloomberg_fx.py`) serv
 | `core/fx_stress.py` | Stress scenarios and custom shock builder |
 | `core/theme.py` | All styling: colors, layout constants, chart template, reusable component styles |
 | `core/csv_export.py` | Figure-to-DataFrame extraction and CSV download via `dcc.Download` |
+| `core/market_data.py` | Strict no-fabrication accessors: `require_/get_ spot/rates/atm_vol`, `MarketDataUnavailable`, `NA="—"` — the single source of truth for whether a real value exists |
+
+### No-Fabrication Invariant (trading-floor rule)
+
+Every number shown to a user must be **real Bloomberg data (or a pure derivation of it), or visibly marked unavailable** (`—` / `NO DATA` / `MARKET DATA UNAVAILABLE`). No placeholder spot/vol/rate/correlation may ever reach the screen dressed as market data. Concretely:
+
+- Never `spots.get(pair, 1.0)`, `vol or 0.10`, `rates.get("r_dom", 0.04)`, neutral `percentile=50`/`zscore=0`, or `except: return <plausible number>`. Use `core/market_data.py` (returns `None` / raises `MarketDataUnavailable`) and degrade transparently.
+- Portfolio risk (`fx_portfolio`) and stress (`fx_stress`) **exclude** positions whose real inputs are missing and report them as `unpriceable` (count surfaced in the UI) — they never contribute a fabricated/zero Greek to a total.
+- P&L attribution uses each trade's **recorded entry mark → live mark** (`pnl_attribution_since_entry`); it must never simulate a random move.
+- Monte Carlo (VaR/CVaR, exotic pricing) and the delta-hedge **SIMULATED** path are legitimate disclosed methods — keep them labeled as such; they are not fabrication.
 
 ### Panels (4 workspaces)
 

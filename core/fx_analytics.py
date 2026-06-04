@@ -565,11 +565,15 @@ def breakeven_vol(pair: str, tenor: str, days_to_expiry: int) -> dict:
     """
     T = days_to_expiry / CALENDAR_DAYS_PER_YEAR
     spots = get_fx_spots([pair]) or {}
-    spot = spots.get(pair, {}).get("mid", 1.0)
-
+    spot = spots.get(pair, {}).get("mid")
     rates = get_fx_rates(pair)
-    r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
-    r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
+    # Need real spot + both rates — never compute a breakeven off a fabricated
+    # 1.0 spot or 3%/2% rates.
+    if (spot is None or spot <= 0 or not isinstance(rates, dict)
+            or rates.get("r_dom") is None or rates.get("r_for") is None):
+        return None
+    r_dom = float(rates["r_dom"])
+    r_for = float(rates["r_for"])
 
     surface = get_fx_vol_surface(pair)
     atm_raw = _extract_atm(surface, tenor)
@@ -622,7 +626,7 @@ def theta_gamma_ratio(pair: str, tenor: str) -> dict:
     """
     T = tenor_to_years(tenor)
     spots = get_fx_spots([pair]) or {}
-    spot = spots.get(pair, {}).get("mid", 1.0)
+    spot = spots.get(pair, {}).get("mid")
 
     surface = get_fx_vol_surface(pair)
     atm_raw = _extract_atm(surface, tenor)
@@ -633,8 +637,13 @@ def theta_gamma_ratio(pair: str, tenor: str) -> dict:
         return None
 
     rates = get_fx_rates(pair)
-    r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
-    r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
+    # Need real spot + both rates — gamma/theta scale with spot, so a fabricated
+    # 1.0 spot or 3%/2% rates would silently bias the result.
+    if (spot is None or spot <= 0 or not isinstance(rates, dict)
+            or rates.get("r_dom") is None or rates.get("r_for") is None):
+        return None
+    r_dom = float(rates["r_dom"])
+    r_for = float(rates["r_for"])
 
     d1 = ((r_dom - r_for + 0.5 * atm_vol ** 2) * T) / (atm_vol * np.sqrt(T))
     d2 = d1 - atm_vol * np.sqrt(T)
@@ -664,7 +673,7 @@ def vol_carry(pair: str, tenor: str) -> dict:
     """
     T = tenor_to_years(tenor)
     spots = get_fx_spots([pair]) or {}
-    spot = spots.get(pair, {}).get("mid", 1.0)
+    spot = spots.get(pair, {}).get("mid")
 
     surface = get_fx_vol_surface(pair)
     atm_raw = _extract_atm(surface, tenor)
@@ -675,8 +684,13 @@ def vol_carry(pair: str, tenor: str) -> dict:
         return None
 
     rates = get_fx_rates(pair)
-    r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
-    r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
+    # Need real spot + both rates — daily theta scales with spot, so a fabricated
+    # 1.0 spot or 3%/2% rates would silently bias the carry.
+    if (spot is None or spot <= 0 or not isinstance(rates, dict)
+            or rates.get("r_dom") is None or rates.get("r_for") is None):
+        return None
+    r_dom = float(rates["r_dom"])
+    r_for = float(rates["r_for"])
     d1 = ((r_dom - r_for + 0.5 * atm_vol ** 2) * T) / (atm_vol * np.sqrt(T))
     d2 = d1 - atm_vol * np.sqrt(T)
     df_f = np.exp(-r_for * T)
@@ -909,11 +923,15 @@ def smile_implied_pdf(pair: str, tenor: str,
     """
     T = tenor_to_years(tenor)
     spots = get_fx_spots([pair]) or {}
-    spot = spots.get(pair, {}).get("mid", 1.0)
-
+    spot = spots.get(pair, {}).get("mid")
     rates = get_fx_rates(pair)
-    r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
-    r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
+    # Need real spot + rates — the PDF is built on a strike grid around spot, so a
+    # fabricated 1.0 spot / 3%-2% rates would produce a misleading distribution.
+    if (spot is None or spot <= 0 or not isinstance(rates, dict)
+            or rates.get("r_dom") is None or rates.get("r_for") is None):
+        return pd.DataFrame()
+    r_dom = float(rates["r_dom"])
+    r_for = float(rates["r_for"])
 
     surface = get_fx_vol_surface(pair)
     atm_raw = _extract_atm(surface, tenor)
@@ -1014,7 +1032,9 @@ def tail_probabilities(pair: str, tenor: str,
     if cdf_df.empty:
         return pd.DataFrame()
     spots = get_fx_spots([pair]) or {}
-    spot = spots.get(pair, {}).get("mid", 1.0)
+    spot = spots.get(pair, {}).get("mid")
+    if spot is None or spot <= 0:
+        return pd.DataFrame()
 
     strikes = cdf_df["strike"].values
     cdf_vals = cdf_df["cdf"].values
@@ -1721,11 +1741,14 @@ def carry_table(pairs: List[str] = None) -> pd.DataFrame:
     records = []
     for p in pairs:
         spots = get_fx_spots([p]) or {}
-        spot = spots.get(p, {}).get("mid", 1.0)
-
+        spot = spots.get(p, {}).get("mid")
         rates = get_fx_rates(p)
-        r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
-        r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
+        # Skip pairs without real spot + rates — never tabulate a fabricated carry.
+        if (spot is None or spot <= 0 or not isinstance(rates, dict)
+                or rates.get("r_dom") is None or rates.get("r_for") is None):
+            continue
+        r_dom = float(rates["r_dom"])
+        r_for = float(rates["r_for"])
 
         diff = r_dom - r_for
 
@@ -1762,8 +1785,11 @@ def carry_per_vol(pairs: List[str] = None) -> pd.DataFrame:
     records = []
     for p in pairs:
         rates = get_fx_rates(p)
-        r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
-        r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
+        # Skip pairs without real rates — never rank a fabricated carry/vol.
+        if not isinstance(rates, dict) or rates.get("r_dom") is None or rates.get("r_for") is None:
+            continue
+        r_dom = float(rates["r_dom"])
+        r_for = float(rates["r_for"])
         diff = abs(r_dom - r_for)
 
         surface = get_fx_vol_surface(p)
@@ -1801,8 +1827,11 @@ def carry_momentum(pair: str, lookback: int = 60) -> dict:
     is positive.
     """
     rates = get_fx_rates(pair)
-    r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
-    r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
+    # Need real rates — never report carry momentum off a fabricated 3%/2%.
+    if not isinstance(rates, dict) or rates.get("r_dom") is None or rates.get("r_for") is None:
+        return None
+    r_dom = float(rates["r_dom"])
+    r_for = float(rates["r_for"])
     current_diff = r_dom - r_for
     current_diff_bps = float(current_diff * 10000)
 
@@ -2648,10 +2677,16 @@ def implied_pdf_comparison(pair: str, tenor: str,
         # Use current spot (we want to compare market view, not absolute strikes)
         T = tenor_to_years(tenor)
         spots = get_fx_spots([pair]) or {}
-        spot = spots.get(pair, {}).get("mid", 1.0)
+        spot = spots.get(pair, {}).get("mid")
         rates = get_fx_rates(pair)
-        r_dom = rates.get("r_dom", 0.03) if isinstance(rates, dict) else 0.03
-        r_for = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
+        # Need real spot + rates to place the strike grid — skip this snapshot
+        # rather than build a distribution off a fabricated 1.0 spot / 3%-2%.
+        if (spot is None or spot <= 0 or not isinstance(rates, dict)
+                or rates.get("r_dom") is None or rates.get("r_for") is None):
+            result[f"{days}d_ago"] = pd.DataFrame()
+            continue
+        r_dom = float(rates["r_dom"])
+        r_for = float(rates["r_for"])
 
         atm_v = old_atm / 100.0
         rr_v = old_rr / 100.0

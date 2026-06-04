@@ -36,6 +36,7 @@ from core.bloomberg_fx import (
     get_fx_historical_vol, get_all_pairs,
     get_fx_historical_spot, get_fx_term_structure,
 )
+from core.market_data import get_spot, get_rates, NA
 from core.fx_analytics import (
     vol_percentile, vol_zscore, vol_regime_detect, vol_cone,
     iv_rv_spread, forward_vol_curve, smile_skewness, smile_kurtosis,
@@ -262,8 +263,13 @@ def _get_surface_data(pair):
     for t in TENORS_LIST:
         if t in surface:
             row = surface[t]
+            # Require a real ATM for the tenor — a tenor with no real ATM cannot
+            # form a real smile, so it is omitted rather than shown as ~0 vol.
+            atm = row.get("atm", row.get("ATM"))
+            if atm is None or atm <= 0:
+                continue
             tenors_avail.append(t)
-            atm_vals.append(row.get("atm", row.get("ATM", 0)))
+            atm_vals.append(atm)
             rr25_vals.append(row.get("rr25", row.get("25D_RR", 0)))
             bf25_vals.append(row.get("bf25", row.get("25D_BF", 0)))
             rr10_vals.append(row.get("rr10", row.get("10D_RR", 0)))
@@ -341,14 +347,25 @@ def _filter_surface_data(sd, selected_tenors):
 
 
 def _get_spot_and_rates(pair):
-    """Fetch spot mid, forward 1M, and interest rates."""
-    spots = get_fx_spots([pair]) or {}
-    spot_info = spots.get(pair, {})
-    spot = spot_info.get("mid", spot_info.get("price", 1.0))
-    rates = get_fx_rates(pair) or {}
-    r_dom = rates.get("r_dom", 0.03)
-    r_for = rates.get("r_for", 0.02)
-    fwd_1m = spot * np.exp((r_dom - r_for) * tenor_to_years("1M"))
+    """Fetch real spot mid, forward 1M, and interest rates.
+
+    Returns ``None`` for any input that is not a genuine Bloomberg value
+    rather than substituting a placeholder (no spot 1.0, no 3%/2% rates).
+    Downstream consumers must treat ``None`` as "unavailable" — never
+    compute a derived market level (forward, implied distribution) off a
+    fabricated default.
+    """
+    spot = get_spot(pair)
+    rates = get_rates(pair)
+    if rates is None:
+        r_dom = r_for = None
+    else:
+        r_dom, r_for = rates
+    # Forward is a pure derivation of spot + both rates; only real if all real.
+    if spot is not None and r_dom is not None and r_for is not None:
+        fwd_1m = spot * np.exp((r_dom - r_for) * tenor_to_years("1M"))
+    else:
+        fwd_1m = None
     return spot, fwd_1m, r_dom, r_for
 
 
@@ -821,17 +838,34 @@ def chart_smile_curve(pair, sd, spot, r_dom, r_for, **kw):
     avail = sd["tenors"]
     tenor_use = sel_tenor if sel_tenor in avail else (avail[len(avail) // 2] if avail else "1M")
     row = surface.get(tenor_use, {})
-    atm = row.get("atm", row.get("ATM", 0))
-    rr25 = row.get("rr25", row.get("25D_RR", 0.0))
-    bf25 = row.get("bf25", row.get("25D_BF", 0.0))
-    rr10 = row.get("rr10", row.get("10D_RR", 0.0))
-    bf10 = row.get("bf10", row.get("10D_BF", 0.0))
+    atm = row.get("atm", row.get("ATM"))
+    # Distinguish a genuinely-missing wing (None) from a real 0 quote — a
+    # missing RR/BF must not be silently drawn as a flat/no-skew smile.
+    rr25 = row.get("rr25", row.get("25D_RR"))
+    bf25 = row.get("bf25", row.get("25D_BF"))
+    rr10 = row.get("rr10", row.get("10D_RR"))
+    bf10 = row.get("bf10", row.get("10D_BF"))
 
-    smile = bf_rr_to_smile(atm, rr25, bf25, rr10, bf10)
-    pillar_deltas = [-10, -25, 0, 25, 10]
-    pillar_labels = ["10P", "25P", "ATM", "25C", "10C"]
-    pillar_vols = [smile.get("p10", smile["p25"]), smile["p25"],
-                   smile["atm"], smile["c25"], smile.get("c10", smile["c25"])]
+    # ATM + both 25-delta wings define the core smile shape; without real
+    # quotes the curvature/skew would be fabricated, so surface the absence.
+    if atm is None or atm <= 0 or rr25 is None or bf25 is None:
+        return no_data_fig(height=CHART_MD, msg=f"NO SMILE DATA — {tenor_use}")
+    # 10-delta wings are optional; when absent pass None so bf_rr_to_smile
+    # omits the 10D pillars entirely and the chart falls back to the 25-delta
+    # pillar rather than inventing a flat 10D wing from a fabricated 0.
+    has_10d = rr10 is not None and bf10 is not None
+
+    smile = bf_rr_to_smile(atm, rr25, bf25,
+                           rr10 if has_10d else None, bf10 if has_10d else None)
+    if has_10d:
+        pillar_deltas = [-10, -25, 0, 25, 10]
+        pillar_labels = ["10P", "25P", "ATM", "25C", "10C"]
+        pillar_vols = [smile.get("p10", smile["p25"]), smile["p25"],
+                       smile["atm"], smile["c25"], smile.get("c10", smile["c25"])]
+    else:
+        pillar_deltas = [-25, 0, 25]
+        pillar_labels = ["25P", "ATM", "25C"]
+        pillar_vols = [smile["p25"], smile["atm"], smile["c25"]]
 
     # Build spline for smooth curve
     try:
@@ -843,9 +877,11 @@ def chart_smile_curve(pair, sd, spot, r_dom, r_for, **kw):
         delta_fine = np.linspace(-0.25, 0.25, 100)
         vol_fine = spline(delta_fine) * 100
     except Exception:
-        delta_fine = np.array([-0.25, -0.10, 0.0, 0.10, 0.25])
-        vol_fine = np.array([pillar_vols[1], pillar_vols[0], pillar_vols[2],
-                             pillar_vols[4], pillar_vols[3]])
+        # Spline failed: fall back to the real pillar points, sorted by delta
+        # (handles both the 5-pillar and the 25D-only 3-pillar case).
+        order = np.argsort(pillar_deltas)
+        delta_fine = np.array(pillar_deltas, dtype=float)[order] / 100.0
+        vol_fine = np.array(pillar_vols, dtype=float)[order]
 
     fig = go.Figure()
 
@@ -871,7 +907,11 @@ def chart_smile_curve(pair, sd, spot, r_dom, r_for, **kw):
     ))
 
     # ── Model overlays (SABR / Vanna-Volga) ──
+    # Both overlays calibrate to the real forward; skip them when spot/rates
+    # are unavailable rather than fitting to a fabricated default forward.
     model_sel = kw.get("model", "market")
+    if (spot is None or r_dom is None or r_for is None):
+        model_sel = "market"
 
     if model_sel == "sabr":
         try:
@@ -1391,18 +1431,30 @@ def chart_surface_change(pair, sd, spot, r_dom, r_for, **kw):
 @_safe_chart
 def chart_sabr_params(pair, sd, spot, r_dom, r_for, **kw):
     """13. SABR Parameters across tenors (fitted alpha, rho, nu)."""
+    # alpha is calibrated to the real forward; fabricated spot/rates would
+    # produce meaningless SABR parameters dressed as a market fit.
+    if spot is None or r_dom is None or r_for is None:
+        return no_data_fig(height=CHART_MD, msg="NO SPOT/RATES")
     tenors = sd["tenors"]
     T_arr = sd["T_years"]
     surface = sd["surface_raw"]
 
+    plot_tenors = []
     alphas, rhos, nus = [], [], []
     fwd = spot * np.exp((r_dom - r_for) * T_arr)
 
     for i, t in enumerate(tenors):
         row = surface.get(t, {})
-        atm_vol = row.get("atm", row.get("ATM", 0)) / 100.0
-        rr25 = row.get("rr25", row.get("25D_RR", 0.0)) / 100.0
-        bf25 = row.get("bf25", row.get("25D_BF", 0.0)) / 100.0
+        atm_raw = row.get("atm", row.get("ATM"))
+        # rho/nu are calibrated from real RR/BF; a missing wing must not be
+        # treated as 0 skew / floor curvature, so skip that tenor entirely.
+        rr25_raw = row.get("rr25", row.get("25D_RR"))
+        bf25_raw = row.get("bf25", row.get("25D_BF"))
+        if atm_raw is None or atm_raw <= 0 or rr25_raw is None or bf25_raw is None:
+            continue
+        atm_vol = atm_raw / 100.0
+        rr25 = rr25_raw / 100.0
+        bf25 = bf25_raw / 100.0
 
         # Approximate SABR params from market quotes
         F = fwd[i] if i < len(fwd) else spot
@@ -1412,22 +1464,26 @@ def chart_sabr_params(pair, sd, spot, r_dom, r_for, **kw):
         rho_est = np.clip(rr25 / max(atm_vol, 0.01) * (-0.8), -0.95, 0.95)
         nu_est = np.clip(bf25 / max(atm_vol, 0.01) * 3.0 + 0.3, 0.05, 3.0)
 
+        plot_tenors.append(t)
         alphas.append(alpha_est)
         rhos.append(rho_est)
         nus.append(nu_est)
 
+    if not plot_tenors:
+        return no_data_fig(height=CHART_MD, msg="NO SMILE DATA")
+
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.08,
                         subplot_titles=["Alpha", "Rho", "Nu"])
 
-    fig.add_trace(go.Scatter(x=tenors, y=alphas, mode="lines+markers", name="Alpha",
+    fig.add_trace(go.Scatter(x=plot_tenors, y=alphas, mode="lines+markers", name="Alpha",
         line=dict(color=COLORS["accent_cyan"], width=2),
         marker=dict(size=6),
         hovertemplate="%{x}: \u03b1=%{y:.4f}<extra></extra>"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=tenors, y=rhos, mode="lines+markers", name="Rho",
+    fig.add_trace(go.Scatter(x=plot_tenors, y=rhos, mode="lines+markers", name="Rho",
         line=dict(color=COLORS["accent_rose"], width=2),
         marker=dict(size=6),
         hovertemplate="%{x}: \u03c1=%{y:.3f}<extra></extra>"), row=2, col=1)
-    fig.add_trace(go.Scatter(x=tenors, y=nus, mode="lines+markers", name="Nu",
+    fig.add_trace(go.Scatter(x=plot_tenors, y=nus, mode="lines+markers", name="Nu",
         line=dict(color=COLORS["accent_orange"], width=2),
         marker=dict(size=6),
         hovertemplate="%{x}: \u03bd=%{y:.3f}<extra></extra>"), row=3, col=1)
@@ -1449,6 +1505,10 @@ def chart_implied_dist(pair, sd, spot, r_dom, r_for, **kw):
     skew — divergence between the two curves IS the smile-implied tail risk.
     """
     sel_tenor = kw.get("pdf_tenor", "3M")
+    # Forward and spot markers are real-data derivations; without genuine
+    # spot/rates the PDF strike axis and forward line would be fabricated.
+    if spot is None or r_dom is None or r_for is None:
+        return no_data_fig(height=CHART_MD, msg="NO SPOT/RATES")
     try:
         pdf_df = smile_implied_pdf(pair, sel_tenor, n_points=150)
         if pdf_df.empty:
@@ -3357,8 +3417,8 @@ def _build_stat_boxes(pair, sd, spot, fwd_1m, r_dom, r_for):
     delta_str = f"{delta_arrow}{abs(atm_1m_delta):.2f}"
 
     boxes = [
-        _box("SPOT", _fmt_spot(spot, pair), COLORS["text_primary"]),
-        _box("FWD 1M", _fmt_spot(fwd_1m, pair), COLORS["accent_blue"]),
+        _box("SPOT", _fmt_spot(spot, pair) if spot is not None else NA, COLORS["text_primary"]),
+        _box("FWD 1M", _fmt_spot(fwd_1m, pair) if fwd_1m is not None else NA, COLORS["accent_blue"]),
         _cbox("ATM 1M", f"{_fmt_vol(atm_1m)} ({delta_str})", pair, "ATM", "1M", COLORS["accent_cyan"]),
         _cbox("ATM 1Y", _fmt_vol(atm_1y), pair, "ATM", "1Y", COLORS["accent_purple"]),
         _cbox("SKEW 3M", f"{skew_3m_pct:+.1f}% ({_fmt_pctile(rr_pctile)})", pair, "25D_RR", "3M", COLORS["accent_orange"]),
@@ -3424,7 +3484,7 @@ def _build_overnight_summary(pair, spot):
                 hist = hist_raw.values
             else:
                 hist = np.asarray(hist_raw)
-        if hist is not None and len(hist) >= 2:
+        if spot is not None and hist is not None and len(hist) >= 2:
             spot_prev = float(hist[-2])
             pip_unit = 0.01 if _is_jpy_pair(pair) else 0.0001
             spot_chg_pips = (spot - spot_prev) / pip_unit
@@ -3455,7 +3515,7 @@ def _build_overnight_summary(pair, spot):
         html.Span(f"{spot_arrow} {abs(spot_chg_pips):.1f} pips", style={
             "color": spot_color, "fontWeight": "700", "fontSize": "12px",
         }),
-        html.Span(f" ({_fmt_spot(spot, pair)})", style={
+        html.Span(f" ({_fmt_spot(spot, pair) if spot is not None else NA})", style={
             "color": COLORS["text_secondary"], "fontSize": "10px",
         }),
     ], style={"marginRight": "24px", "fontFamily": mono})

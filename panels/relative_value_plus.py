@@ -138,14 +138,18 @@ def _build_zscore_matrix(lookback):
             for tenor in HEATMAP_TENORS:
                 try:
                     info = vol_zscore(pair, tenor, "ATM", lookback)
-                    z = _sf(info.get("zscore", 0) if isinstance(info, dict) else info)
+                    _zv = info.get("zscore") if isinstance(info, dict) else info
+                    # NaN (blank cell) when unavailable — never a fabricated
+                    # neutral 0 that reads as a real "no signal".
+                    z = np.clip(_sf(_zv), -3, 3) if _zv is not None else np.nan
                 except Exception:
-                    z = 0
-                row.append(np.clip(z, -3, 3))
+                    z = np.nan
+                row.append(z)
             z_matrix.append(row)
 
-        z = np.array(z_matrix)
-        text = [[f"{z[i][j]:+.1f}" for j in range(len(HEATMAP_TENORS))]
+        z = np.array(z_matrix, dtype=float)
+        text = [["" if not np.isfinite(z[i][j]) else f"{z[i][j]:+.1f}"
+                 for j in range(len(HEATMAP_TENORS))]
                 for i in range(len(ALL_PAIRS))]
 
         fig = go.Figure(go.Heatmap(
@@ -884,8 +888,21 @@ def _build_rate_table():
             r = get_fx_rates(pair) or {}
         except Exception:
             r = {}
-        dom = _sf(r.get("r_dom", 0)) * 100  # convert decimal to percent
-        fgn = _sf(r.get("r_for", 0)) * 100
+        r_dom = r.get("r_dom") if isinstance(r, dict) else None
+        r_for = r.get("r_for") if isinstance(r, dict) else None
+        # No real rate -> show "—", never a fabricated 0.00% that reads as a
+        # genuine zero policy rate.
+        if r_dom is None or r_for is None:
+            body.append(html.Tr([
+                html.Td(pair, style={**TABLE_CELL_STYLE, "fontWeight": "700"}),
+                html.Td("—", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                html.Td("—", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                html.Td("—", style={**TABLE_CELL_STYLE, "textAlign": "right"}),
+                html.Td("—", style={**TABLE_CELL_STYLE, "color": COLORS["text_secondary"]}),
+            ]))
+            continue
+        dom = _sf(r_dom) * 100  # convert decimal to percent
+        fgn = _sf(r_for) * 100
         diff = dom - fgn
         carry = "RECEIVE" if diff > 0.5 else "PAY" if diff < -0.5 else "FLAT"
         carry_color = COLORS["accent_green"] if carry == "RECEIVE" else COLORS["accent_red"] if carry == "PAY" else COLORS["text_secondary"]
@@ -1039,9 +1056,15 @@ def _build_cb_chart():
     except Exception:
         pass  # Bloomberg rate fetch failed
 
-    banks = list(_CB_BANKS.keys())
-    rates = [_CB_BANKS[b]["rate"] or 0.0 for b in banks]
-    dirs = [_CB_BANKS[b]["direction"] for b in banks]
+    # Only chart banks with a REAL policy rate from Bloomberg — never show a
+    # central bank sitting at 0.00% merely because its rate fetch failed.
+    have = [(b, _CB_BANKS[b]["rate"], _CB_BANKS[b]["direction"])
+            for b in _CB_BANKS if _CB_BANKS[b]["rate"] is not None]
+    if not have:
+        return no_data_fig(height=CHART_SM, msg="NO CENTRAL BANK RATE DATA")
+    banks = [h[0] for h in have]
+    rates = [h[1] for h in have]
+    dirs = [h[2] for h in have]
     colors = ["#ff3333" if d == "HIKING" else "#00cc66" if d == "CUTTING" else "#ff8800" for d in dirs]
 
     fig = go.Figure(go.Bar(y=banks, x=rates, orientation="h",

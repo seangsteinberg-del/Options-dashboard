@@ -91,9 +91,18 @@ def _pairs_for(group):
     return ALL_PAIRS
 
 
-def _empty_fig(msg="NO DATA", height=300):
-    """Empty figure with message — wraps no_data_fig to accept msg first."""
-    return no_data_fig(height=height, msg=msg)
+def _empty_fig(title="NO DATA", height=300, msg=None):
+    """Empty figure with a message.
+
+    Accepts both calling styles used across this panel:
+      _empty_fig("VOL RICHNESS")                 -> title shown as the message
+      _empty_fig("EURUSD ATM", msg="detail...")  -> msg shown (title is context)
+      _empty_fig(msg="detail...")                -> msg shown
+    The first positional must NOT collide with the msg keyword (the previous
+    signature named it `msg`, which raised 'multiple values for msg' whenever a
+    no-data/except branch passed both a positional title and msg=...).
+    """
+    return no_data_fig(height=height, msg=(msg if msg is not None else title))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -156,19 +165,24 @@ def _build_scanner_rows(pairs, lookback):
             rr25 = _extract_rr(surf, "3M")
             bf25 = _extract_bf(surf, "3M")
 
-            # Percentiles & z-scores
+            # Percentiles & z-scores.  None when the analytic genuinely can't be
+            # computed (insufficient history / error) — never a neutral 50/0,
+            # which would read as a real median signal and could crown a no-data
+            # pair as "cheapest/richest vol".
             try:
                 p_info = vol_percentile(pair, "3M", "ATM", lookback)
-                atm3m_pct = _sf(p_info.get("percentile", 50) if isinstance(p_info, dict) else 50)
+                _p = p_info.get("percentile") if isinstance(p_info, dict) else p_info
+                atm3m_pct = _sf(_p) if _p is not None else None
             except Exception as exc:
                 logger.warning("ATM percentile failed for %s: %s", pair, exc)
-                atm3m_pct = 50
+                atm3m_pct = None
             try:
                 z_info = vol_zscore(pair, "3M", "ATM", lookback)
-                z_atm3m = _sf(z_info.get("zscore", 0) if isinstance(z_info, dict) else z_info)
+                _z = z_info.get("zscore") if isinstance(z_info, dict) else z_info
+                z_atm3m = _sf(_z) if _z is not None else None
             except Exception as exc:
                 logger.warning("Vol z-score failed for %s: %s", pair, exc)
-                z_atm3m = 0
+                z_atm3m = None
 
             # IV-RV
             try:
@@ -181,13 +195,14 @@ def _build_scanner_rows(pairs, lookback):
                 logger.warning("IV-RV spread failed for %s: %s", pair, exc)
                 ivrv_3m = 0
 
-            # RR percentile
+            # RR percentile (None when unavailable — never a neutral 50)
             try:
                 rr_info = vol_percentile(pair, "3M", "25D_RR", lookback)
-                rr3m_pct = _sf(rr_info.get("percentile", 50) if isinstance(rr_info, dict) else 50)
+                _rrp = rr_info.get("percentile") if isinstance(rr_info, dict) else rr_info
+                rr3m_pct = _sf(_rrp) if _rrp is not None else None
             except Exception as exc:
                 logger.warning("RR percentile failed for %s: %s", pair, exc)
-                rr3m_pct = 50
+                rr3m_pct = None
 
             term_spread = atm_1m - atm_1y if (atm_1m > 0 and atm_1y > 0) else 0
             # Normalize term spread to approximate z-score (typical std ~2 vol pts)
@@ -217,46 +232,68 @@ def _build_scanner_rows(pairs, lookback):
                 "atm_1y": round(atm_1y, 2),
                 "rr25_3m": round(rr25, 2), "bf25_3m": round(bf25, 2),
                 "ivrv_3m": round(ivrv_3m, 2),
-                "atm3m_pct": round(atm3m_pct, 0),
-                "rr3m_pct": round(rr3m_pct, 0),
-                "z_atm3m": round(z_atm3m, 2),
+                "atm3m_pct": round(atm3m_pct, 0) if atm3m_pct is not None else None,
+                "rr3m_pct": round(rr3m_pct, 0) if rr3m_pct is not None else None,
+                "z_atm3m": round(z_atm3m, 2) if z_atm3m is not None else None,
                 "term_spread": round(term_spread, 2),
                 "composite": round(composite_score, 1),
                 "signal": signal,
             })
         except Exception as exc:
             logger.warning("Scanner row failed for %s: %s", pair, exc)
+            # Whole-pair failure: analytics are genuinely unavailable, so mark
+            # them None (renders as a blank "no data" cell) rather than 50/0,
+            # which would look like a real neutral reading.
             rows.append({
-                "pair": pair, "group": "—", "spot": 0, "chg_pct": 0,
-                "atm_1m": 0, "atm_3m": 0, "atm_1y": 0,
-                "rr25_3m": 0, "bf25_3m": 0, "ivrv_3m": 0,
-                "atm3m_pct": 50, "rr3m_pct": 50, "z_atm3m": 0,
-                "term_spread": 0, "composite": 0, "signal": "—",
+                "pair": pair, "group": "—", "spot": None, "chg_pct": None,
+                "atm_1m": None, "atm_3m": None, "atm_1y": None,
+                "rr25_3m": None, "bf25_3m": None, "ivrv_3m": None,
+                "atm3m_pct": None, "rr3m_pct": None, "z_atm3m": None,
+                "term_spread": None, "composite": None, "signal": "—",
             })
     return rows
 
 
 def _build_top_movers(rows):
-    """6 top mover stat boxes."""
+    """6 top mover stat boxes.
+
+    Rankings are computed ONLY over pairs whose underlying metric is real: a pair
+    whose percentile/skew/IV-RV could not be computed is excluded from that
+    ranking (never crowned an extreme on missing data), and the box shows "—"
+    when nothing qualifies.
+    """
     if not rows:
         return []
-    cheapest = min(rows, key=lambda r: r.get("atm3m_pct", 50))
-    richest = max(rows, key=lambda r: r.get("atm3m_pct", 50))
-    biggest_skew = max(rows, key=lambda r: abs(r.get("rr25_3m", 0)))
-    biggest_ivrv = max(rows, key=lambda r: abs(r.get("ivrv_3m", 0)))
-    strongest = max(rows, key=lambda r: abs(r.get("composite", 0)))
-    strength_val = strongest.get("composite", 0)
-    strength_color = COLORS["accent_red"] if strength_val > 0 else COLORS["accent_green"] if strength_val < 0 else COLORS["text_secondary"]
-    n_inverted = sum(1 for r in rows if r.get("atm_1m", 0) > 0 and r.get("atm_1y", 0) > 0
-                     and r.get("atm_1m", 0) > r.get("atm_1y", 0))
+
+    def _valid(key):
+        return [r for r in rows if r.get(key) is not None]
+
+    pct_rows = _valid("atm3m_pct")
+    cheapest = min(pct_rows, key=lambda r: r["atm3m_pct"]) if pct_rows else None
+    richest = max(pct_rows, key=lambda r: r["atm3m_pct"]) if pct_rows else None
+    skew_rows = _valid("rr25_3m")
+    biggest_skew = max(skew_rows, key=lambda r: abs(r["rr25_3m"])) if skew_rows else None
+    ivrv_rows = _valid("ivrv_3m")
+    biggest_ivrv = max(ivrv_rows, key=lambda r: abs(r["ivrv_3m"])) if ivrv_rows else None
+    comp_rows = _valid("composite")
+    strongest = max(comp_rows, key=lambda r: abs(r["composite"])) if comp_rows else None
+    strength_val = strongest["composite"] if strongest else 0
+    strength_color = (COLORS["accent_red"] if strength_val > 0
+                      else COLORS["accent_green"] if strength_val < 0
+                      else COLORS["text_secondary"])
+    n_have_term = sum(1 for r in rows
+                      if (r.get("atm_1m") or 0) > 0 and (r.get("atm_1y") or 0) > 0)
+    n_inverted = sum(1 for r in rows
+                     if (r.get("atm_1m") or 0) > 0 and (r.get("atm_1y") or 0) > 0
+                     and (r.get("atm_1m") or 0) > (r.get("atm_1y") or 0))
 
     items = [
-        ("CHEAPEST VOL", f"{cheapest['pair']} {cheapest['atm3m_pct']:.0f}%ile", "#1565c0"),
-        ("RICHEST VOL", f"{richest['pair']} {richest['atm3m_pct']:.0f}%ile", COLORS["accent_red"]),
-        ("BIGGEST SKEW", f"{biggest_skew['pair']} {biggest_skew['rr25_3m']:+.1f}v", COLORS["accent_orange"]),
-        ("IV-RV GAP", f"{biggest_ivrv['pair']} {biggest_ivrv['ivrv_3m']:+.1f}v", COLORS["accent_orange"]),
-        ("STRONGEST", f"{strongest['pair']} {strength_val:+.0f}", strength_color),
-        ("TERM INVERSION", f"{n_inverted}/{len(rows)}", COLORS["accent_red"] if n_inverted > 0 else COLORS["text_secondary"]),
+        ("CHEAPEST VOL", f"{cheapest['pair']} {cheapest['atm3m_pct']:.0f}%ile" if cheapest else "—", "#1565c0"),
+        ("RICHEST VOL", f"{richest['pair']} {richest['atm3m_pct']:.0f}%ile" if richest else "—", COLORS["accent_red"]),
+        ("BIGGEST SKEW", f"{biggest_skew['pair']} {biggest_skew['rr25_3m']:+.1f}v" if biggest_skew else "—", COLORS["accent_orange"]),
+        ("IV-RV GAP", f"{biggest_ivrv['pair']} {biggest_ivrv['ivrv_3m']:+.1f}v" if biggest_ivrv else "—", COLORS["accent_orange"]),
+        ("STRONGEST", f"{strongest['pair']} {strength_val:+.0f}" if strongest else "—", strength_color),
+        ("TERM INVERSION", f"{n_inverted}/{n_have_term}" if n_have_term else "—", COLORS["accent_red"] if n_inverted > 0 else COLORS["text_secondary"]),
     ]
     boxes = []
     for label, value, color in items:
@@ -449,7 +486,7 @@ def _build_atm_history(pair, tenor, lookback):
         return fig
     except Exception as exc:
         logger.warning("ATM history chart failed for %s %s: %s", pair, tenor, exc)
-        return _empty_fig(f"{pair} ATM {tenor}", msg=f"ATM history failed: {exc}")
+        return _empty_fig(msg=f"{pair} ATM {tenor} — NO DATA")
 
 
 def _build_ivrv_chart(pair, tenor, lookback):

@@ -960,7 +960,7 @@ def get_fx_realized_vol(pair: str, window: int = 20,
     Computed as annualized stdev of log returns over rolling window.
     """
     hist = get_fx_historical_spot(pair, days + window)
-    if hist.empty or len(hist) < window + 1:
+    if hist is None or hist.empty or len(hist) < window + 1:
         return pd.Series(dtype=float)
     log_ret = np.log(hist["close"] / hist["close"].shift(1)).dropna()
     rv = log_ret.rolling(window).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100.0
@@ -973,7 +973,7 @@ def get_fx_correlation(pair_a: str, pair_b: str, window: int = 60,
     """Rolling correlation between two FX pairs."""
     ha = get_fx_historical_spot(pair_a, days + window)
     hb = get_fx_historical_spot(pair_b, days + window)
-    if ha.empty or hb.empty:
+    if ha is None or hb is None or ha.empty or hb.empty:
         return pd.Series(dtype=float)
     # Use positional alignment (not index) to avoid DatetimeIndex mismatch
     ca = ha["close"].values
@@ -1147,7 +1147,7 @@ def get_fx_correlation_matrix(pairs: List[str] = None,
     returns = {}
     for pair in pairs:
         hist = get_fx_historical_spot(pair, days)
-        if not hist.empty and "close" in hist.columns and len(hist) > 10:
+        if hist is not None and not hist.empty and "close" in hist.columns and len(hist) > 10:
             returns[pair] = np.log(hist["close"] / hist["close"].shift(1)).dropna()
     if len(returns) >= 2:
         ret_df = pd.DataFrame(returns)

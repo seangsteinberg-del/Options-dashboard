@@ -753,23 +753,37 @@ def _stress_portfolio_with_scenario(positions, spots, rates, vol_surfaces, scena
     total_base = 0.0
     total_stressed = 0.0
 
+    unpriceable = []
     for pos in positions:
         pair = pos.get("pair", "EURUSD")
-        spot = spots.get(pair, 1.0)
-        rate_info = rates.get(pair, {"r_d": 0.03, "r_f": 0.02})
+
+        # Require REAL spot, rates and vol — never stress a position off a
+        # fabricated 1.0 spot / 3%-2% rates / 10% vol.  Positions whose real
+        # market data is missing are excluded and reported (not silently stressed
+        # against a placeholder that would understate or invent risk).
+        spot = spots.get(pair)
+        if not isinstance(spot, (int, float)) or spot <= 0:
+            unpriceable.append({"position_id": pos.get("id", ""), "pair": pair, "reason": "no spot"})
+            continue
+        rate_info = rates.get(pair)
         if isinstance(rate_info, dict):
-            r_d = rate_info.get("r_d", 0.03)
-            r_f = rate_info.get("r_f", 0.02)
+            r_d = rate_info.get("r_d", rate_info.get("r_dom"))
+            r_f = rate_info.get("r_f", rate_info.get("r_for"))
         elif isinstance(rate_info, (tuple, list)) and len(rate_info) >= 2:
             r_d, r_f = rate_info[0], rate_info[1]
         else:
-            r_d, r_f = 0.03, 0.02
-
-        vol_entry = vol_surfaces.get(pair, 0.10)
+            r_d = r_f = None
+        if r_d is None or r_f is None:
+            unpriceable.append({"position_id": pos.get("id", ""), "pair": pair, "reason": "no rates"})
+            continue
+        vol_entry = vol_surfaces.get(pair)
         if callable(vol_entry):
             vol = vol_entry(pos["strike"], pos["expiry"])
-        else:
+        elif isinstance(vol_entry, (int, float)) and vol_entry > 0:
             vol = vol_entry
+        else:
+            unpriceable.append({"position_id": pos.get("id", ""), "pair": pair, "reason": "no vol"})
+            continue
 
         K = pos["strike"]
         _exp = pos["expiry"]
@@ -861,6 +875,9 @@ def _stress_portfolio_with_scenario(positions, spots, rates, vol_surfaces, scena
         "worst_positions": worst_positions[:10],
         "limit_breaches": limit_breaches,
         "n_positions": len(positions),
+        "n_stressed": len(by_position),
+        "unpriceable": unpriceable,
+        "n_unpriceable": len(unpriceable),
         "n_losers": sum(1 for p in by_position if p["pnl_impact"] < 0),
         "n_winners": sum(1 for p in by_position if p["pnl_impact"] > 0),
     }
@@ -892,23 +909,36 @@ def stress_portfolio(positions, spots, rates, vol_surfaces, scenario_name) -> di
     total_base = 0.0
     total_stressed = 0.0
 
+    unpriceable = []
     for pos in positions:
         pair = pos.get("pair", "EURUSD")
-        spot = spots.get(pair, 1.0)
-        rate_info = rates.get(pair, {"r_d": 0.03, "r_f": 0.02})
+
+        # Require REAL spot, rates and vol — never stress a position off a
+        # fabricated 1.0 spot / 3%-2% rates / 10% vol.  Missing-data positions
+        # are excluded and reported.
+        spot = spots.get(pair)
+        if not isinstance(spot, (int, float)) or spot <= 0:
+            unpriceable.append({"position_id": pos.get("id", ""), "pair": pair, "reason": "no spot"})
+            continue
+        rate_info = rates.get(pair)
         if isinstance(rate_info, dict):
-            r_d = rate_info.get("r_d", 0.03)
-            r_f = rate_info.get("r_f", 0.02)
+            r_d = rate_info.get("r_d", rate_info.get("r_dom"))
+            r_f = rate_info.get("r_f", rate_info.get("r_for"))
         elif isinstance(rate_info, (tuple, list)) and len(rate_info) >= 2:
             r_d, r_f = rate_info[0], rate_info[1]
         else:
-            r_d, r_f = 0.03, 0.02
-
-        vol_entry = vol_surfaces.get(pair, 0.10)
+            r_d = r_f = None
+        if r_d is None or r_f is None:
+            unpriceable.append({"position_id": pos.get("id", ""), "pair": pair, "reason": "no rates"})
+            continue
+        vol_entry = vol_surfaces.get(pair)
         if callable(vol_entry):
             vol = vol_entry(pos["strike"], pos["expiry"])
-        else:
+        elif isinstance(vol_entry, (int, float)) and vol_entry > 0:
             vol = vol_entry
+        else:
+            unpriceable.append({"position_id": pos.get("id", ""), "pair": pair, "reason": "no vol"})
+            continue
 
         result = stress_single_position(pos, spot, r_d, r_f, vol, scenario_name)
         by_position.append(result)
@@ -956,6 +986,9 @@ def stress_portfolio(positions, spots, rates, vol_surfaces, scenario_name) -> di
         "worst_positions": worst_positions[:10],
         "limit_breaches": limit_breaches,
         "n_positions": len(positions),
+        "n_stressed": len(by_position),
+        "unpriceable": unpriceable,
+        "n_unpriceable": len(unpriceable),
         "n_losers": sum(1 for p in by_position if p["pnl_impact"] < 0),
         "n_winners": sum(1 for p in by_position if p["pnl_impact"] > 0),
     }

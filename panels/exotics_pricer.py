@@ -27,6 +27,10 @@ from core.theme import (
 from core.config import TENORS_LIQUID
 from core.csv_export import export_csv
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs, get_fx_correlation
+from core.market_data import (
+    get_spot, get_rates, get_atm_vol, atm_vol_from_surface,
+    MarketDataUnavailable, NA,
+)
 from core.fx_exotics import (
     barrier_price, double_barrier_price, digital_price, digital_greeks,
     one_touch_price, no_touch_price, double_no_touch_price, range_accrual_price,
@@ -379,33 +383,27 @@ def _empty_fig(msg="NO DATA", height=300):
 
 
 def _get_mkt(pair, tenor):
-    """Fetch spot, rates, ATM vol for a pair/tenor."""
-    spots = get_fx_spots([pair]) or {}
-    spot_data = spots.get(pair, {})
-    if isinstance(spot_data, dict):
-        spot = spot_data.get("mid", 1.0)
-    else:
-        spot = float(spot_data) if spot_data else 1.0
-    rates = get_fx_rates(pair) or {}
-    r_d = rates.get("r_dom", 0.04) if isinstance(rates, dict) else 0.04
-    r_f = rates.get("r_for", 0.02) if isinstance(rates, dict) else 0.02
-    vol_surf = get_fx_vol_surface(pair) or {}
+    """Fetch REAL spot, rates, ATM vol for a pair/tenor.
+
+    Returns ``(spot, r_dom, r_for, atm_vol, T)`` using only live Bloomberg
+    values, or raises :class:`MarketDataUnavailable` if any required input
+    is missing.  No fabricated defaults (no spot=1.0, no 8% vol, no 4%/2%
+    rates) are ever returned.
+    """
     T = tenor_to_years(tenor)
-    atm_vol_raw = 8.0
-    if isinstance(vol_surf, dict):
-        if tenor in vol_surf and isinstance(vol_surf[tenor], dict):
-            atm_vol_raw = vol_surf[tenor].get("atm", 8.0)
-        else:
-            # Pick nearest available tenor from dict-valued entries
-            available = [k for k in vol_surf.keys() if isinstance(vol_surf[k], dict)]
-            if available:
-                nearest = min(available, key=lambda t: abs(tenor_to_years(t) - T))
-                atm_vol_raw = vol_surf[nearest].get("atm", 8.0)
-    elif isinstance(vol_surf, (int, float)):
-        atm_vol_raw = float(vol_surf)
-    # Convert vol-points (e.g. 8.5) to decimal (0.085) for GK pricing
-    atm_vol = atm_vol_raw / 100.0 if atm_vol_raw > 1.0 else atm_vol_raw
-    atm_vol = max(atm_vol, 0.001)  # guard against zero/negative vol
+    spot = get_spot(pair)
+    if spot is None:
+        raise MarketDataUnavailable("spot", pair)
+    rates = get_rates(pair)
+    if rates is None:
+        raise MarketDataUnavailable("rates", pair)
+    r_d, r_f = rates
+    # Prefer the requested tenor; fall back to nearest real quote on the surface.
+    atm_vol = get_atm_vol(pair, tenor)
+    if atm_vol is None:
+        atm_vol = atm_vol_from_surface(get_fx_vol_surface(pair), tenor)
+    if atm_vol is None:
+        raise MarketDataUnavailable("vol", pair, tenor)
     return spot, r_d, r_f, atm_vol, T
 
 
@@ -414,6 +412,29 @@ def _safe_float(val, default=0.0):
         return float(val) if val is not None else default
     except (TypeError, ValueError):
         return default
+
+
+def _real_correlation(pair, pair2):
+    """Return the realized correlation between two pairs, or ``None``.
+
+    Reads only from Bloomberg-backed ``get_fx_correlation``.  Returns ``None``
+    (never an assumed value such as 0.5) when no real correlation is
+    available, so two-asset pricing can be marked unavailable rather than
+    fabricated.
+    """
+    try:
+        corr_series = get_fx_correlation(pair, pair2, window=120, days=252)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("correlation fetch failed for %s/%s: %s", pair, pair2, exc)
+        return None
+    if corr_series is None or not hasattr(corr_series, "__len__") or len(corr_series) == 0:
+        return None
+    try:
+        val = corr_series.iloc[-1] if hasattr(corr_series, "iloc") else corr_series[-1]
+        val = float(val)
+    except (TypeError, ValueError, IndexError):
+        return None
+    return val if np.isfinite(val) else None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -469,7 +490,14 @@ def register_callbacks(app):
     def update_market_data(pair, tenor):
         pair = pair or "EURUSD"
         tenor = tenor or "3M"
-        spot, r_d, r_f, vol, T = _get_mkt(pair, tenor)
+        try:
+            spot, r_d, r_f, vol, T = _get_mkt(pair, tenor)
+        except MarketDataUnavailable as exc:
+            T = tenor_to_years(tenor)
+            display = (f"MARKET DATA UNAVAILABLE — {exc}  "
+                       f"(Spot: {NA}  |  r_d: {NA}  |  r_f: {NA}  |  "
+                       f"ATM Vol: {NA}  |  T: {T:.4f}y)")
+            return display, None, None, None, None
         display = (f"Spot: {spot:.5f}  |  "
                    f"r_d: {r_d*100:.2f}%  |  r_f: {r_f*100:.2f}%  |  "
                    f"ATM Vol: {vol*100:.2f}%  |  T: {T:.4f}y")
@@ -544,10 +572,28 @@ def register_callbacks(app):
         tenor = tenor or "3M"
         notional = _safe_float(notional, 1_000_000)
         cp = int(cp) if cp is not None else 1
-        S = _safe_float(spot, 1.0)
-        rd = _safe_float(r_d, 0.05)
-        rf = _safe_float(r_f, 0.03)
-        sigma = max(_safe_float(vol, 0.10), 1e-6)
+
+        # ── Refuse to price off fabricated market data ────────────────
+        # spot/rate/vol arrive from the stored values fetched by
+        # update_market_data; if any is missing, render NO DATA rather
+        # than computing off a placeholder.
+        if spot is None or r_d is None or r_f is None or vol is None:
+            empty = _empty_fig
+            msg = html.Div(
+                f"MARKET DATA UNAVAILABLE for {pair} {tenor} — "
+                f"price requires live Bloomberg spot, rates and ATM vol.",
+                style={"color": COLORS["accent_red"]})
+            na = html.Div(NA, style={"color": COLORS["text_muted"]})
+            return (
+                msg, na, na, na,
+                empty("MARKET DATA UNAVAILABLE"), empty("MARKET DATA UNAVAILABLE"),
+                empty("MARKET DATA UNAVAILABLE"), empty("MARKET DATA UNAVAILABLE"),
+            )
+
+        S = _safe_float(spot)
+        rd = _safe_float(r_d)
+        rf = _safe_float(r_f)
+        sigma = max(_safe_float(vol), 1e-6)
         T = tenor_to_years(tenor)
         K = _safe_float(strike, S)
         B = _safe_float(barrier_level, S * (0.95 if "down" in str(barrier_type) else 1.05))
@@ -743,35 +789,28 @@ def register_callbacks(app):
                 extra_levels = {"strike": K_equiv}
 
             elif product == "best_of":
-                spot2_data = get_fx_spots([pair2]) or {}
-                S2 = spot2_data.get(pair2, {}).get("mid", 1.0)
-                rates2 = get_fx_rates(pair2) or {}
-                rd2 = rates2.get("r_dom", 0.04)
-                rf2 = rates2.get("r_for", 0.02)
-                vol_surf2 = get_fx_vol_surface(pair2) or {}
-                sigma2_raw = 8.0
-                if isinstance(vol_surf2, dict):
-                    if tenor in vol_surf2 and isinstance(vol_surf2[tenor], dict):
-                        sigma2_raw = vol_surf2[tenor].get("atm", 8.0)
-                    else:
-                        avail2 = [k for k in vol_surf2.keys() if isinstance(vol_surf2[k], dict)]
-                        if avail2:
-                            near2 = min(avail2, key=lambda t: abs(tenor_to_years(t) - T))
-                            sigma2_raw = vol_surf2[near2].get("atm", 8.0)
-                elif isinstance(vol_surf2, (int, float)):
-                    sigma2_raw = float(vol_surf2)
-                # Convert vol-points (e.g. 8.5) to decimal (0.085) for GK pricing
-                sigma2 = sigma2_raw / 100.0 if sigma2_raw > 1.0 else sigma2_raw
-                # Look up realized correlation from bloomberg_fx data
-                try:
-                    corr_series = get_fx_correlation(pair, pair2, window=120, days=252)
-                    if corr_series is not None and hasattr(corr_series, '__len__') and len(corr_series) > 0:
-                        val = corr_series.iloc[-1] if hasattr(corr_series, 'iloc') else corr_series[-1]
-                        rho = float(val) if np.isfinite(val) else 0.5
-                    else:
-                        rho = 0.5
-                except Exception:
-                    rho = 0.5
+                # Second-asset inputs must be REAL Bloomberg data; a two-asset
+                # rainbow cannot be priced off assumed spot/rates/vol — and
+                # especially not off an assumed correlation.  Any missing input
+                # raises MarketDataUnavailable, surfaced as NO DATA below.
+                S2 = get_spot(pair2)
+                if S2 is None:
+                    raise MarketDataUnavailable("spot", pair2)
+                rates2 = get_rates(pair2)
+                if rates2 is None:
+                    raise MarketDataUnavailable("rates", pair2)
+                rd2, rf2 = rates2
+                sigma2 = get_atm_vol(pair2, tenor)
+                if sigma2 is None:
+                    sigma2 = atm_vol_from_surface(get_fx_vol_surface(pair2), tenor)
+                if sigma2 is None:
+                    raise MarketDataUnavailable("vol", pair2, tenor)
+                # Realized correlation from Bloomberg — NEVER assumed.
+                rho = _real_correlation(pair, pair2)
+                if rho is None:
+                    raise MarketDataUnavailable(
+                        "correlation", pair, pair2,
+                        detail="rainbow pricing requires real correlation")
                 K_perf = _safe_float(strike, 0.0)
                 result = best_of_price(S, S2, K_perf, T, rd, rd2, rf, sigma, sigma2, rho, cp,
                                        bestof_type, n_paths=20000, seed=42, r_f2=rf2)
@@ -803,6 +842,19 @@ def register_callbacks(app):
             else:
                 price_val = 0.0
                 probs["WARNING"] = f"Unknown product '{product}' -- no pricing model available"
+
+        except MarketDataUnavailable as exc:
+            # A required real market input (e.g. second-pair spot/rates/vol or
+            # the rainbow correlation) is missing — never price off a default.
+            empty = _empty_fig
+            na = html.Div(NA, style={"color": COLORS["text_muted"]})
+            return (
+                html.Div(f"MARKET DATA UNAVAILABLE — {exc}",
+                         style={"color": COLORS["accent_red"]}),
+                na, na, na,
+                empty("MARKET DATA UNAVAILABLE"), empty("MARKET DATA UNAVAILABLE"),
+                empty("MARKET DATA UNAVAILABLE"), empty("MARKET DATA UNAVAILABLE"),
+            )
 
         except Exception as exc:
             err_msg = f"Pricing error: {exc}"
@@ -1121,7 +1173,7 @@ def _build_mc_chart(product, S, T, rd, rf, sigma, levels):
                           annotation_font=dict(color=c, size=10))
 
     fig.update_layout(
-        title=dict(text="Monte Carlo Paths (20 sample)",
+        title=dict(text="Monte Carlo Paths (20 illustrative simulated paths, fixed seed)",
                    font=dict(color=COLORS["text_primary"], size=14)),
         xaxis_title="Time (years)", yaxis_title="Spot",
         paper_bgcolor=TPL["paper_bgcolor"], plot_bgcolor=TPL["plot_bgcolor"],
@@ -1176,28 +1228,18 @@ def _price_at_spot(product, s, T, rd, rf, sigma, cp, K, B,
             T_end = T if T > T_start else T_start + T
             return forward_start_price(s, T_start, T_end, rd, rf, sigma, cp, fwd_money)
         elif product == "best_of":
-            # For spot sensitivity, vary S1 (primary pair) while keeping S2 fixed
-            spot2_data = get_fx_spots([pair2]) or {}
-            S2 = spot2_data.get(pair2, {}).get("mid", 1.0)
-            rates2 = get_fx_rates(pair2) or {}
-            rd2 = rates2.get("r_dom", 0.04)
-            rf2 = rates2.get("r_for", 0.02)
-            vol_surf2 = get_fx_vol_surface(pair2) or {}
-            sigma2_raw = 8.0
-            if vol_surf2 and tenor in vol_surf2 and isinstance(vol_surf2[tenor], dict):
-                sigma2_raw = vol_surf2[tenor].get("atm", 8.0)
-            elif vol_surf2:
-                avail2 = list(vol_surf2.keys())
-                if avail2:
-                    near2 = min(avail2, key=lambda t: abs(tenor_to_years(t) - T))
-                    td2 = vol_surf2[near2]
-                    sigma2_raw = td2.get("atm", 8.0) if isinstance(td2, dict) else 8.0
-            sigma2 = sigma2_raw / 100.0 if sigma2_raw > 1.0 else sigma2_raw
-            try:
-                corr_series = get_fx_correlation(pair, pair2, window=120, days=252)
-                rho = float(corr_series.iloc[-1]) if corr_series is not None and hasattr(corr_series, '__len__') and len(corr_series) > 0 else 0.5
-            except Exception:
-                rho = 0.5
+            # For spot sensitivity, vary S1 (primary pair) while keeping S2 fixed.
+            # Second-asset inputs and correlation must be REAL; if any is
+            # missing, return NaN (a chart gap) rather than a fabricated price.
+            S2 = get_spot(pair2)
+            rates2 = get_rates(pair2)
+            sigma2 = get_atm_vol(pair2, tenor)
+            if sigma2 is None:
+                sigma2 = atm_vol_from_surface(get_fx_vol_surface(pair2), tenor)
+            rho = _real_correlation(pair, pair2)
+            if S2 is None or rates2 is None or sigma2 is None or rho is None:
+                return float("nan")
+            rd2, rf2 = rates2
             bo_type = bestof_type or "best-of"
             r = best_of_price(s, S2, K, T, rd, rd2, rf, sigma, sigma2, rho, cp,
                               bo_type, n_paths=5000, seed=42, r_f2=rf2)
@@ -1255,28 +1297,18 @@ def _price_at_vol(product, S, T, rd, rf, v, cp, K, B,
             T_end = T if T > T_start else T_start + T
             return forward_start_price(S, T_start, T_end, rd, rf, v, cp, fwd_money)
         elif product == "best_of":
-            # For vol sensitivity, vary sigma1 while keeping sigma2 proportionally scaled
-            spot2_data = get_fx_spots([pair2]) or {}
-            S2 = spot2_data.get(pair2, {}).get("mid", 1.0)
-            rates2 = get_fx_rates(pair2) or {}
-            rd2 = rates2.get("r_dom", 0.04)
-            rf2 = rates2.get("r_for", 0.02)
-            vol_surf2 = get_fx_vol_surface(pair2) or {}
-            sigma2_raw = 8.0
-            if vol_surf2 and tenor in vol_surf2 and isinstance(vol_surf2[tenor], dict):
-                sigma2_raw = vol_surf2[tenor].get("atm", 8.0)
-            elif vol_surf2:
-                avail2 = list(vol_surf2.keys())
-                if avail2:
-                    near2 = min(avail2, key=lambda t: abs(tenor_to_years(t) - T))
-                    td2 = vol_surf2[near2]
-                    sigma2_raw = td2.get("atm", 8.0) if isinstance(td2, dict) else 8.0
-            sigma2 = sigma2_raw / 100.0 if sigma2_raw > 1.0 else sigma2_raw
-            try:
-                corr_series = get_fx_correlation(pair, pair2, window=120, days=252)
-                rho = float(corr_series.iloc[-1]) if corr_series is not None and hasattr(corr_series, '__len__') and len(corr_series) > 0 else 0.5
-            except Exception:
-                rho = 0.5
+            # For vol sensitivity, vary sigma1 while keeping sigma2 fixed.
+            # Second-asset inputs and correlation must be REAL; if any is
+            # missing, return NaN (a chart gap) rather than a fabricated price.
+            S2 = get_spot(pair2)
+            rates2 = get_rates(pair2)
+            sigma2 = get_atm_vol(pair2, tenor)
+            if sigma2 is None:
+                sigma2 = atm_vol_from_surface(get_fx_vol_surface(pair2), tenor)
+            rho = _real_correlation(pair, pair2)
+            if S2 is None or rates2 is None or sigma2 is None or rho is None:
+                return float("nan")
+            rd2, rf2 = rates2
             bo_type = bestof_type or "best-of"
             r = best_of_price(S, S2, K, T, rd, rd2, rf, v, sigma2, rho, cp,
                               bo_type, n_paths=5000, seed=42, r_f2=rf2)

@@ -6,7 +6,7 @@ Full FX options trade entry, execution log, flow analytics, and day summary.
 Provides:
   - Delta-based or strike-based trade entry with inline GK pricing
   - Real-time premium and delta auto-computation
-  - Execution log with 20+ pre-populated sample trades
+  - Execution log (starts empty; populated only by executed trades)
   - Flow analytics: notional by pair, cumulative premium, activity timeline
   - Day summary statistics: trades, notional, net delta/vega, premium
 """
@@ -36,6 +36,7 @@ from core.fx_conventions import (
     delta_to_strike, atm_dns_strike,
 )
 from core.config import TENORS_TRADING
+from core.market_data import get_spot, get_rates, get_atm_vol, MarketDataUnavailable, NA
 
 
 # ============================================================================
@@ -167,18 +168,25 @@ def _build_exec_log_table(trades):
 
 
 def _get_market_params(pair, tenor):
-    """Fetch spot, rates, and ATM vol for a pair/tenor combination."""
-    try:
-        spots = get_fx_spots([pair]) or {}
-        S = spots.get(pair, {}).get("mid", 1.0)
-        rates = get_fx_rates(pair) or {}
-        r_d = rates.get("r_dom", 0.04)
-        r_f = rates.get("r_for", 0.03)
-        vol_surf = get_fx_vol_surface(pair) or {}
-        atm_vol_raw = vol_surf.get(tenor, {}).get("atm", 8.0)
-        atm_vol = atm_vol_raw / 100.0 if atm_vol_raw > 1.0 else atm_vol_raw
-    except Exception:
-        S, r_d, r_f, atm_vol = 1.0, 0.04, 0.03, 0.08
+    """Fetch real spot, rates, and ATM vol for a pair/tenor combination.
+
+    Returns ``(S, T, r_d, r_f, atm_vol)`` using only live Bloomberg values.
+    Raises :class:`MarketDataUnavailable` if spot, either rate, or the ATM
+    vol is missing — this panel prices trades the user is about to execute,
+    so a fabricated default level here is unacceptable. Callers must catch
+    the exception and show a NO-DATA / "cannot price" message rather than a
+    premium computed from placeholder market levels.
+    """
+    S = get_spot(pair)
+    if S is None:
+        raise MarketDataUnavailable("spot", pair)
+    rates = get_rates(pair)
+    if rates is None:
+        raise MarketDataUnavailable("rates", pair)
+    r_d, r_f = rates
+    atm_vol = get_atm_vol(pair, tenor)
+    if atm_vol is None:
+        raise MarketDataUnavailable("vol", pair, tenor)
     T = tenor_to_years(tenor)
     return S, T, r_d, r_f, atm_vol
 
@@ -490,12 +498,15 @@ def register_callbacks(app):
         notional = notional or 10_000_000
         cp = 1 if cp_str == "call" else -1
 
-        S, T, r_d, r_f, atm_vol = _get_market_params(pair, tenor)
-        sigma = atm_vol if atm_vol > 0 else 0.10
-
         strike_text = ""
         delta_text = ""
         premium_text = "--"
+
+        try:
+            S, T, r_d, r_f, atm_vol = _get_market_params(pair, tenor)
+            sigma = atm_vol
+        except MarketDataUnavailable:
+            return NA, NA, "MARKET DATA UNAVAILABLE — cannot price"
 
         try:
             if entry_mode == "delta":
@@ -581,10 +592,10 @@ def register_callbacks(app):
             notional = notional or 10_000_000
             cp = 1 if cp_str == "call" else -1
 
-            S, T, r_d, r_f, atm_vol = _get_market_params(pair, tenor)
-            sigma = atm_vol if atm_vol > 0 else 0.10
-
             try:
+                S, T, r_d, r_f, atm_vol = _get_market_params(pair, tenor)
+                sigma = atm_vol
+
                 if entry_mode == "delta":
                     d = float(delta_in or 0.25)
                     d = max(0.05, min(0.95, d))
@@ -662,6 +673,9 @@ def register_callbacks(app):
                 trade_executed = True
                 exec_msg = f"FILLED  {pair} {tenor} {K:.5g} {side.upper()}"
                 exec_style = {**exec_style, "color": COLORS["accent_green"]}
+            except MarketDataUnavailable:
+                exec_msg = "REJECTED  MARKET DATA UNAVAILABLE — cannot price/execute"
+                exec_style = {**exec_style, "color": COLORS["accent_red"]}
             except Exception as exc:
                 exec_msg = f"REJECTED  {str(exc)[:120]}"
                 exec_style = {**exec_style, "color": COLORS["accent_red"]}
@@ -1000,21 +1014,22 @@ def register_callbacks(app):
         if not legs:
             raise PreventUpdate
 
-        # Fetch fresh market data
-        S, T_base, r_d, r_f, atm_vol = _get_market_params(pair, pending_data.get("tenor", "3M"))
+        # Fetch fresh market data (real values only; refuse to fabricate)
+        try:
+            S, T_base, r_d, r_f, atm_vol = _get_market_params(pair, pending_data.get("tenor", "3M"))
+        except MarketDataUnavailable:
+            return no_update, no_update, "MARKET DATA UNAVAILABLE — cannot re-price"
 
         updated_legs = []
         for lg in legs:
             leg_tenor = lg.get("tenor", pending_data.get("tenor", "3M"))
-            S_fresh, T, r_d_l, r_f_l, _ = _get_market_params(pair, leg_tenor)
+            try:
+                S_fresh, T, r_d_l, r_f_l, leg_atm_vol = _get_market_params(pair, leg_tenor)
+            except MarketDataUnavailable:
+                return no_update, no_update, "MARKET DATA UNAVAILABLE — cannot re-price"
 
-            # Look up vol for this leg's strike from vol surface
-            vol_surf = get_fx_vol_surface(pair) or {}
-            tenor_data = vol_surf.get(leg_tenor, {})
-            sigma = tenor_data.get("atm", 8.0)
-            sigma = sigma / 100.0 if sigma > 1.0 else sigma
-            if sigma <= 0:
-                sigma = lg.get("vol", 0.08)
+            # Real ATM vol for this leg's tenor (no default fabrication)
+            sigma = leg_atm_vol
 
             K = lg["strike"]
             cp = 1 if lg["cp"].lower() == "call" else -1

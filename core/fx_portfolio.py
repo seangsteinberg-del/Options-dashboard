@@ -29,6 +29,8 @@ import logging
 import numpy as np
 from scipy.stats import norm
 
+from core.market_data import MarketDataUnavailable
+
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -189,13 +191,17 @@ def _lookup_vol(pair, K, T, S, vol_surfaces):
       - dict mapping pair -> float (flat vol)
       - dict mapping pair -> callable(K, T) -> vol
       - dict mapping pair -> dict with 'surface_interp' (RectBivariateSpline)
-    Falls back to 0.10 if pair not found.
+
+    Raises MarketDataUnavailable when no real vol exists for the pair.  It
+    deliberately does NOT fall back to a "typical" vol — a missing surface
+    must surface as no-data, never as a fabricated number on a trader's screen.
     """
     surf = vol_surfaces.get(pair)
     if surf is None:
-        logger.warning("Vol surface missing for %s, using default 0.10", pair)
-        return 0.10
+        raise MarketDataUnavailable("vol", pair)
     if isinstance(surf, (int, float)):
+        if not (surf > 0):
+            raise MarketDataUnavailable("vol", pair)
         return float(surf)
     if callable(surf):
         return surf(K, T)
@@ -209,7 +215,7 @@ def _lookup_vol(pair, K, T, S, vol_surfaces):
         flat = surf.get("atm", surf.get("ATM"))
         if flat is not None:
             return float(flat)
-    return 0.10
+    raise MarketDataUnavailable("vol", pair)
 
 
 def _get_rate(pair, rates, which="domestic"):
@@ -217,24 +223,30 @@ def _get_rate(pair, rates, which="domestic"):
     Look up interest rate for a pair.
 
     rates can be:
-      - float (same rate for all)
+      - float (same rate for all)  -- an explicit caller-chosen rate, used as-is
       - dict mapping pair -> (r_d, r_f) tuple
       - dict mapping pair -> dict with 'r_d' and 'r_f'
+
+    Raises MarketDataUnavailable when no real rate exists for the pair.  Never
+    substitutes a "typical" 4% — a missing rate must surface as no-data.
     """
     if isinstance(rates, (int, float)):
         return float(rates)
     r = rates.get(pair)
     if r is None:
-        return 0.04
+        raise MarketDataUnavailable("rate", pair)
     if isinstance(r, (list, tuple)):
         if len(r) >= 2:
             return float(r[0]) if which == "domestic" else float(r[1])
         elif len(r) == 1:
             return float(r[0])
         else:
-            return 0.04
+            raise MarketDataUnavailable("rate", pair)
     if isinstance(r, dict):
-        return float(r.get("r_d" if which == "domestic" else "r_f", 0.04))
+        val = r.get("r_d" if which == "domestic" else "r_f")
+        if val is None:
+            raise MarketDataUnavailable("rate", pair)
+        return float(val)
     return float(r)
 
 
@@ -435,13 +447,25 @@ def compute_position_greeks(pos, spot, r_d, r_f, vol_surface) -> Dict:
     accounting for notional and direction (buy/sell).
     """
     pair = pos["pair"]
-    S = spot if isinstance(spot, (int, float)) else spot.get(pair, 1.0)
+    S = spot.get(pair) if isinstance(spot, dict) else spot
+    try:
+        S = float(S)
+    except (TypeError, ValueError):
+        S = None
+    if not S or S <= 0:
+        # No real spot — refuse to price rather than invent S=1.0.
+        raise MarketDataUnavailable("spot", pair)
     K = pos["strike"]
     T = _years_to_expiry(pos["expiry"])
-    try:
-        sigma = _lookup_vol(pair, K, T, S, vol_surface) if isinstance(vol_surface, dict) else float(vol_surface or 0.10)
-    except (TypeError, ValueError):
-        sigma = 0.10
+    if isinstance(vol_surface, dict):
+        sigma = _lookup_vol(pair, K, T, S, vol_surface)   # raises if missing
+    else:
+        try:
+            sigma = float(vol_surface)
+        except (TypeError, ValueError):
+            sigma = None
+        if not sigma or sigma <= 0:
+            raise MarketDataUnavailable("vol", pair)
     cp = 1 if pos["option_type"] == "call" else -1
     sign = 1.0 if pos["direction"] == "buy" else -1.0
     notional = pos["notional"]
@@ -469,28 +493,37 @@ def compute_book_risk(book, spots, rates, vol_surfaces) -> Dict:
     Aggregate Greeks for all open positions in a book.
 
     Returns dict with:
-      - 'totals': aggregated Greeks
+      - 'totals': aggregated Greeks (over PRICEABLE positions only)
       - 'by_pair': dict of per-pair aggregated Greeks
-      - 'positions': list of per-position Greeks
+      - 'positions': list of per-position Greeks (priceable only)
+      - 'unpriceable': [{position_id, pair, reason}] for positions whose real
+        market data is missing.  These are EXCLUDED from the totals rather than
+        silently contributing a fabricated/zero Greek — so the aggregate is
+        always honest and the caller can show how many positions are missing.
     """
     positions = get_positions(book=book, status="open")
     totals = {k: 0.0 for k in ("delta", "gamma", "vega", "theta", "rho_d", "rho_f",
                                  "vanna", "volga", "price")}
     by_pair = {}
     pos_greeks = []
+    unpriceable = []
 
     for pos in positions:
         pair = pos["pair"]
-        S = spots.get(pair, 1.0) if isinstance(spots, dict) else spots
-        r_d = _get_rate(pair, rates, "domestic")
-        r_f = _get_rate(pair, rates, "foreign")
+        S = spots.get(pair) if isinstance(spots, dict) else spots
         try:
+            r_d = _get_rate(pair, rates, "domestic")
+            r_f = _get_rate(pair, rates, "foreign")
             pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
-        except Exception:
-            # Skip positions that fail Greeks computation
-            pg = {k: 0.0 for k in totals}
-            pg["pair"] = pair
-            pg["position_id"] = pos.get("id", "")
+        except MarketDataUnavailable as exc:
+            unpriceable.append({"position_id": pos.get("id", ""),
+                                "pair": pair, "reason": str(exc)})
+            continue
+        except Exception as exc:  # genuine computation error — surface, don't hide in totals
+            logger.exception("Greeks computation failed for %s: %s", pair, exc)
+            unpriceable.append({"position_id": pos.get("id", ""),
+                                "pair": pair, "reason": f"error: {exc}"})
+            continue
         pos_greeks.append(pg)
 
         for k in totals:
@@ -501,7 +534,8 @@ def compute_book_risk(book, spots, rates, vol_surfaces) -> Dict:
         for k in totals:
             by_pair[pair][k] += pg.get(k, 0.0)
 
-    return {"totals": totals, "by_pair": by_pair, "positions": pos_greeks}
+    return {"totals": totals, "by_pair": by_pair, "positions": pos_greeks,
+            "unpriceable": unpriceable}
 
 
 def compute_portfolio_risk(spots, rates, vol_surfaces) -> Dict:
@@ -517,10 +551,12 @@ def compute_portfolio_risk(spots, rates, vol_surfaces) -> Dict:
                                 "vanna", "volga", "price")}
     by_book = {}
     by_pair = {}
+    unpriceable = []
 
     for book in BOOKS:
         br = compute_book_risk(book, spots, rates, vol_surfaces)
         by_book[book] = br["totals"]
+        unpriceable.extend(br.get("unpriceable", []))
         for k in grand:
             grand[k] += br["totals"].get(k, 0.0)
         for pair, pair_risk in br["by_pair"].items():
@@ -529,7 +565,8 @@ def compute_portfolio_risk(spots, rates, vol_surfaces) -> Dict:
             for k in grand:
                 by_pair[pair][k] += pair_risk.get(k, 0.0)
 
-    return {"totals": grand, "by_book": by_book, "by_pair": by_pair}
+    return {"totals": grand, "by_book": by_book, "by_pair": by_pair,
+            "unpriceable": unpriceable}
 
 
 # ============================================================================
@@ -569,13 +606,19 @@ def pnl_attribution(positions, spots_old, spots_new, surfaces_old, surfaces_new,
         sign = 1.0 if pos["direction"] == "buy" else -1.0
         notional = pos["notional"]
 
-        S_old = spots_old.get(pair, 1.0)
-        S_new = spots_new.get(pair, S_old)
-        r_d = _get_rate(pair, rates, "domestic")
-        r_f = _get_rate(pair, rates, "foreign")
-
-        sigma_old = _lookup_vol(pair, K, T, S_old, surfaces_old)
-        sigma_new = _lookup_vol(pair, K, T, S_new, surfaces_new)
+        # Real old/new spot required for both reference points — skip rather than
+        # attribute against a fabricated 1.0 spot.
+        if pair not in spots_old or pair not in spots_new:
+            continue
+        S_old = spots_old.get(pair)
+        S_new = spots_new.get(pair)
+        try:
+            r_d = _get_rate(pair, rates, "domestic")
+            r_f = _get_rate(pair, rates, "foreign")
+            sigma_old = _lookup_vol(pair, K, T, S_old, surfaces_old)
+            sigma_new = _lookup_vol(pair, K, T, S_new, surfaces_new)
+        except MarketDataUnavailable:
+            continue
         dS = S_new - S_old
         d_sigma = sigma_new - sigma_old
 
@@ -617,6 +660,179 @@ def pnl_attribution(positions, spots_old, spots_new, surfaces_old, surfaces_new,
     return attr
 
 
+def _resolve_rates_pair(pair, rates):
+    """Resolve ``(r_d, r_f)`` for a pair from a rates structure, or ``None``.
+
+    Unlike :func:`_get_rate`, this NEVER substitutes a default — a missing
+    rate returns ``None`` so the caller can mark the position unattributable
+    instead of fabricating a rate.
+    """
+    if isinstance(rates, (int, float)):
+        return float(rates), float(rates)
+    if not isinstance(rates, dict):
+        return None
+    r = rates.get(pair)
+    if r is None:
+        return None
+    if isinstance(r, dict):
+        rd = r.get("r_d", r.get("r_dom"))
+        rf = r.get("r_f", r.get("r_for"))
+        if rd is None or rf is None:
+            return None
+        try:
+            return float(rd), float(rf)
+        except (TypeError, ValueError):
+            return None
+    if isinstance(r, (list, tuple)) and len(r) >= 2:
+        try:
+            return float(r[0]), float(r[1])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _resolve_vol_value(node):
+    """Resolve a per-pair vol entry (decimal float or surface dict) to a real
+    decimal vol, or ``None``.  No fabrication — a missing/empty surface gives
+    ``None``, never a 'typical' vol."""
+    from core.market_data import normalize_vol, atm_vol_from_surface
+    if node is None:
+        return None
+    if isinstance(node, (int, float)):
+        return normalize_vol(node)
+    if isinstance(node, dict):
+        return atm_vol_from_surface(node)
+    return None
+
+
+def pnl_attribution_since_entry(positions, spots_now, surfaces_now, rates) -> Dict:
+    """
+    Honest mark-to-market P&L attribution from each position's OWN trade-entry
+    mark to the current live mark.
+
+    This is the real, since-inception decomposition a desk can stand behind:
+    it uses the spot/vol/date recorded when the trade was booked and the live
+    spot/vol now — never a fabricated or random move.
+
+    A position is attributed ONLY when every required real input exists: its
+    recorded ``entry_spot``, ``entry_vol`` and ``entry_date``, plus live spot,
+    live vol and both rates for its pair.  Positions missing any input are
+    returned in ``unattributable`` (each with a reason) and EXCLUDED from the
+    totals — they are never silently attributed against a default.
+
+    Returns the same component keys as :func:`pnl_attribution`, plus:
+      - ``by_position``:     per-position breakdown (attributed only)
+      - ``unattributable``:  [{position_id, pair, reason}, ...]
+      - ``n_attributed`` / ``n_unattributable``: counts for transparency.
+    """
+    from datetime import date as _date, datetime as _dt
+
+    keys = ("delta_pnl", "gamma_pnl", "vega_pnl", "theta_pnl", "rho_pnl",
+            "vanna_pnl", "volga_pnl", "unexplained", "total_pnl")
+    attr = {k: 0.0 for k in keys}
+    by_position = []
+    unattributable = []
+    today = _date.today()
+
+    for pos in positions:
+        if pos.get("status") != "open":
+            continue
+        pid = pos.get("id", "")
+        pair = pos["pair"]
+
+        def _skip(reason):
+            unattributable.append({"position_id": pid, "pair": pair, "reason": reason})
+
+        # --- entry mark (must be real) ---
+        try:
+            S_old = float(pos.get("entry_spot"))
+        except (TypeError, ValueError):
+            S_old = None
+        if not S_old or S_old <= 0:
+            _skip("no entry spot")
+            continue
+        try:
+            sigma_old = float(pos.get("entry_vol"))
+        except (TypeError, ValueError):
+            sigma_old = None
+        if not sigma_old or sigma_old <= 0:
+            _skip("no entry vol")
+            continue
+        sigma_old = sigma_old / 100.0 if sigma_old > 1.0 else sigma_old
+
+        # --- elapsed time since entry ---
+        ed = pos.get("entry_date")
+        try:
+            entry_dt = _dt.fromisoformat(str(ed)).date() if ed else None
+        except ValueError:
+            entry_dt = None
+        if entry_dt is None:
+            _skip("no entry date")
+            continue
+        days_elapsed = max((today - entry_dt).days, 0)
+        dt_years = days_elapsed / 365.0
+
+        # --- live mark (must be real) ---
+        S_new = spots_now.get(pair) if isinstance(spots_now, dict) else spots_now
+        try:
+            S_new = float(S_new)
+        except (TypeError, ValueError):
+            S_new = None
+        if not S_new or S_new <= 0:
+            _skip("no live spot")
+            continue
+        sigma_new = _resolve_vol_value(
+            surfaces_now.get(pair) if isinstance(surfaces_now, dict) else surfaces_now)
+        if sigma_new is None:
+            _skip("no live vol")
+            continue
+        rr = _resolve_rates_pair(pair, rates)
+        if rr is None:
+            _skip("no rates")
+            continue
+        r_d, r_f = rr
+
+        K = pos["strike"]
+        T_now = _years_to_expiry(pos["expiry"])      # remaining time now
+        T_old = T_now + dt_years                      # remaining time at entry
+        cp = 1 if pos["option_type"] == "call" else -1
+        sign = 1.0 if pos["direction"] == "buy" else -1.0
+        sc = pos["notional"] * sign
+
+        dS = S_new - S_old
+        d_sigma = sigma_new - sigma_old
+        greeks = _gk_greeks(S_old, K, T_old, r_d, r_f, sigma_old, cp)
+
+        d_pnl = greeks["delta"] * dS * sc
+        g_pnl = 0.5 * greeks["gamma"] * dS ** 2 * sc
+        v_pnl = greeks["vega"] * d_sigma * 100.0 * sc   # vega is per vol point
+        t_pnl = greeks["theta"] * days_elapsed * sc      # theta/day * days elapsed
+        va_pnl = greeks.get("vanna", 0) * dS * d_sigma * sc
+        volga_pnl = 0.5 * greeks.get("volga", 0) * d_sigma ** 2 * sc
+
+        price_old = _gk_price(S_old, K, T_old, r_d, r_f, sigma_old, cp)
+        price_new = _gk_price(S_new, K, max(T_now, 1e-10), r_d, r_f, sigma_new, cp)
+        actual = (price_new - price_old) * sc
+        explained = d_pnl + g_pnl + v_pnl + t_pnl + va_pnl + volga_pnl
+        unexpl = actual - explained
+
+        entry = {
+            "position_id": pid, "pair": pair,
+            "delta_pnl": d_pnl, "gamma_pnl": g_pnl, "vega_pnl": v_pnl,
+            "theta_pnl": t_pnl, "rho_pnl": 0.0, "vanna_pnl": va_pnl,
+            "volga_pnl": volga_pnl, "unexplained": unexpl, "total_pnl": actual,
+        }
+        by_position.append(entry)
+        for k in keys:
+            attr[k] += entry[k]
+
+    attr["by_position"] = by_position
+    attr["unattributable"] = unattributable
+    attr["n_attributed"] = len(by_position)
+    attr["n_unattributable"] = len(unattributable)
+    return attr
+
+
 # ============================================================================
 # Risk Bucketing
 # ============================================================================
@@ -633,10 +849,13 @@ def vega_by_bucket(positions, spots, rates, vol_surfaces) -> Dict:
         if pos.get("status") != "open":
             continue
         pair = pos["pair"]
-        S = spots.get(pair, 1.0) if isinstance(spots, dict) else spots
-        r_d = _get_rate(pair, rates, "domestic")
-        r_f = _get_rate(pair, rates, "foreign")
-        pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+        S = spots.get(pair) if isinstance(spots, dict) else spots
+        try:
+            r_d = _get_rate(pair, rates, "domestic")
+            r_f = _get_rate(pair, rates, "foreign")
+            pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+        except MarketDataUnavailable:
+            continue
 
         if pair not in result:
             result[pair] = {b: 0.0 for b in TENOR_BUCKETS}
@@ -658,10 +877,13 @@ def gamma_by_bucket(positions, spots, rates, vol_surfaces) -> Dict:
         if pos.get("status") != "open":
             continue
         pair = pos["pair"]
-        S = spots.get(pair, 1.0) if isinstance(spots, dict) else spots
-        r_d = _get_rate(pair, rates, "domestic")
-        r_f = _get_rate(pair, rates, "foreign")
-        pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+        S = spots.get(pair) if isinstance(spots, dict) else spots
+        try:
+            r_d = _get_rate(pair, rates, "domestic")
+            r_f = _get_rate(pair, rates, "foreign")
+            pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+        except MarketDataUnavailable:
+            continue
 
         if pair not in result:
             result[pair] = {b: 0.0 for b in TENOR_BUCKETS}
@@ -683,10 +905,13 @@ def delta_by_pair(positions, spots, rates, vol_surfaces) -> Dict:
         if pos.get("status") != "open":
             continue
         pair = pos["pair"]
-        S = spots.get(pair, 1.0) if isinstance(spots, dict) else spots
-        r_d = _get_rate(pair, rates, "domestic")
-        r_f = _get_rate(pair, rates, "foreign")
-        pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+        S = spots.get(pair) if isinstance(spots, dict) else spots
+        try:
+            r_d = _get_rate(pair, rates, "domestic")
+            r_f = _get_rate(pair, rates, "foreign")
+            pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+        except MarketDataUnavailable:
+            continue
 
         result[pair] = result.get(pair, 0.0) + pg["delta"]
 
@@ -908,10 +1133,13 @@ def what_if_add(positions, new_trade, spots, rates, vol_surfaces) -> Dict:
         if pos.get("status") != "open":
             continue
         pair = pos["pair"]
-        S = spots.get(pair, 1.0) if isinstance(spots, dict) else spots
-        r_d = _get_rate(pair, rates, "domestic")
-        r_f = _get_rate(pair, rates, "foreign")
-        pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+        S = spots.get(pair) if isinstance(spots, dict) else spots
+        try:
+            r_d = _get_rate(pair, rates, "domestic")
+            r_f = _get_rate(pair, rates, "foreign")
+            pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+        except MarketDataUnavailable:
+            continue
         for k in before:
             before[k] += pg.get(k, 0.0)
 
@@ -920,7 +1148,10 @@ def what_if_add(positions, new_trade, spots, rates, vol_surfaces) -> Dict:
     nt.setdefault("status", "open")
     nt.setdefault("id", "WHAT_IF")
     pair = nt["pair"]
-    S = spots.get(pair, 1.0) if isinstance(spots, dict) else spots
+    S = spots.get(pair) if isinstance(spots, dict) else spots
+    # The new trade must be priceable from real data — if its pair has no live
+    # spot/rate/vol, compute_position_greeks raises MarketDataUnavailable and the
+    # caller surfaces it, rather than previewing impact off a fabricated spot.
     r_d = _get_rate(pair, rates, "domestic")
     r_f = _get_rate(pair, rates, "foreign")
     new_greeks = compute_position_greeks(nt, S, r_d, r_f, vol_surfaces)

@@ -33,7 +33,8 @@ from core.theme import (
 from core.csv_export import export_csv
 from core.bloomberg_fx import get_fx_vol_surface, get_fx_spots, get_fx_rates, get_all_pairs
 from core.fx_portfolio import (
-    get_all_positions, compute_portfolio_risk, pnl_attribution,
+    get_all_positions, compute_portfolio_risk,
+    pnl_attribution_since_entry,
     vega_by_bucket, gamma_by_bucket, delta_by_pair, check_risk_limits,
     exposure_summary, hedge_suggestion, what_if_add, create_sample_portfolio,
     BOOKS, TENOR_BUCKETS,
@@ -42,6 +43,7 @@ from core.fx_stress import (
     get_scenarios, stress_portfolio, compare_scenarios, custom_stress,
     FX_STRESS_SCENARIOS,
 )
+from core.market_data import MarketDataUnavailable
 from core.fx_analytics import parametric_var, vol_percentile, vol_regime_detect
 from core.fx_conventions import FX_PAIR_REGISTRY
 
@@ -172,55 +174,49 @@ def _severity_color(severity):
 # ---------------------------------------------------------------------------
 
 def _safe_atm_vol(surface):
-    """Safely extract ATM vol from a vol surface dict or scalar.
+    """Extract a real decimal ATM vol from a surface dict/scalar, or ``None``.
 
-    Handles the case where ``vol_surfaces`` values are nested dicts
-    (keyed by tenor -> strike type) instead of plain floats.  Always
-    returns a decimal vol (e.g. 0.08 for 8%).
+    Returns ``None`` — never a "typical" vol — when no real ATM quote exists, so
+    a missing surface surfaces as no-data rather than a fabricated number on a
+    trader's screen.  Delegates to the single normalization in core.market_data.
     """
-    if surface is None:
-        return 0.10
-    if isinstance(surface, dict):
-        for tenor in ("3M", "1M", "6M", "1Y"):
-            if tenor in surface and isinstance(surface[tenor], dict):
-                v = surface[tenor].get("atm", 8.0)
-                result = v / 100.0 if v > 1.0 else v
-                return max(result, 0.001)
-        # Fallback: if the dict has no recognized tenor keys, try to
-        # find any dict-valued entry with an "atm" key
-        for k, v in surface.items():
-            if isinstance(v, dict) and "atm" in v:
-                raw = v["atm"]
-                result = raw / 100.0 if raw > 1.0 else raw
-                return max(result, 0.001)
-    if isinstance(surface, (int, float)):
-        val = surface if surface < 1.0 else surface / 100.0
-        return max(val, 0.001)
-    return 0.10
+    from core.market_data import atm_vol_from_surface
+    return atm_vol_from_surface(surface)
 
 
 def _load_market_data():
-    """Load spots, rates, and vol surfaces for the whole portfolio."""
+    """Load REAL spots, rates and ATM vols for the portfolio's pairs.
+
+    Each returned dict contains ONLY pairs for which real Bloomberg data exists.
+    A pair with no live spot / rate / vol is simply absent — never filled with a
+    placeholder.  Downstream risk aggregation treats positions in absent pairs as
+    unpriceable (and counts them), so a data gap never silently becomes a
+    fabricated Greek.
+    """
     pairs = list(FX_PAIR_REGISTRY.keys())
     spots_raw = get_fx_spots(pairs) or {}
     spots = {}
     for p, data in spots_raw.items():
-        if isinstance(data, dict):
-            spots[p] = data.get("mid", data.get("bid", 1.0))
-        else:
-            spots[p] = float(data)
+        v = data.get("mid", data.get("bid")) if isinstance(data, dict) else data
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            continue
+        if v > 0:
+            spots[p] = v
 
     rates = {}
     vol_surfaces = {}
     for p in pairs:
         r = get_fx_rates(p)
-        if isinstance(r, dict):
-            rates[p] = {"r_d": r.get("r_dom", 0.04), "r_f": r.get("r_for", 0.02)}
-        else:
-            rates[p] = {"r_d": 0.04, "r_f": 0.02}
-        surf = get_fx_vol_surface(p)
-        # Use _safe_atm_vol so nested dicts never blow up downstream
-        vol_surfaces[p] = _safe_atm_vol(surf)
+        if isinstance(r, dict) and r.get("r_dom") is not None and r.get("r_for") is not None:
+            try:
+                rates[p] = {"r_d": float(r["r_dom"]), "r_f": float(r["r_for"])}
+            except (TypeError, ValueError):
+                pass
+        v = _safe_atm_vol(get_fx_vol_surface(p))
+        if v is not None:
+            vol_surfaces[p] = v
 
     return spots, rates, vol_surfaces
 
@@ -724,7 +720,7 @@ def _build_risk_treemap(positions):
         marker=dict(
             colors=colors,
             colorscale=CS_PNL_DIVERGING,
-            zmid=0,
+            cmid=0,
             colorbar=dict(title=dict(text="P&L", font=dict(color="#9a9ab0", size=10)),
                           tickfont=dict(color="#9a9ab0", size=9),
                           len=0.6, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)"),
@@ -820,14 +816,21 @@ def _build_greeks_landscape(positions, pair, spots, rates, vol_surfaces):
     if not positions:
         return no_data_fig(height=420, msg="NO POSITIONS FOR LANDSCAPE")
 
-    spot_raw = spots.get(pair, 1.0)
-    spot = float(spot_raw) if not isinstance(spot_raw, dict) else float(spot_raw.get("mid", 1.0))
-    pair_rates = rates.get(pair, {"r_d": 0.04, "r_f": 0.02})
-    if isinstance(pair_rates, dict):
-        r_d = pair_rates.get("r_d", pair_rates.get("r_dom", 0.03))
-        r_f = pair_rates.get("r_f", pair_rates.get("r_for", 0.02))
-    else:
-        r_d, r_f = 0.03, 0.02
+    # Require REAL market data for this pair — never render a delta surface off
+    # a fabricated spot/vol/rate.
+    spot_raw = spots.get(pair)
+    try:
+        spot = float(spot_raw.get("mid")) if isinstance(spot_raw, dict) else float(spot_raw)
+    except (TypeError, ValueError, AttributeError):
+        spot = None
+    pair_rates = rates.get(pair)
+    vol = _safe_atm_vol(vol_surfaces.get(pair))
+    if not spot or spot <= 0 or not isinstance(pair_rates, dict) or vol is None:
+        return no_data_fig(height=420, msg=f"NO MARKET DATA FOR {pair}")
+    r_d = pair_rates.get("r_d", pair_rates.get("r_dom"))
+    r_f = pair_rates.get("r_f", pair_rates.get("r_for"))
+    if r_d is None or r_f is None:
+        return no_data_fig(height=420, msg=f"NO RATES FOR {pair}")
 
     # Filter positions for this pair
     pair_positions = [p for p in positions if p.get("pair") == pair]
@@ -845,7 +848,6 @@ def _build_greeks_landscape(positions, pair, spots, rates, vol_surfaces):
 
     for pos in pair_positions:
         K = pos.get("strike", spot)
-        vol = _safe_atm_vol(vol_surfaces.get(pair, 0.10))
         opt_type = str(pos.get("option_type", pos.get("type", "call"))).lower()
         cp = 1 if opt_type == "call" else -1
         notional = pos.get("notional", 1_000_000)
@@ -863,7 +865,7 @@ def _build_greeks_landscape(positions, pair, spots, rates, vol_surfaces):
     fig = go.Figure(data=go.Surface(
         x=spot_range, y=time_range, z=delta_grid,
         colorscale=CS_PNL_DIVERGING,
-        zmid=0, opacity=0.92,
+        cmid=0, opacity=0.92,
         colorbar=dict(title=dict(text="Delta ($)", font=dict(color="#9a9ab0", size=10)),
                       tickfont=dict(color="#9a9ab0", size=9),
                       len=0.6, thickness=12, outlinewidth=0, bgcolor="rgba(0,0,0,0)"),
@@ -1012,26 +1014,35 @@ def register_callbacks(app):
             breaches = check_risk_limits(risk, limits=custom_limits)
             n_breaches = len([b for b in breaches if b["severity"] in ("BREACH", "CRITICAL")])
 
-            # Unrealised P&L estimate (price field from risk is mark-to-market)
-            unreal_pnl = totals.get("price", 0.0)
+            # Net mark-to-market VALUE of the book (signed GK mark x notional).
+            # This is the current value of open options, NOT P&L versus premium
+            # paid — labelled NET MTM VALUE so it is not mistaken for realised or
+            # premium-adjusted P&L (which lives in the ATTRIBUTION tab, computed
+            # from each trade's recorded entry mark).
+            net_mtm = totals.get("price", 0.0)
+            n_unpriced = len(risk.get("unpriceable", []))
 
-            # VaR (parametric quick estimate)
-            total_notional = sum(p["notional"] for p in positions)
-            avg_vol = np.mean([
-                _safe_atm_vol(vol_surfaces.get(p["pair"], 0.10))
-                for p in positions
-            ])
-            var_result = parametric_var(avg_vol, total_notional, 0.95, 1)
-            var_95 = var_result.get("var", 0.0)
-
-            # Generate scenarios for CVaR
-            rng = np.random.RandomState(seed=42)
-            daily_vol = avg_vol / np.sqrt(252)
-            sim_returns = rng.normal(0, daily_vol, 2_000)
-            sim_pnl = sim_returns * total_notional
-            sorted_pnl = np.sort(sim_pnl)
-            cvar_idx = max(int(0.05 * len(sorted_pnl)), 1)
-            cvar_95 = -np.mean(sorted_pnl[:cvar_idx])
+            # VaR / CVaR from REAL vols only.  Pairs with no live vol are excluded
+            # from the vol average and the notional base, rather than being dragged
+            # toward a fabricated 10%.
+            real_vols = [v for v in (vol_surfaces.get(p["pair"]) for p in positions)
+                         if v is not None]
+            priced_notional = sum(p["notional"] for p in positions
+                                  if p["pair"] in vol_surfaces)
+            if real_vols and priced_notional > 0:
+                avg_vol = float(np.mean(real_vols))
+                var_result = parametric_var(avg_vol, priced_notional, 0.95, 1)
+                var_disp = -var_result.get("var", 0.0)
+                # CVaR via Monte Carlo on the parametric daily distribution
+                rng = np.random.RandomState(seed=42)
+                daily_vol = avg_vol / np.sqrt(252)
+                sim_pnl = rng.normal(0, daily_vol, 2_000) * priced_notional
+                sorted_pnl = np.sort(sim_pnl)
+                cvar_idx = max(int(0.05 * len(sorted_pnl)), 1)
+                cvar_disp = float(np.mean(sorted_pnl[:cvar_idx]))
+            else:
+                var_disp = None
+                cvar_disp = None
 
             # Build stat boxes
             stats = [
@@ -1039,15 +1050,19 @@ def register_callbacks(app):
                 ("TOTAL GAMMA", totals.get("gamma", 0), COLORS["accent_blue"]),
                 ("TOTAL VEGA", totals.get("vega", 0), COLORS["accent_purple"]),
                 ("DAILY THETA", totals.get("theta", 0), COLORS["accent_orange"]),
-                ("UNREALIZED P&L", unreal_pnl, _pnl_color(unreal_pnl)),
-                ("VaR 95% 1d", -var_95, COLORS["accent_red"]),
-                ("CVaR 95%", -cvar_95, COLORS["accent_rose"]),
+                ("NET MTM VALUE", net_mtm, _pnl_color(net_mtm)),
+                ("VaR 95% 1d", var_disp, COLORS["accent_red"]),
+                ("CVaR 95%", cvar_disp, COLORS["accent_rose"]),
                 ("LIMIT BREACHES", n_breaches, COLORS["accent_red"] if n_breaches > 0 else COLORS["accent_green"]),
             ]
+            if n_unpriced:
+                stats.append(("UNPRICED POS", n_unpriced, COLORS["accent_orange"]))
 
             stat_boxes = []
             for label, value, color in stats:
-                if label == "LIMIT BREACHES":
+                if value is None:
+                    display_val = "—"   # genuinely unavailable — never a placeholder number
+                elif label in ("LIMIT BREACHES", "UNPRICED POS"):
                     display_val = str(int(value))
                 else:
                     display_val = _fmt_usd(value)
@@ -1125,9 +1140,9 @@ def register_callbacks(app):
                             html.Span(str(len(pairs_exposed)), className="value"),
                         ]),
                         html.Div(className="risk-report-metric", children=[
-                            html.Span("Unrealized P&L", className="label"),
-                            html.Span(_fmt_usd(unreal_pnl), className="value",
-                                      style={"color": _pnl_color(unreal_pnl)}),
+                            html.Span("Net MTM Value", className="label"),
+                            html.Span(_fmt_usd(net_mtm), className="value",
+                                      style={"color": _pnl_color(net_mtm)}),
                         ]),
                         html.Div(className="risk-report-metric", children=[
                             html.Span("Daily Theta", className="label"),
@@ -1164,12 +1179,14 @@ def register_callbacks(app):
                         html.H4("RISK LIMITS"),
                         html.Div(className="risk-report-metric", children=[
                             html.Span("VaR 95% (1d)", className="label"),
-                            html.Span(_fmt_usd(var_95), className="value",
+                            html.Span(_fmt_usd(var_disp) if var_disp is not None else "—",
+                                      className="value",
                                       style={"color": COLORS["accent_red"]}),
                         ]),
                         html.Div(className="risk-report-metric", children=[
                             html.Span("CVaR 95%", className="label"),
-                            html.Span(_fmt_usd(cvar_95), className="value",
+                            html.Span(_fmt_usd(cvar_disp) if cvar_disp is not None else "—",
+                                      className="value",
                                       style={"color": COLORS["accent_red"]}),
                         ]),
                         html.Div(className="risk-report-metric", children=[
@@ -1577,34 +1594,42 @@ def register_callbacks(app):
             n_sims = 2_000
             rng = np.random.default_rng()
 
-            # Unique pairs and their daily vols
+            # Per-pair daily vols from REAL data only.  A pair with no live vol or
+            # spot cannot be simulated honestly, so its positions are EXCLUDED from
+            # the VaR (and counted) rather than simulated off a fabricated 10% vol
+            # or 1.0 spot.
             unique_pairs = list({p["pair"] for p in positions})
             pair_vols = {}
             for pair in unique_pairs:
-                pair_vols[pair] = _safe_atm_vol(vol_surfaces.get(pair, 0.10)) / np.sqrt(252)
+                v = vol_surfaces.get(pair)
+                if v is not None and pair in spots:
+                    pair_vols[pair] = v / np.sqrt(252)
 
-            # Simulate independent spot returns per pair
-            spot_returns = {
-                pair: rng.normal(0, pair_vols.get(pair, 0.10 / np.sqrt(252)), n_sims)
-                for pair in unique_pairs
-            }
-
-            # Simulate vol shocks (negative spot-vol correlation ~-0.3 for FX)
+            # Simulate independent spot returns + correlated vol shocks per pair
+            spot_returns = {pair: rng.normal(0, dv, n_sims) for pair, dv in pair_vols.items()}
             vol_shocks = {}
-            for pair in unique_pairs:
+            for pair in pair_vols:
                 vol_noise = rng.normal(0, 0.015, n_sims)  # ~1.5% daily vol-of-vol
                 vol_shocks[pair] = -0.3 * spot_returns[pair] + 0.95 * vol_noise
 
             sim_pnl = np.zeros(n_sims)
-            pair_pnl = {pair: np.zeros(n_sims) for pair in unique_pairs}
+            pair_pnl = {pair: np.zeros(n_sims) for pair in pair_vols}
+            n_excluded = 0
 
             # Compute per-position Greeks and run Taylor expansion
             for pos in positions:
                 pair = pos["pair"]
-                S = spots.get(pair, 1.0)
-                r_d = _get_rate(pair, rates, "domestic")
-                r_f = _get_rate(pair, rates, "foreign")
-                pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces.get(pair, 0.10))
+                if pair not in pair_vols:
+                    n_excluded += 1
+                    continue
+                S = spots[pair]
+                try:
+                    r_d = _get_rate(pair, rates, "domestic")
+                    r_f = _get_rate(pair, rates, "foreign")
+                    pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+                except MarketDataUnavailable:
+                    n_excluded += 1
+                    continue
 
                 # Greeks are already scaled by notional and direction
                 delta_val = pg.get("delta", 0.0)
@@ -1623,6 +1648,11 @@ def register_callbacks(app):
 
                 sim_pnl += pos_pnl
                 pair_pnl[pair] = pair_pnl.get(pair, np.zeros(n_sims)) + pos_pnl
+
+            if not pair_vols or n_excluded >= len(positions):
+                _m = ("NO PRICEABLE POSITIONS FOR VaR"
+                      + (f" ({n_excluded} excluded — no data)" if n_excluded else ""))
+                return no_data_fig(height=CHART_LG, msg=_m), no_data_fig(height=CHART_LG, msg=_m)
 
             # VaR / CVaR from sorted simulation P&L
             sorted_pnl = np.sort(sim_pnl)
@@ -1677,9 +1707,13 @@ def register_callbacks(app):
                                      family="'JetBrains Mono', monospace"),
             )
 
+            _var_title = f"MONTE CARLO 1-DAY VaR · {n_sims:,} SIMS"
+            if n_excluded:
+                _var_title += f" · {n_excluded} POSITION(S) EXCLUDED (NO DATA)"
             dist_fig.update_layout(
                 **chart_layout(
                 height=CHART_LG,
+                title=dict(text=_var_title, font=dict(size=10, color=COLORS["text_secondary"])),
                 xaxis_title="P&L (USD)",
                 yaxis_title="Frequency",
                 barmode="overlay",
@@ -1940,19 +1974,22 @@ def register_callbacks(app):
 
             spots, rates, vol_surfaces = _load_market_data()
 
-            # Simulate a 1-day move: shift spots slightly for attribution
-            rng = np.random.RandomState(seed=99)
-            spots_new = {}
-            surfaces_new = {}
-            for pair, spot_val in spots.items():
-                vol = _safe_atm_vol(vol_surfaces.get(pair, 0.10))
-                daily_ret = rng.normal(0, vol / np.sqrt(252))
-                spots_new[pair] = spot_val * (1 + daily_ret)
-                # Slightly change vol (mean-reverting bump)
-                surfaces_new[pair] = vol * (1 + rng.normal(0, 0.02))
-
-            attr = pnl_attribution(positions, spots, spots_new, vol_surfaces,
-                                    surfaces_new, rates, dt=1 / 365)
+            # REAL mark-to-market attribution: from each trade's recorded entry
+            # mark (entry_spot / entry_vol / entry_date) to the live mark.  No
+            # simulated or random move.  Positions whose entry mark or live data
+            # is missing are excluded and counted (shown in the subtitle), never
+            # attributed against a fabricated default.
+            attr = pnl_attribution_since_entry(positions, spots, vol_surfaces, rates)
+            n_attr = attr.get("n_attributed", 0)
+            n_skip = attr.get("n_unattributable", 0)
+            if n_attr == 0:
+                _msg = ("NO ATTRIBUTABLE POSITIONS"
+                        + (f" ({n_skip} missing entry/live mark)" if n_skip else ""))
+                return (no_data_fig(height=CHART_LG, msg=_msg),
+                        no_data_fig(msg=_msg))
+            _subtitle = f"SINCE ENTRY · {n_attr} POSITION(S)"
+            if n_skip:
+                _subtitle += f" · {n_skip} EXCLUDED (NO DATA)"
 
             # Waterfall chart
             components = [
@@ -1995,8 +2032,10 @@ def register_callbacks(app):
                 **chart_layout(
                 height=CHART_LG,
                 yaxis_title="P&L (USD)",
-                margin=dict(l=60, r=30, t=40, b=50),
+                margin=dict(l=60, r=30, t=46, b=50),
                 showlegend=False,
+                title=dict(text=f"P&L ATTRIBUTION · {_subtitle}",
+                           font=dict(size=10, color=COLORS["text_secondary"])),
             ))
 
             # --- By-pair P&L stacked bar ---
@@ -2086,18 +2125,15 @@ def register_callbacks(app):
 
             spots, rates, vol_surfaces = _load_market_data()
 
-            # Simulate a 1-day move for attribution (same logic as main attr callback)
-            rng = np.random.RandomState(seed=99)
-            spots_new = {}
-            surfaces_new = {}
-            for pair, spot_val in spots.items():
-                vol = _safe_atm_vol(vol_surfaces.get(pair, 0.10))
-                daily_ret = rng.normal(0, vol / np.sqrt(252))
-                spots_new[pair] = spot_val * (1 + daily_ret)
-                surfaces_new[pair] = vol * (1 + rng.normal(0, 0.02))
-
-            attr = pnl_attribution(positions, spots, spots_new, vol_surfaces,
-                                    surfaces_new, rates, dt=1 / 365)
+            # REAL since-entry attribution (same honest basis as the waterfall) —
+            # no simulated/random move.
+            attr = pnl_attribution_since_entry(positions, spots, vol_surfaces, rates)
+            if attr.get("n_attributed", 0) == 0:
+                n_skip = attr.get("n_unattributable", 0)
+                return no_data_fig(
+                    height=400,
+                    msg="NO ATTRIBUTABLE POSITIONS"
+                        + (f" ({n_skip} missing entry/live mark)" if n_skip else ""))
 
             return _build_sankey_pnl(attr)
 
@@ -2136,12 +2172,21 @@ def register_callbacks(app):
             days = tenor_to_days(tenor)
             expiry_date = today + timedelta(days=days)
 
-            # Estimate strike from delta (approximate: use ATM spot +/- adjustment)
-            spot = spots.get(pair, 1.0)
-            vol = _safe_atm_vol(vol_surfaces.get(pair, 0.10))
-            pair_rates = rates.get(pair, {"r_d": 0.04, "r_f": 0.02})
-            r_d = pair_rates.get("r_d", 0.04) if isinstance(pair_rates, dict) else 0.04
-            r_f = pair_rates.get("r_f", 0.02) if isinstance(pair_rates, dict) else 0.02
+            # Convert the user's delta to a strike using REAL spot/vol/rates.
+            # Without them we cannot build the trade honestly — surface that
+            # rather than pricing the preview off a fabricated spot/vol/rate.
+            spot = spots.get(pair)
+            vol = vol_surfaces.get(pair)
+            pair_rates = rates.get(pair)
+            _na_style = {"color": COLORS["accent_red"], "fontSize": "11px",
+                         "fontFamily": "'JetBrains Mono', monospace", "padding": "12px"}
+            if not spot or vol is None or not isinstance(pair_rates, dict):
+                return html.Div(f"MARKET DATA UNAVAILABLE FOR {pair} — cannot preview impact.",
+                                style=_na_style)
+            r_d = pair_rates.get("r_d")
+            r_f = pair_rates.get("r_f")
+            if r_d is None or r_f is None:
+                return html.Div(f"NO RATES FOR {pair} — cannot preview impact.", style=_na_style)
             # Simple approximation: strike = spot * exp(-/+ delta_adjustment)
             from scipy.stats import norm as scipy_norm
             T = days / 365.0
@@ -2274,30 +2319,30 @@ def register_callbacks(app):
                 instrument = s.get("instrument", "")
                 direction = s.get("direction", "").upper()
                 notional = s.get("notional", 0)
-                spot = spots.get(pair, 1.0)
-                vol = _safe_atm_vol(vol_surfaces.get(pair, 0.10))
+                vol = vol_surfaces.get(pair)   # real decimal vol, or None
 
                 # Estimate approximate cost
                 if instrument == "SPOT":
-                    # Spot hedge: cost is spread (~2-5 pips)
+                    # Spot hedge: cost is spread (~2-5 pips); independent of vol
                     spread_cost = notional * 0.0003  # ~3 pips spread cost
                     action_desc = f"{direction} {notional:,.0f} units of {pair} spot"
                     cost_str = f"~${spread_cost:,.0f} spread"
                     total_cost += spread_cost
                 elif "STRADDLE" in instrument:
-                    # Straddle cost: approximate as 2 * BS premium for ATM
+                    # Straddle cost ~ 2 * S * vol * sqrt(T) * 0.4 — needs a real vol.
                     tenor_str = instrument.split()[0] if instrument else "3M"
                     tenor_map = {"1W": 7/365, "2W": 14/365, "1M": 30/365,
                                  "2M": 60/365, "3M": 90/365, "6M": 180/365,
                                  "9M": 270/365, "1Y": 1.0, "2Y": 2.0}
                     T = tenor_map.get(tenor_str, 0.25)
-                    # ATM straddle premium ~ 2 * S * vol * sqrt(T) * 0.4 (approx)
-                    straddle_prem_pct = 2 * vol * np.sqrt(T) * 0.4
-                    straddle_cost = notional * straddle_prem_pct
                     action_desc = (f"{direction} {notional:,.0f} notional "
                                    f"{pair} {tenor_str} ATM straddle")
-                    cost_str = f"~${straddle_cost:,.0f} premium"
-                    total_cost += straddle_cost
+                    if vol is None:
+                        cost_str = "— (no vol)"   # no live vol → no fabricated cost
+                    else:
+                        straddle_cost = notional * (2 * vol * np.sqrt(T) * 0.4)
+                        cost_str = f"~${straddle_cost:,.0f} premium"
+                        total_cost += straddle_cost
                 else:
                     action_desc = f"{direction} {notional:,.0f} {pair} {instrument}"
                     cost_str = "N/A"
@@ -2413,24 +2458,27 @@ def register_callbacks(app):
         n_days = 66  # ~3M
         T_total = n_days / 365.0  # option tenor in years
 
-        # Fetch live market data
-        try:
-            from core.bloomberg_fx import get_fx_spots, get_fx_rates, get_fx_vol_surface
-            spots_data = get_fx_spots([pair]) or {}
-            s0 = float(spots_data.get(pair, {}).get("mid", 1.0))
-            rates_data = get_fx_rates(pair) or {}
-            r_d = float(rates_data.get("r_dom", 0.04)) if isinstance(rates_data, dict) else 0.04
-            r_f = float(rates_data.get("r_for", 0.02)) if isinstance(rates_data, dict) else 0.02
-            surf = get_fx_vol_surface(pair) or {}
-            vol = 0.10
-            for tn in ("3M", "1M", "6M"):
-                if tn in surf and isinstance(surf[tn], dict):
-                    raw = surf[tn].get("atm", 10.0)
-                    vol = raw / 100.0 if raw > 1.0 else raw
-                    break
-        except Exception:
-            s0 = 1.08 if pair == "EURUSD" else 150 if "JPY" in pair else 1.0
-            r_d, r_f, vol = 0.04, 0.02, 0.10
+        # Anchor the simulation to REAL live market data.  This is a forward-
+        # looking what-if (a single GBM path), but its starting point must be
+        # the actual market — if spot/rates/vol are unavailable we refuse to
+        # simulate rather than invent a starting spot.
+        from core.market_data import get_spot, get_rates, get_atm_vol
+        s0 = get_spot(pair)
+        rr = get_rates(pair)
+        vol = next((v for v in (get_atm_vol(pair, tn) for tn in ("3M", "1M", "6M"))
+                    if v is not None), None)
+        if s0 is None or rr is None or vol is None:
+            missing = ", ".join(n for n, ok in (("spot", s0 is not None),
+                                                ("rates", rr is not None),
+                                                ("vol", vol is not None)) if not ok)
+            stats = [
+                _make_stat_box("PAIR", pair, COLORS["accent_orange"]),
+                _make_stat_box("STATUS", "NO MARKET DATA", COLORS["accent_red"]),
+            ]
+            _m = no_data_fig(height=CHART_SM,
+                             msg=f"MARKET DATA UNAVAILABLE ({missing.upper()})")
+            return stats, _m, _m
+        r_d, r_f = rr
 
         cp_sign = 1 if cp == "Call" else -1
 
@@ -2515,14 +2563,18 @@ def register_callbacks(app):
         total_theta = theta_pnl_series[-1]
         n_hedges = n_days // max(hedge_freq, 1)
 
-        # Stats
+        # Stats.  Every value here is from ONE simulated GBM path seeded off the
+        # live spot — it is an illustration of hedging dynamics, not realised
+        # P&L on a real position, so it is explicitly badged SIMULATED.
         stats = [
-            _make_stat_box("TOTAL P&L", f"${total_pnl:,.0f}",
+            _make_stat_box("BASIS", "SIMULATED", COLORS["accent_purple"]),
+            _make_stat_box("SIM P&L", f"${total_pnl:,.0f}",
                            COLORS["accent_green"] if total_pnl > 0 else COLORS["accent_red"]),
-            _make_stat_box("GAMMA P&L", f"${total_gamma:,.0f}", COLORS["accent_green"]),
-            _make_stat_box("THETA P&L", f"${total_theta:,.0f}", COLORS["accent_red"]),
+            _make_stat_box("SIM GAMMA P&L", f"${total_gamma:,.0f}", COLORS["accent_green"]),
+            _make_stat_box("SIM THETA P&L", f"${total_theta:,.0f}", COLORS["accent_red"]),
             _make_stat_box("HEDGES", str(n_hedges), COLORS["accent_orange"]),
-            _make_stat_box("STRIKE", f"{K:.5f}" if K < 10 else f"{K:.2f}", COLORS["text_primary"]),
+            _make_stat_box("START SPOT", f"{s0:.5f}" if s0 < 10 else f"{s0:.2f}",
+                           COLORS["text_primary"]),
             _make_stat_box("PAIR", pair, COLORS["accent_orange"]),
         ]
 
@@ -2537,7 +2589,7 @@ def register_callbacks(app):
         fig_pnl.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dash"))
         fig_pnl.update_layout(**chart_layout(height=CHART_SM,
                                margin=dict(l=60, r=20, t=30, b=20),
-                               title=dict(text="CUMULATIVE HEDGE P&L", font=dict(size=10, color="#808080")),
+                               title=dict(text="SIMULATED CUMULATIVE HEDGE P&L · 1 GBM PATH", font=dict(size=10, color="#808080")),
                                showlegend=True, legend=dict(x=0.02, y=0.98, font=dict(size=8))))
 
         # Gamma PnL chart
@@ -2548,7 +2600,7 @@ def register_callbacks(app):
         fig_gamma.add_hline(y=0, line=dict(color=COLORS["text_muted"], width=0.5, dash="dash"))
         fig_gamma.update_layout(**chart_layout(height=CHART_SM,
                                  margin=dict(l=60, r=20, t=30, b=20),
-                                 title=dict(text="GAMMA P&L", font=dict(size=10, color="#808080"))))
+                                 title=dict(text="SIMULATED GAMMA P&L", font=dict(size=10, color="#808080"))))
 
         return stats, fig_pnl, fig_gamma
 
@@ -2800,24 +2852,35 @@ def _build_position_table(positions, spots, rates, vol_surfaces):
         if pos.get("status") != "open":
             continue
         pair = pos["pair"]
-        S = spots.get(pair, 1.0)
-        r_d = _get_rate(pair, rates, "domestic")
-        r_f = _get_rate(pair, rates, "foreign")
+        S = spots.get(pair)
         try:
+            r_d = _get_rate(pair, rates, "domestic")
+            r_f = _get_rate(pair, rates, "foreign")
             pg = compute_position_greeks(pos, S, r_d, r_f, vol_surfaces)
+            priced = True
+        except MarketDataUnavailable:
+            pg, priced = {}, False
         except Exception:
-            pg = {k: 0.0 for k in ("delta", "gamma", "vega", "theta",
-                                     "rho_d", "rho_f", "vanna", "volga", "price")}
-            pg["pair"] = pair
-            pg["position_id"] = pos.get("id", "")
+            logger.exception("Position-table greeks failed for %s", pair)
+            pg, priced = {}, False
 
         direction = pos.get("direction", "buy")
         opt_type = pos.get("option_type", "call")
         display_type = f"{direction.upper()} {opt_type.upper()}"
 
-        entry_prem = pos.get("entry_premium", 0)
-        mtm = pg.get("price", 0)
-        pnl = mtm - entry_prem if direction == "buy" else entry_prem - mtm
+        # Live Greeks / P&L only when the position is priceable from real data.
+        # Unpriceable rows show "—" — never fabricated zeros that read as flat risk.
+        def _g(key, fmt=None):
+            if not priced:
+                return "—"
+            return _safe_fmt(pg.get(key, 0)) if fmt is None else _safe_fmt(pg.get(key, 0), fmt)
+
+        if priced:
+            entry_prem = pos.get("entry_premium", 0)
+            mtm = pg.get("price", 0)
+            pnl = mtm - entry_prem if direction == "buy" else entry_prem - mtm
+        else:
+            pnl = None
 
         # Compute DTE, entry date display, and trade age
         today = date.today()
@@ -2841,7 +2904,7 @@ def _build_position_table(positions, spots, rates, vol_surfaces):
             "Pair": pair,
             "Type": display_type,
             "Strike": f"{pos.get('strike', 0):.4f}",
-            "Delta": _safe_fmt(pg.get('delta', 0)),
+            "Delta": _g('delta'),
             "Expiry": str(pos.get("expiry", ""))[:10],
             "DTE": dte_str,
             "Notional": f"{pos['notional']:,.0f}",
@@ -2849,12 +2912,12 @@ def _build_position_table(positions, spots, rates, vol_surfaces):
             "Strategy": pos.get("strategy", ""),
             "Entry": entry_str,
             "Age": age_str,
-            "P&L": f"${pnl:+,.0f}" if np.isfinite(pnl) else "$\u2014",
-            "Vega": _safe_fmt(pg.get('vega', 0)),
-            "Gamma": _safe_fmt(pg.get('gamma', 0)),
-            "Theta": _safe_fmt(pg.get('theta', 0)),
-            "Vanna": _safe_fmt(pg.get('vanna', 0), "+,.4f"),
-            "Volga": _safe_fmt(pg.get('volga', 0)),
+            "P&L": (f"${pnl:+,.0f}" if (pnl is not None and np.isfinite(pnl)) else "\u2014"),
+            "Vega": _g('vega'),
+            "Gamma": _g('gamma'),
+            "Theta": _g('theta'),
+            "Vanna": _g('vanna', "+,.4f"),
+            "Volga": _g('volga'),
         })
 
     if not table_rows:
